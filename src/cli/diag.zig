@@ -128,6 +128,17 @@ pub fn failPath(path: []const u8, e: anyerror) noreturn {
     fail("{s}: {s}", .{ path, describeError(e) });
 }
 
+/// Reports a failure writing stdout ("cannot write to stdout: …") and exits 1.
+pub fn failStdout(e: anyerror) noreturn {
+    fail("cannot write to stdout: {s}", .{describeError(e)});
+}
+
+/// Reports a failure creating or writing an output file
+/// ("cannot write 'out.png': …") and exits 1.
+pub fn failWrite(path: []const u8, e: anyerror) noreturn {
+    fail("cannot write '{s}': {s}", .{ path, describeError(e) });
+}
+
 /// A short, conventional description of an error, never the raw Zig name.
 pub fn describeError(e: anyerror) []const u8 {
     return switch (e) {
@@ -145,6 +156,8 @@ pub fn describeError(e: anyerror) []const u8 {
         error.NoDevice => "no such device",
         error.InputOutput => "input/output error",
         error.BrokenPipe => "broken pipe",
+        // A closed standard stream (`mercat x.md >&-`) surfaces as these.
+        error.NotOpenForWriting, error.NotOpenForReading => "bad file descriptor",
         error.WouldBlock => "resource temporarily unavailable",
         error.ProcessFdQuotaExceeded, error.SystemFdQuotaExceeded => "too many open files",
         error.InvalidUtf8 => "invalid UTF-8",

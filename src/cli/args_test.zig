@@ -123,14 +123,14 @@ test "defaults to terminal format" {
     try std.testing.expectEqual(false, parsed.monochrome);
 }
 
-test "parses plain format with output path and monochrome" {
+test "parses png format with output path and monochrome" {
     const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "plain", "-o", "out.txt", "--monochrome", "in.md" };
+    const argv = [_][]const u8{ "mercat", "--format", "png", "-o", "out.png", "--monochrome", "in.md" };
     const parsed = try parse(allocator, &argv);
     defer parsed.deinit(allocator);
 
-    try std.testing.expectEqual(OutputFormat.plain, parsed.format);
-    try std.testing.expectEqualStrings("out.txt", parsed.output_path.?);
+    try std.testing.expectEqual(OutputFormat.png, parsed.format);
+    try std.testing.expectEqualStrings("out.png", parsed.output_path.?);
     try std.testing.expectEqual(true, parsed.monochrome);
 }
 
@@ -186,14 +186,62 @@ test "rejects terminal format with output" {
     try std.testing.expectError(error.TerminalWithOutput, parse(allocator, &argv));
 }
 
-test "accepts monochrome with terminal format" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--monochrome", "in.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
+test "message: --monochrome without --format png is a usage error" {
+    try expectMessage(&.{ "mercat", "--monochrome", "in.md" }, error.MonochromeRequiresPng, "'--monochrome' only applies to --format png");
+    try expectMessage(&.{ "mercat", "--format", "plain", "--monochrome", "in.md" }, error.MonochromeRequiresPng, "'--monochrome' only applies to --format png");
+}
 
-    try std.testing.expectEqual(OutputFormat.terminal, parsed.format);
-    try std.testing.expectEqual(true, parsed.monochrome);
+test "message: an empty -o value is a usage error" {
+    try expectMessage(&.{ "mercat", "--format", "plain", "-o", "", "in.md" }, error.EmptyOutputPath, "option '-o' needs a non-empty file name");
+    try expectMessage(&.{ "mercat", "--format", "png", "--output=", "in.md" }, error.EmptyOutputPath, "option '--output' needs a non-empty file name");
+}
+
+test "message: unique prefixes win over edit distance" {
+    try expectMessage(&.{ "mercat", "--out", "x" }, error.UnknownFlag, "unknown option '--out' (did you mean '--output'?)");
+    try expectMessage(&.{ "mercat", "--list" }, error.UnknownFlag, "unknown option '--list' (did you mean '--list-themes'?)");
+    try expectMessage(&.{ "mercat", "--vers" }, error.UnknownFlag, "unknown option '--vers' (did you mean '--version'?)");
+    try expectMessage(&.{ "mercat", "--mono" }, error.UnknownFlag, "unknown option '--mono' (did you mean '--monochrome'?)");
+}
+
+fn expectSingleDash(argv: []const []const u8, option: []const u8, long: []const u8) !void {
+    var d: args.Diagnostic = .{};
+    try std.testing.expectError(error.SingleDashLongOption, parseDiag(std.testing.allocator, argv, &d));
+    var buf: [128]u8 = undefined;
+    var msg_buf: [128]u8 = undefined;
+    const want = try std.fmt.bufPrint(&msg_buf, "unknown option '{s}'", .{option});
+    try std.testing.expectEqualStrings(want, args.describe(&buf, error.SingleDashLongOption, &d));
+    const note_want = try std.fmt.bufPrint(&msg_buf, "did you mean '{s}'?", .{long});
+    try std.testing.expectEqualStrings(note_want, args.describeNote(&buf, error.SingleDashLongOption, &d).?);
+}
+
+test "single-dash long options get a did-you-mean instead of short-cluster errors" {
+    try expectSingleDash(&.{ "mercat", "-width", "80", "x.md" }, "-width", "--width");
+    try expectSingleDash(&.{ "mercat", "-format", "plain", "x.md" }, "-format", "--format");
+    try expectSingleDash(&.{ "mercat", "--format", "plain", "-output", "x", "y.md" }, "-output", "--output");
+    try expectSingleDash(&.{ "mercat", "-theme=dark", "x.md" }, "-theme", "--theme");
+    try expectSingleDash(&.{ "mercat", "-tui", "x.md" }, "-tui", "--tui");
+    try expectSingleDash(&.{ "mercat", "-out", "x" }, "-out", "--output");
+}
+
+test "short clusters and attached values are not mistaken for long options" {
+    const allocator = std.testing.allocator;
+    const a = try parse(allocator, &.{ "mercat", "-w80", "x.md" });
+    a.deinit(allocator);
+    const b = try parse(allocator, &.{ "mercat", "--format", "plain", "-oout.txt", "x.md" });
+    b.deinit(allocator);
+    try std.testing.expectError(error.IncompatibleModes, parse(allocator, &.{ "mercat", "-pt", "x.md" }));
+    // Other parse errors keep their short-option wording.
+    var note_buf: [64]u8 = undefined;
+    const empty: args.Diagnostic = .{};
+    try std.testing.expectEqual(@as(?[]const u8, null), args.describeNote(&note_buf, error.UnknownFlag, &empty));
+}
+
+test "prescanColor finds the last valid --color before '--'" {
+    try std.testing.expectEqual(@as(?args.ColorMode, .never), args.prescanColor(&.{ "mercat", "--bogus", "--color=never" }));
+    try std.testing.expectEqual(@as(?args.ColorMode, .never), args.prescanColor(&.{ "mercat", "--color", "always", "--color", "never" }));
+    try std.testing.expectEqual(@as(?args.ColorMode, .always), args.prescanColor(&.{ "mercat", "--color=always", "--color=bad" }));
+    try std.testing.expectEqual(@as(?args.ColorMode, null), args.prescanColor(&.{ "mercat", "--", "--color=never" }));
+    try std.testing.expectEqual(@as(?args.ColorMode, null), args.prescanColor(&.{ "mercat", "--color" }));
 }
 
 test "non-terminal width resolution" {

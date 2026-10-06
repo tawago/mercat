@@ -76,10 +76,43 @@ expect bad-box-style 2 "mercat: error: invalid value 'zz' for '--box-style' (exp
 $hint" -- --box-style zz h.md
 expect bad-color 2 "mercat: error: invalid value 'yes' for '--color' (expected one of: auto, always, never)
 $hint" -- --color yes h.md
-expect unknown-theme 2 "mercat: error: unknown theme 'nope' (available: dark, light, ansi, dracula, tokyo-night, pink, markview, mine)
+themes="dark, light, ansi, dracula, tokyo-night, pink, markview, mine"
+expect unknown-theme 2 "mercat: error: unknown theme 'nope' (expected one of: $themes)
 $hint" -- --theme nope h.md
-expect unknown-style-alias 2 "mercat: error: unknown theme 'nope' (available: dark, light, ansi, dracula, tokyo-night, pink, markview, mine)
+expect unknown-style-alias 2 "mercat: error: unknown theme 'nope' (expected one of: $themes)
 $hint" -- --style=nope h.md
+expect theme-did-you-mean 2 "mercat: error: unknown theme 'drakula' (expected one of: $themes)
+mercat: note: did you mean 'dracula'?
+$hint" -- --theme drakula h.md
+expect dump-theme-did-you-mean 2 "mercat: error: unknown theme 'drakula' for '--dump-theme' (expected one of: $themes)
+mercat: note: did you mean 'dracula'?
+$hint" -- --dump-theme drakula
+expect prefix-out 2 "mercat: error: unknown option '--out' (did you mean '--output'?)
+$hint" -- --out x h.md
+expect prefix-list 2 "mercat: error: unknown option '--list' (did you mean '--list-themes'?)
+$hint" -- --list
+expect prefix-vers 2 "mercat: error: unknown option '--vers' (did you mean '--version'?)
+$hint" -- --vers
+expect prefix-mono 2 "mercat: error: unknown option '--mono' (did you mean '--monochrome'?)
+$hint" -- --mono
+expect single-dash-width 2 "mercat: error: unknown option '-width'
+mercat: note: did you mean '--width'?
+$hint" -- -width 80 h.md
+expect single-dash-format 2 "mercat: error: unknown option '-format'
+mercat: note: did you mean '--format'?
+$hint" -- -format plain h.md
+expect single-dash-output 2 "mercat: error: unknown option '-output'
+mercat: note: did you mean '--output'?
+$hint" -- --format plain -output x h.md
+check single-dash-output-no-file [ ! -e utput ]
+expect monochrome-needs-png 2 "mercat: error: '--monochrome' only applies to --format png
+$hint" -- --monochrome h.md
+expect monochrome-plain 2 "mercat: error: '--monochrome' only applies to --format png
+$hint" -- --format plain --monochrome h.md
+expect empty-output 2 "mercat: error: option '-o' needs a non-empty file name
+$hint" -- --format plain -o '' h.md
+expect empty-output-eq 2 "mercat: error: option '--output' needs a non-empty file name
+$hint" -- --format png --output= h.md
 expect conflict-p-t 2 "mercat: error: '-p' and '-t' cannot be used together
 $hint" -- -p -t h.md
 expect multiple-inputs 2 "mercat: error: more than one input given ('a.md' and 'b.md'); mercat renders one file at a time
@@ -95,19 +128,29 @@ mercat: note: to open a file whose name starts with '-', use: mercat -- -weird.m
 $hint" -- -weird.md
 expect tui-needs-tty 2 "mercat: error: --tui needs an interactive terminal; drop -t to render to stdout
 $hint" -- -t h.md
-expect dump-unknown 2 "mercat: error: unknown theme 'nope' for '--dump-theme' (available: dark, light, ansi, dracula, tokyo-night, pink, markview, mine)
+expect dump-unknown 2 "mercat: error: unknown theme 'nope' for '--dump-theme' (expected one of: $themes)
 $hint" -- --dump-theme nope
 
 # --- runtime failures: exit 1 ---
 expect missing-file 1 "mercat: error: nonexist.md: no such file or directory" -- nonexist.md
 expect directory 1 "mercat: error: dir: is a directory" -- dir
-expect plain-write-fail 1 "mercat: error: $work/nope/out.txt: no such file or directory" -- --format plain -o "$work/nope/out.txt" h.md
+expect plain-write-fail 1 "mercat: error: cannot write '$work/nope/out.txt': no such file or directory" -- --format plain -o "$work/nope/out.txt" h.md
 expect png-write-fail 1 "mercat: error: cannot write '$work/nope/out.png': no such file or directory" -- --format png -o "$work/nope/out.png" h.md
 if [ "$(id -u)" != 0 ]; then
   printf '# x\n' > locked.md
   chmod 000 locked.md
   expect permission-denied 1 "mercat: error: locked.md: permission denied" -- locked.md
 fi
+
+# --- closed stdout (`>&-`): one wording, exit 1 ---
+closed() { m "$@" 2>&1 >&- </dev/null; }
+for args in "--version" "--help" "--list-themes" "--dump-theme dark" "h.md" "--format plain h.md"; do
+  # shellcheck disable=SC2086
+  err=$(closed $args)
+  rc=$?
+  check "closed-stdout-${args// /_} (rc=$rc err=$err)" \
+    [ "$rc:$err" = "1:mercat: error: cannot write to stdout: bad file descriptor" ]
+done
 
 # --- argument syntax: exit 0 ---
 expect width-eq 0 "" -- --width=80 h.md
@@ -144,6 +187,41 @@ out=$(EXTRA_ENV="FORCE_COLOR=1" m link.md)
 check force-color has "${esc}\[" <<<"$out"
 out=$(EXTRA_ENV="CLICOLOR_FORCE=1" m --color never link.md)
 check flag-never-wins [ "${out#*"$esc"}" = "$out" ]
+# Diagnostics follow stderr's own state: forcing stdout color never puts
+# escapes into a redirected stderr.
+err=$(m --color=always --bogus 2>&1 >/dev/null)
+check always-stderr-not-forced [ "${err#*"$esc"}" = "$err" ]
+err=$(EXTRA_ENV="FORCE_COLOR=1 CLICOLOR_FORCE=1" m --bogus 2>&1 >/dev/null)
+check force-env-stderr-not-forced [ "${err#*"$esc"}" = "$err" ]
+
+# Terminal-only paths, run under a pseudo-terminal when util-linux `script`
+# is available: stderr color on a terminal, and -t refusals.
+if script --version 2>/dev/null | grep -q util-linux; then
+  # pty "SHELL COMMAND": runs with stdin, stdout and stderr on a terminal.
+  pty() {
+    M="$bin" W="$work" script -qec "$1" /dev/null </dev/null 2>/dev/null | tr -d '\r'
+  }
+  envm='env -i PATH="$PATH" HOME="$W/home" XDG_CONFIG_HOME="$W/xdg" TERM=xterm-256color'
+  out=$(pty "$envm \"\$M\" --bogus")
+  check pty-stderr-colored has "${esc}\[1;31merror:" <<<"$out"
+  out=$(pty "$envm \"\$M\" --bogus --color=never")
+  check pty-never-applies-to-usage-error [ "${out#*"$esc"}" = "$out" ]
+  out=$(pty "$envm NO_COLOR=1 \"\$M\" --bogus")
+  check pty-no-color-stderr [ "${out#*"$esc"}" = "$out" ]
+  printf '[display]\ncolor = "never"\n' > xdg/mercat/config.toml
+  out=$(pty "$envm \"\$M\" --bogus")
+  check pty-config-never-applies-to-usage-error [ "${out#*"$esc"}" = "$out" ]
+  rm xdg/mercat/config.toml
+  out=$(pty "echo x | $envm \"\$M\" --color=never -t \"\$W/h.md\"; echo rc=\$?")
+  check pty-tui-pipe-with-file [ "$out" = "mercat: error: --tui reads keys from the terminal, but stdin is a pipe; run without the pipe or drop -t
+$hint
+rc=2" ]
+  out=$(pty "cd \"\$W\" && echo x | $envm \"\$M\" --color=never -t; echo rc=\$?")
+  check pty-tui-pipe-no-file [ "$out" = "mercat: error: --tui reads keys from the terminal, but stdin is a pipe; run without the pipe or drop -t
+$hint
+rc=2" ]
+fi
+
 never_text=$(m --color never link.md)
 check never-keeps-text has "See docs" <<<"$never_text"
 check never-no-escapes [ "${never_text#*"$esc"}" = "$never_text" ]
@@ -175,7 +253,31 @@ rm xdg/mercat/config.toml
 EXTRA_ENV="MERCAT_WIDTH=abc MERCAT_FRONTMATTER=zz MERCAT_THEME=nope" \
   expect env-warnings 0 "mercat: warning: ignoring MERCAT_WIDTH='abc' (expected 0 for auto, or an integer from 20 to 1000)
 mercat: warning: ignoring MERCAT_FRONTMATTER='zz' (expected one of: panel, dim, compact, raw, hidden)
-mercat: warning: MERCAT_THEME: unknown theme 'nope'; using dark (available: dark, light, ansi, dracula, tokyo-night, pink, markview, mine)" -- h.md
+mercat: warning: MERCAT_THEME: unknown theme 'nope'; using dark (expected one of: $themes)" -- h.md
+EXTRA_ENV="MERCAT_THEME=drakula" \
+  expect env-theme-did-you-mean 0 "mercat: warning: MERCAT_THEME: unknown theme 'drakula'; using dark (expected one of: $themes)
+mercat: note: did you mean 'dracula'?" -- h.md
+
+# Malformed lines warn and do not shift later keys into the wrong section.
+cat > xdg/mercat/config.toml <<'EOF'
+[general]
+pager = 5
+[display
+theme = "light"
+editor = "ed"
+[display]
+width 80
+theme = "drakula
+frontmatter = "dim"
+EOF
+expect config-malformed 0 "mercat: warning: $cfg:2: invalid value 5 for 'pager' in [general] (expected a quoted string); keeping the default
+mercat: warning: $cfg:3: cannot parse line (missing ']'; keys up to the next section are ignored)
+mercat: warning: $cfg:7: cannot parse line (expected key = value)
+mercat: warning: $cfg:8: cannot parse line (unterminated string)" -- h.md
+printf '[display]\ntheme = "drakula"\n' > xdg/mercat/config.toml
+expect config-theme-did-you-mean 0 "mercat: warning: $cfg:2: unknown theme 'drakula'; using dark (expected one of: $themes)
+mercat: note: did you mean 'dracula'?" -- h.md
+rm xdg/mercat/config.toml
 
 # --- themes, help, version ---
 out=$(m --list-themes)

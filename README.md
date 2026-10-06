@@ -73,6 +73,7 @@ mercat --theme dracula README.md   # Pick a built-in preset or user theme (alias
 mercat --list-themes          # Built-in and user themes, one per line
 mercat --dump-theme dark      # Print a theme as editable TOML
 mercat --format plain README.md > README.txt   # Plain text, no escapes
+mercat --format png -o doc.png README.md       # PNG image (--monochrome: black on white)
 mercat --color=always README.md | less -R      # Keep color through a pipe
 cat file.md | mercat          # Read from stdin (no `-` needed)
 cat file.md | mercat -        # Explicit stdin
@@ -84,7 +85,8 @@ printf 'flowchart LR\n  A-->B\n' | mercat   # bare diagram source, no fence
 ```
 
 Options that take a value accept `--opt value`, `--opt=value`, and for short
-options `-w80`. Run `mercat --help` for the full list.
+options `-w80`. Long options take two dashes: `-width 80` is an error with a
+`did you mean '--width'?` note. Run `mercat --help` for the full list.
 
 With no file argument, mercat reads stdin whenever it is a pipe or redirect;
 when stdin is an interactive terminal it prints the usage text and exits 2.
@@ -104,12 +106,20 @@ stdout is a terminal, so piped output is plain text. `never` keeps the layout
 but emits no escape sequences. OSC 8 hyperlinks are emitted only when color is
 on and stdout is a terminal.
 
-**TUI mode** needs an interactive terminal and a file: `-t` refuses to start
-when stdout is not a terminal, when stdin is a pipe and no file is given, or
-when given a directory (directory browsing is not available yet).
+**TUI mode** reads keys from the terminal, so `-t` needs both stdin and stdout
+to be a terminal. It refuses to start when stdout is not a terminal, when stdin
+is a pipe or a redirect (whether or not a file is given:
+`cat a.md | mercat -t b.md` is refused too), when given `-` (the document
+cannot come from stdin), or when given a directory (directory browsing is not
+available yet). With no file, `-t` opens `./README.md`.
 
 **Diagnostics and exit status.** Errors and warnings go to stderr as
-`mercat: error: …` / `mercat: warning: …`. Exit status is `0` on success, `1`
+`mercat: error: …` / `mercat: warning: …`, sometimes followed by a
+`mercat: note: …` such as a did-you-mean. Their level label is colored only
+when stderr itself is a terminal and `NO_COLOR` / `TERM=dumb` are unset;
+`--color=never` or `[display] color = "never"` turns it off, while
+`--color=always` and `CLICOLOR_FORCE` / `FORCE_COLOR` force color on stdout
+only. Exit status is `0` on success, `1`
 on a runtime failure (unreadable input, write error, export failure) and `2`
 on a usage error (unknown option, bad value, conflicting options). Writing to
 a closed pipe (`mercat big.md | head -1`) exits 0 silently.
@@ -139,9 +149,13 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 Config file: `$XDG_CONFIG_HOME/mercat/config.toml`, else
 `~/.config/mercat/config.toml` (`mercat --help` prints the resolved path).
 Every key is optional. Command-line flags win over environment variables,
-which win over the config file. A bad value, unknown key or unknown section
-never stops a run: mercat prints a warning with `path:line` (with a
-did-you-mean when one is close) and keeps the default.
+which win over the config file. String values must be quoted (`"…"`, or
+`'…'` for a literal string). A bad value, unknown key, unknown section or a
+line mercat cannot parse (a `[section` without `]`, a line without `=`, an
+unterminated string) never stops a run: mercat prints a warning with
+`path:line` (with a did-you-mean when one is close) and keeps the default.
+Keys after a malformed `[section` header are ignored up to the next valid
+header rather than applied to the previous section.
 
 ```toml
 [general]

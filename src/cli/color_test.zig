@@ -9,6 +9,30 @@ test "flag wins over every environment variable" {
     try std.testing.expect(!resolve(.never, .always, .{ .force_color = "1" }, true));
 }
 
+test "stderr: never (flag or config) turns diagnostics color off even on a terminal" {
+    const stderr = color.resolveStderr;
+    try std.testing.expect(!stderr(.never, .auto, .{ .force_color = "1" }, true));
+    try std.testing.expect(!stderr(null, .never, .{ .clicolor_force = "1" }, true));
+    // A flag overrides the config key.
+    try std.testing.expect(stderr(.auto, .never, .{}, true));
+}
+
+test "stderr: always and forcing variables do not force color onto a non-terminal stderr" {
+    const stderr = color.resolveStderr;
+    try std.testing.expect(!stderr(.always, .auto, .{}, false));
+    try std.testing.expect(!stderr(null, .always, .{}, false));
+    try std.testing.expect(!stderr(null, .auto, .{ .force_color = "1", .clicolor_force = "1" }, false));
+    try std.testing.expect(stderr(.always, .auto, .{}, true));
+}
+
+test "stderr: NO_COLOR and TERM=dumb apply to stderr's own terminal" {
+    const stderr = color.resolveStderr;
+    try std.testing.expect(stderr(null, .auto, .{}, true));
+    try std.testing.expect(!stderr(.always, .auto, .{ .no_color = "1" }, true));
+    try std.testing.expect(!stderr(null, .auto, .{ .term = "dumb" }, true));
+    try std.testing.expect(stderr(null, .auto, .{ .no_color = "" }, true));
+}
+
 test "--color auto still honors TERM=dumb and the tty check" {
     try std.testing.expect(resolve(.auto, .never, .{}, true));
     try std.testing.expect(!resolve(.auto, .always, .{}, false));

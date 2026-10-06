@@ -49,6 +49,11 @@ test "describeError maps common IO errors to conventional phrases" {
     try std.testing.expectEqualStrings("read-only file system", diag.describeError(error.ReadOnlyFileSystem));
 }
 
+test "describeError: a closed standard stream is a bad file descriptor" {
+    try std.testing.expectEqualStrings("bad file descriptor", diag.describeError(error.NotOpenForWriting));
+    try std.testing.expectEqualStrings("bad file descriptor", diag.describeError(error.NotOpenForReading));
+}
+
 test "describeError never leaks a raw Zig error name" {
     const msg = diag.describeError(error.SomethingNobodyHandles);
     try std.testing.expect(std.mem.indexOf(u8, msg, "SomethingNobodyHandles") == null);

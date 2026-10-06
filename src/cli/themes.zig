@@ -2,6 +2,7 @@
 const std = @import("std");
 const presets = @import("../core/theme/presets.zig");
 const loadfile = @import("../core/theme/loadfile.zig");
+const suggest_mod = @import("../core/suggest.zig");
 
 pub const Names = struct {
     arena: std.heap.ArenaAllocator,
@@ -15,6 +16,11 @@ pub const Names = struct {
     pub fn contains(self: *const Names, name: []const u8) bool {
         for (self.items) |item| if (std.mem.eql(u8, item, name)) return true;
         return false;
+    }
+
+    /// The theme an unknown name most plausibly means ("drakula" -> "dracula").
+    pub fn suggest(self: *const Names, name: []const u8) ?[]const u8 {
+        return suggest_mod.closest(name, self.items);
     }
 
     /// "dark, light, …" for messages.
@@ -89,6 +95,16 @@ test "collectFrom lists built-ins then sorted user themes, skipping non-toml and
     try std.testing.expectEqualStrings("dark", names[0]);
     try std.testing.expectEqualStrings("alpha", names[presets.ALL.len]);
     try std.testing.expectEqualStrings("zeta", names[presets.ALL.len + 1]);
+}
+
+test "suggest offers the closest theme name for a typo" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const items = try collectFrom(arena.allocator(), null);
+    var names = Names{ .arena = arena, .items = items };
+    defer names.deinit();
+    try std.testing.expectEqualStrings("dracula", names.suggest("drakula").?);
+    try std.testing.expectEqualStrings("tokyo-night", names.suggest("tokyo").?);
+    try std.testing.expectEqual(@as(?[]const u8, null), names.suggest("zzzzzzzz"));
 }
 
 test "collectFrom with no directory lists only built-ins" {

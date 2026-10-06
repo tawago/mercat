@@ -99,7 +99,7 @@ pub fn parseThemeTables(alloc: std.mem.Allocator, text: []const u8) !RawThemeBui
 fn applyThemeLines(alloc: std.mem.Allocator, builder: *RawThemeBuilder, text: []const u8) !void {
     var scanner = scanLines(text, "theme");
     while (scanner.next()) |event| {
-        if (!std.mem.eql(u8, event.table, "theme")) continue;
+        if (event.malformed != null or !std.mem.eql(u8, event.table, "theme")) continue;
         try assignThemeValue(alloc, builder, event.subtable, event.key, event.value);
     }
 }
@@ -113,6 +113,26 @@ pub const LineScanner = struct {
     line: usize = 0,
     /// Line of the most recent `[section]` header (0 before any header).
     section_line: usize = 0,
+    /// After a malformed `[header`, keys up to the next valid header belong
+    /// to no known section and are skipped rather than filed under the
+    /// previous one.
+    in_bad_section: bool = false,
+
+    pub const Malformed = enum {
+        unterminated_header,
+        missing_equals,
+        missing_value,
+        unterminated_string,
+
+        pub fn reason(self: Malformed) []const u8 {
+            return switch (self) {
+                .unterminated_header => "missing ']'; keys up to the next section are ignored",
+                .missing_equals => "expected key = value",
+                .missing_value => "missing value after '='",
+                .unterminated_string => "unterminated string",
+            };
+        }
+    };
 
     pub const Event = struct {
         section: []const u8,
@@ -122,6 +142,8 @@ pub const LineScanner = struct {
         value: []const u8,
         line: usize = 0,
         section_line: usize = 0,
+        /// Set when the line could not be parsed; `key`/`value` are empty.
+        malformed: ?Malformed = null,
     };
 
     pub fn next(self: *LineScanner) ?Event {
@@ -130,18 +152,28 @@ pub const LineScanner = struct {
             const trimmed = std.mem.trim(u8, raw_line, " \t\r");
             if (trimmed.len == 0 or trimmed[0] == '#') continue;
 
-            if (trimmed[0] == '[' and trimmed[trimmed.len - 1] == ']') {
-                self.section = trimmed[1 .. trimmed.len - 1];
+            if (trimmed[0] == '[') {
+                const header = stripInlineComment(trimmed);
+                self.section_line = self.line;
+                if (header.len < 2 or header[header.len - 1] != ']') {
+                    self.in_bad_section = true;
+                    return self.malformedEvent(.unterminated_header);
+                }
+                self.in_bad_section = false;
+                self.section = header[1 .. header.len - 1];
                 const split = splitSection(self.section);
                 self.table = split.table;
                 self.subtable = split.subtable;
-                self.section_line = self.line;
                 continue;
             }
+            if (self.in_bad_section) continue;
 
-            const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse continue;
+            const equals_index = std.mem.indexOfScalar(u8, trimmed, '=') orelse
+                return self.malformedEvent(.missing_equals);
             const key = std.mem.trim(u8, trimmed[0..equals_index], " \t");
             const value = stripInlineComment(std.mem.trim(u8, trimmed[equals_index + 1 ..], " \t"));
+            if (value.len == 0) return self.malformedEvent(.missing_value);
+            if (isUnterminatedString(value)) return self.malformedEvent(.unterminated_string);
             return .{
                 .section = self.section,
                 .table = self.table,
@@ -154,7 +186,35 @@ pub const LineScanner = struct {
         }
         return null;
     }
+
+    fn malformedEvent(self: *const LineScanner, kind: Malformed) Event {
+        return .{
+            .section = self.section,
+            .table = self.table,
+            .subtable = self.subtable,
+            .key = "",
+            .value = "",
+            .line = self.line,
+            .section_line = self.section_line,
+            .malformed = kind,
+        };
+    }
 };
+
+/// Whether a value opens a `"…"` or `'…'` string that never closes.
+fn isUnterminatedString(value: []const u8) bool {
+    const quote = value[0];
+    if (quote != '"' and quote != '\'') return false;
+    var i: usize = 1;
+    while (i < value.len) : (i += 1) {
+        if (quote == '"' and value[i] == '\\') {
+            i += 1;
+            continue;
+        }
+        if (value[i] == quote) return false;
+    }
+    return true;
+}
 
 pub fn scanLines(text: []const u8, initial_section: []const u8) LineScanner {
     const split = splitSection(initial_section);

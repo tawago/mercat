@@ -56,6 +56,9 @@ pub const ParseError = std.mem.Allocator.Error || error{
     PngWithPager,
     FormatRequiresCliMode,
     TerminalWithOutput,
+    SingleDashLongOption,
+    EmptyOutputPath,
+    MonochromeRequiresPng,
 };
 
 pub const Mode = enum { cli, tui };
@@ -271,6 +274,13 @@ pub fn parseDiag(allocator: std.mem.Allocator, argv: []const []const u8, d: *Dia
             continue;
         }
 
+        // "-width 80" is a long option missing a dash, not "-w idth".
+        if (singleDashLong(arg)) |long| {
+            d.option = arg[0 .. std.mem.indexOfScalar(u8, arg, '=') orelse arg.len];
+            d.suggestion = long;
+            return error.SingleDashLongOption;
+        }
+
         // A cluster of short options: "-pt", "-w80", "-w 80".
         var pos: usize = 1;
         while (pos < arg.len) : (pos += 1) {
@@ -302,6 +312,42 @@ pub fn parseDiag(allocator: std.mem.Allocator, argv: []const []const u8, d: *Dia
 
     try validateCombinations(result, d);
     return result;
+}
+
+/// The long option a single-dash token spells: "-width" and "-tui" exactly,
+/// or an unambiguous abbreviation of at least three letters ("-out"). Short
+/// clusters such as "-pt" or "-w80" never match.
+fn singleDashLong(arg: []const u8) ?[]const u8 {
+    const name = arg[0 .. std.mem.indexOfScalar(u8, arg, '=') orelse arg.len];
+    if (name.len < 3) return null;
+    var buf: [64]u8 = undefined;
+    if (name.len + 1 > buf.len) return null;
+    buf[0] = '-';
+    @memcpy(buf[1 .. name.len + 1], name);
+    const long = buf[0 .. name.len + 1];
+    if (findFlag(long)) |spec| return spec.name;
+    if (name.len < 4) return null;
+    return suggest_mod.uniquePrefix(long, &long_names);
+}
+
+/// The last valid `--color` value in argv, found without a full parse so a
+/// usage error can honor `--color=never` even when it comes later on the line.
+pub fn prescanColor(argv: []const []const u8) ?ColorMode {
+    var found: ?ColorMode = null;
+    var i: usize = 1;
+    while (i < argv.len) : (i += 1) {
+        const arg = argv[i];
+        if (std.mem.eql(u8, arg, "--")) break;
+        if (std.mem.eql(u8, arg, "--color")) {
+            if (i + 1 < argv.len) {
+                if (color.parseMode(argv[i + 1])) |m| found = m;
+                i += 1;
+            }
+        } else if (std.mem.startsWith(u8, arg, "--color=")) {
+            if (color.parseMode(arg["--color=".len..])) |m| found = m;
+        }
+    }
+    return found;
 }
 
 fn findFlag(name: []const u8) ?FlagSpec {
@@ -336,6 +382,7 @@ fn apply(allocator: std.mem.Allocator, result: *Parsed, spec: FlagSpec, value: ?
         .frontmatter => result.frontmatter = std.meta.stringToEnum(config.FrontmatterStyle, v) orelse return error.InvalidFrontmatterStyle,
         .format => result.format = std.meta.stringToEnum(OutputFormat, v) orelse return error.InvalidFormat,
         .output => {
+            if (v.len == 0) return error.EmptyOutputPath;
             const dup = try allocator.dupe(u8, v);
             if (result.output_path) |old| allocator.free(old);
             result.output_path = dup;
@@ -380,8 +427,11 @@ fn validateCombinations(result: Parsed, d: *Diagnostic) ParseError!void {
     switch (result.format) {
         .terminal => {
             if (result.output_path != null) return error.TerminalWithOutput;
+            if (result.monochrome) return error.MonochromeRequiresPng;
         },
-        .plain => {},
+        .plain => {
+            if (result.monochrome) return error.MonochromeRequiresPng;
+        },
         .png => {
             if (result.output_path == null) return error.PngRequiresOutput;
             if (result.pager) {
@@ -462,10 +512,25 @@ pub fn describe(buf: []u8, err: ParseError, d: *const Diagnostic) []const u8 {
         error.PngRequiresOutput => std.fmt.bufPrint(buf, "--format png needs an output file; add -o <file>.png", .{}),
         error.PngWithPager => std.fmt.bufPrint(buf, "'{s}' cannot be used with --format png", .{d.option}),
         error.TerminalWithOutput => std.fmt.bufPrint(buf, "-o needs --format plain or --format png (terminal output goes to stdout)", .{}),
+        error.SingleDashLongOption => std.fmt.bufPrint(buf, "unknown option '{s}'", .{d.option}),
+        error.EmptyOutputPath => std.fmt.bufPrint(buf, "option '{s}' needs a non-empty file name", .{d.option}),
+        error.MonochromeRequiresPng => std.fmt.bufPrint(buf, "'--monochrome' only applies to --format png", .{}),
         error.OutOfMemory => std.fmt.bufPrint(buf, "out of memory", .{}),
         error.ShowHelp, error.ShowVersion => std.fmt.bufPrint(buf, "", .{}),
     };
     return r catch buf[0..0];
+}
+
+/// A follow-up note for a parse error ("did you mean '--width'?"), if any.
+pub fn describeNote(buf: []u8, err: ParseError, d: *const Diagnostic) ?[]const u8 {
+    return switch (err) {
+        error.SingleDashLongOption => std.fmt.bufPrint(
+            buf,
+            "did you mean '{s}'?",
+            .{d.suggestion orelse return null},
+        ) catch null,
+        else => null,
+    };
 }
 
 fn invalidChoice(buf: []u8, d: *const Diagnostic, choices: []const u8) std.fmt.BufPrintError![]u8 {

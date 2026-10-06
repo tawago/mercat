@@ -4,6 +4,14 @@ pub fn stdinIsTty() bool {
     return std.fs.File.stdin().isTty();
 }
 
+/// Whether stdin is a pipe or socket (`cat x | mercat`), as opposed to a
+/// redirected file or a terminal.
+pub fn stdinIsPipe() bool {
+    const st = std.posix.fstat(std.posix.STDIN_FILENO) catch return false;
+    const kind = st.mode & std.posix.S.IFMT;
+    return kind == std.posix.S.IFIFO or kind == std.posix.S.IFSOCK;
+}
+
 pub fn stdoutIsTty() bool {
     return std.fs.File.stdout().isTty();
 }
