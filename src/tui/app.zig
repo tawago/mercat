@@ -10,7 +10,7 @@ const ResolvedTheme = theme_resolve.ResolvedTheme;
 const SubgraphEdges = @import("../core/mermaid/mermaid.zig").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
-const HelpView = @import("views/help.zig").HelpView;
+const HelpOverlay = @import("views/help.zig").HelpOverlay;
 const MetadataOverlay = @import("views/metadata.zig").MetadataOverlay;
 const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
@@ -20,9 +20,14 @@ const unicode = @import("unicode");
 const selection_mod = @import("selection.zig");
 const search_mod = @import("search.zig");
 const term_guard = @import("term_guard.zig");
+const event_loop = @import("event_loop.zig");
 const ctlseqs = vaxis.ctlseqs;
 
 const toast_duration_ms: i64 = 1400;
+/// How long a status-line message stays before the bar shows just the file.
+pub const message_duration_ms: i64 = 2000;
+/// Startup warnings and copy failures stay longer so they are not missed.
+const warning_duration_ms: i64 = 5000;
 
 const ViewMode = enum {
     pager,
@@ -54,7 +59,7 @@ fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source:
 pub const App = struct {
     allocator: std.mem.Allocator,
     vx: vaxis.Vaxis,
-    loop: vaxis.Loop(Event),
+    loop: event_loop.Loop(Event),
     tty: vaxis.Tty,
     tty_buffer: [4096]u8,
 
@@ -67,8 +72,11 @@ pub const App = struct {
     pager: PagerView,
     view_mode: ViewMode,
     status_message: ?[]const u8,
+    status_deadline_ms: i64,
     needs_redraw: bool,
 
+    /// `--layout` from the command line, kept for reflows; the TUI has no
+    /// layout key until layouts differ (#83).
     mermaid_layout: args.ForceLayout,
 
     mermaid_subgraph_edges: SubgraphEdges,
@@ -77,6 +85,7 @@ pub const App = struct {
     toast_deadline_ms: i64,
 
     metadata: MetadataOverlay,
+    help: HelpOverlay,
 
     search_prompt: search_mod.Prompt,
 
@@ -121,10 +130,12 @@ pub const App = struct {
 
         self.view_mode = .pager;
         self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
+        self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
         self.metadata = .{};
+        self.help = .{};
         self.search_prompt = search_mod.Prompt.init(allocator);
     }
 
@@ -170,7 +181,7 @@ pub const App = struct {
             }
 
             const event = self.waitEvent() orelse {
-                self.clearToast();
+                self.expireTransient(std.time.milliTimestamp());
                 self.needs_redraw = true;
                 continue;
             };
@@ -197,76 +208,130 @@ pub const App = struct {
         try self.loop.init();
     }
 
+    /// The next event, or null once a toast or status message is due to
+    /// expire.
     fn waitEvent(self: *App) ?Event {
-        if (self.toast_message == null) return self.loop.nextEvent();
+        const deadline = self.nextDeadline() orelse return self.loop.nextEvent();
         while (true) {
             if (self.loop.tryEvent()) |event| return event;
-            if (std.time.milliTimestamp() >= self.toast_deadline_ms) return null;
+            if (std.time.milliTimestamp() >= deadline) return null;
             std.Thread.sleep(30 * std.time.ns_per_ms);
         }
     }
 
+    fn nextDeadline(self: *const App) ?i64 {
+        var deadline: ?i64 = null;
+        if (self.toast_message != null) deadline = self.toast_deadline_ms;
+        if (self.status_message != null) {
+            deadline = if (deadline) |d| @min(d, self.status_deadline_ms) else self.status_deadline_ms;
+        }
+        return deadline;
+    }
+
+    /// Drops the toast and status message whose time is up at `now_ms`.
+    pub fn expireTransient(self: *App, now_ms: i64) void {
+        if (self.toast_message != null and now_ms >= self.toast_deadline_ms) self.clearToast();
+        if (self.status_message != null and now_ms >= self.status_deadline_ms) self.clearStatusMessage();
+    }
+
     pub fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
         if (self.search_prompt.active) return self.handlePromptKey(key);
-        switch (input.mapKey(key)) {
+        if (self.view_mode == .help) return self.handleHelpKey(key);
+        const action = input.mapKey(key);
+        switch (action) {
+            .none => return false,
             .quit => return true,
             .search_start => {
-                self.view_mode = .pager;
                 try self.search_prompt.begin(&self.pager.search, self.pager.viewport);
                 self.clearStatusMessage();
-                self.needs_redraw = true;
-                return false;
             },
-            .search_next, .search_prev => {
-                try self.stepSearch(if (input.mapKey(key) == .search_next) .forward else .backward);
-                return false;
-            },
-            .suspend_app => {
-                term_guard.suspendSelf();
-                try self.reenterScreen();
-                return false;
-            },
+            .search_next => try self.stepSearch(.forward),
+            .search_prev => try self.stepSearch(.backward),
+            .suspend_app => try self.suspendApp(),
             .toggle_help => {
-                self.view_mode = if (self.view_mode == .help) .pager else .help;
-                if (self.view_mode == .help) try self.setMetadataVisible(false);
+                self.view_mode = .help;
+                self.help.reset();
+                try self.setMetadataVisible(false);
             },
-            .edit => {
-                try self.handleEdit();
-                return false;
-            },
-            .reload => {
-                try self.handleReload();
-                return false;
-            },
-            .cycle_layout => {
-                self.mermaid_layout = self.mermaid_layout.next();
-                try self.handleLayoutChange();
-                return false;
-            },
-            .toggle_metadata => {
-                try self.handleToggleMetadata();
-                return false;
-            },
+            .edit => try self.handleEdit(),
+            .reload => try self.handleReload(),
+            .toggle_metadata => try self.handleToggleMetadata(),
             .toggle_subgraph_edges => {
                 self.mermaid_subgraph_edges = self.mermaid_subgraph_edges.next();
                 try self.handleSubgraphEdgesChange();
-                return false;
             },
-            .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
-            .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
-            .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
-            .page_down => if (self.metadata.visible) self.metadata.scrollBy(@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageDown(),
-            .top => if (self.metadata.visible) self.metadata.scrollTo(0) else self.pager.toTop(),
-            .bottom => if (self.metadata.visible) self.metadata.scrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
-            .follow_link => {
-                _ = self.pager.followFootnoteLink();
-            },
-            .clear_selection => self.pager.clearSelection(),
-            .none => return false,
+            .follow_link => _ = self.pager.followFootnoteLink(),
+            .escape => self.handleEscape(),
+            .line_up, .line_down, .page_up, .page_down, .half_page_up, .half_page_down, .top, .bottom => self.move(action),
         }
-        self.clearStatusMessage();
         self.needs_redraw = true;
         return false;
+    }
+
+    /// Scrolls the metadata panel when it is open, else the document.
+    fn move(self: *App, action: input.Action) void {
+        if (self.metadata.visible) {
+            const page: isize = @intCast(self.metadata.visible_rows);
+            switch (action) {
+                .line_up => self.metadata.scrollBy(-1),
+                .line_down => self.metadata.scrollBy(1),
+                .page_up => self.metadata.scrollBy(-page),
+                .page_down => self.metadata.scrollBy(page),
+                .half_page_up => self.metadata.scrollBy(-@divTrunc(page, 2) - 1),
+                .half_page_down => self.metadata.scrollBy(@divTrunc(page, 2) + 1),
+                .top => self.metadata.scrollTo(0),
+                .bottom => self.metadata.scrollTo(std.math.maxInt(usize)),
+                else => {},
+            }
+            return;
+        }
+        switch (action) {
+            .line_up => self.pager.lineUp(),
+            .line_down => self.pager.lineDown(),
+            .page_up => self.pager.pageUp(),
+            .page_down => self.pager.pageDown(),
+            .half_page_up => self.pager.halfPageUp(),
+            .half_page_down => self.pager.halfPageDown(),
+            .top => self.pager.toTop(),
+            .bottom => self.pager.toBottom(),
+            else => {},
+        }
+    }
+
+    /// Esc clears the selection first, then the search highlights.
+    fn handleEscape(self: *App) void {
+        if (self.pager.selection.active) {
+            self.pager.clearSelection();
+        } else if (self.pager.search.hasPattern()) {
+            self.pager.search.clear();
+        }
+    }
+
+    /// Keys while the help overlay is open: movement scrolls it; Esc, q, ?
+    /// and F1 close it; Ctrl-C still quits.
+    fn handleHelpKey(self: *App, key: vaxis.Key) !bool {
+        if (input.isCtrlC(key)) return true;
+        const page: isize = @intCast(self.help.page_rows);
+        switch (input.mapKey(key)) {
+            .toggle_help, .quit, .escape => self.view_mode = .pager,
+            .line_down => self.help.scrollBy(1),
+            .line_up => self.help.scrollBy(-1),
+            .page_down => self.help.scrollBy(page),
+            .page_up => self.help.scrollBy(-page),
+            .half_page_down => self.help.scrollBy(@divTrunc(page, 2) + 1),
+            .half_page_up => self.help.scrollBy(-@divTrunc(page, 2) - 1),
+            .top => self.help.scrollTo(0),
+            .bottom => self.help.scrollTo(std.math.maxInt(usize)),
+            .suspend_app => try self.suspendApp(),
+            else => return false,
+        }
+        self.needs_redraw = true;
+        return false;
+    }
+
+    fn suspendApp(self: *App) !void {
+        term_guard.suspendSelf();
+        try self.reenterScreen();
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
@@ -282,6 +347,16 @@ pub const App = struct {
                 },
                 else => {},
             }
+            return;
+        }
+
+        if (self.view_mode == .help) {
+            switch (mouse.button) {
+                .wheel_up => self.help.scrollBy(-1),
+                .wheel_down => self.help.scrollBy(1),
+                else => return,
+            }
+            self.needs_redraw = true;
             return;
         }
 
@@ -389,12 +464,29 @@ pub const App = struct {
         defer self.allocator.free(text);
         if (text.len == 0) return;
 
+        const env = clipboard.Env.fromProcess();
+        const native = clipboard.writeNative(self.allocator, text);
         const writer = self.tty.writer();
-        clipboard.writeOsc52(writer, self.allocator, text) catch {};
-        clipboard.writeNative(self.allocator, text);
-        writer.flush() catch {};
+        var osc52 = try clipboard.writeOsc52(writer, self.allocator, text, if (env.screen and !env.tmux) .screen else .none);
+        writer.flush() catch {
+            if (osc52 == .sent) osc52 = .write_failed;
+        };
+        // Only ask tmux about set-clipboard when OSC 52 is the only way out.
+        const mux: clipboard.Mux = if (native == .copied or osc52 != .sent) .none else clipboard.detectMux(env, clipboard.tmuxClipboardOn);
+        try self.reportCopy(text, clipboard.decide(osc52, native, mux));
+    }
 
-        try self.showCopyToast(text);
+    /// "Copied …" as a toast only when the copy happened; otherwise the
+    /// reason and a hint in the status line.
+    pub fn reportCopy(self: *App, text: []const u8, outcome: clipboard.Outcome) !void {
+        switch (outcome) {
+            .copied => try self.showCopyToast(text),
+            .failed => |failure| {
+                self.clearToast();
+                try self.setStatusMessage(clipboard.failureMessage(failure), false);
+                self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+            },
+        }
     }
 
     fn showCopyToast(self: *App, text: []const u8) !void {
@@ -591,8 +683,11 @@ pub const App = struct {
         const lines = self.pager.lines;
         self.needs_redraw = true;
         switch (input.mapPromptKey(key)) {
-            .quit => return true,
             .cancel => try prompt.cancel(search, view, lines),
+            .suspend_app => {
+                try prompt.cancel(search, view, lines);
+                try self.suspendApp();
+            },
             .commit => {
                 try prompt.commit(search, view, lines);
                 if (search.hasPattern()) try self.setStatusMessage(try search.statusText(self.allocator), true);
@@ -613,12 +708,6 @@ pub const App = struct {
             search_mod.reveal(&self.pager.viewport, match.line);
         }
         try self.setStatusMessage(try search.statusText(self.allocator), true);
-    }
-
-    fn handleLayoutChange(self: *App) !void {
-        try self.pager.reload();
-        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Layout: {s}", .{self.mermaid_layout.displayName()}), true);
-        self.needs_redraw = true;
     }
 
     fn handleSubgraphEdgesChange(self: *App) !void {
@@ -652,9 +741,11 @@ pub const App = struct {
         }
     }
 
+    /// Shows a transient message for `message_duration_ms`.
     fn setStatusMessage(self: *App, message: []const u8, owned: bool) !void {
         self.clearStatusMessage();
         self.status_message = if (owned) message else try self.allocator.dupe(u8, message);
+        self.status_deadline_ms = std.time.milliTimestamp() + message_duration_ms;
     }
 
     fn reportMeasureError(self: *App, action: []const u8, err: unicode.MeasureError) !void {
@@ -678,7 +769,7 @@ pub const App = struct {
             root.fill(.{ .style = .{ .bg = theme.toVaxisColor(bg) } });
         }
 
-        if (self.view_mode == .pager) {
+        {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
                 const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.resolved);
@@ -693,28 +784,29 @@ pub const App = struct {
             }
         }
 
-        const prompt_text = if (self.search_prompt.active)
-            try std.fmt.allocPrint(self.allocator, "/{s}", .{self.search_prompt.query.items})
-        else
-            null;
-        defer if (prompt_text) |text| self.allocator.free(text);
-        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, prompt_text orelse self.status_message, self.mermaid_layout);
-        defer self.allocator.free(status_text);
-        const status_style: vaxis.Style = .{ .reverse = true };
-        _ = root.print(&.{.{ .text = status_text, .style = status_style }}, .{
-            .row_offset = root.height -| 1,
+        if (self.view_mode == .help) {
+            self.help.draw(root, @intCast(content_height), theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg));
+        }
+
+        const bar = try statusbar.render(self.allocator, .{
+            .title = self.pager.title,
+            .width = root.width,
+            .view = self.pager.viewport,
+            .message = self.status_message,
+            .prompt = if (self.search_prompt.active) self.search_prompt.query.items else null,
+        });
+        defer bar.deinit(self.allocator);
+        const status_row: u16 = root.height -| 1;
+        root.child(.{ .y_off = status_row, .height = 1 }).fill(.{ .style = .{ .reverse = true } });
+        _ = root.print(&.{.{ .text = bar.text, .style = .{ .reverse = true } }}, .{
+            .row_offset = status_row,
             .col_offset = 0,
             .wrap = .none,
         });
-        if (prompt_text) |text| {
-            const col = @min(1 + unicode.displayWidth(text), root.width -| 1);
-            root.showCursor(@intCast(col), root.height -| 1);
+        if (bar.cursor_col) |col| {
+            root.showCursor(@intCast(col), status_row);
         } else {
             root.hideCursor();
-        }
-
-        if (self.view_mode == .help) {
-            drawHelp(root);
         }
 
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -790,30 +882,6 @@ fn syncPagerSize(pager: *PagerView, width: usize, height: usize) !bool {
     if (pager.width == width and pager.viewport.height == height) return false;
     try pager.resize(width, height);
     return true;
-}
-
-fn drawHelp(root: vaxis.Window) void {
-    const help_lines = HelpView.lines();
-    const width = @min(root.width -| 4, HelpView.width() + 4);
-    const height = @min(root.height -| 2, help_lines.len + 2);
-    const x_off = (root.width -| width) / 2;
-    const y_off = (root.height -| height) / 2;
-    const box = root.child(.{
-        .x_off = x_off,
-        .y_off = y_off,
-        .width = width,
-        .height = height,
-        .border = .{ .where = .all, .style = .{ .reverse = true } },
-    });
-    // `box` is the bordered child's interior, so its rows start at 0.
-    var row: usize = 0;
-    while (row < help_lines.len and row < box.height) : (row += 1) {
-        _ = box.print(&.{.{ .text = help_lines[row], .style = .{ .reverse = true } }}, .{
-            .row_offset = @intCast(row),
-            .col_offset = 1,
-            .wrap = .none,
-        });
-    }
 }
 
 test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {

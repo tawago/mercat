@@ -75,6 +75,14 @@ pub const PagerView = struct {
         self.viewport.pageUp();
     }
 
+    pub fn halfPageDown(self: *PagerView) void {
+        self.viewport.halfPageDown();
+    }
+
+    pub fn halfPageUp(self: *PagerView) void {
+        self.viewport.halfPageUp();
+    }
+
     pub fn toTop(self: *PagerView) void {
         self.viewport.toTop();
     }

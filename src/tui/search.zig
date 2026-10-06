@@ -243,13 +243,11 @@ pub const Prompt = struct {
         if (search.hasPattern()) _ = search.selectFrom(view.top, .forward);
     }
 
-    /// Commits the query (an empty one repeats the previous pattern). On no
-    /// match the view returns to where the prompt opened.
+    /// Commits the query. An empty query clears the search (use `n` / `N`
+    /// to repeat the previous one). On no match the view returns to where
+    /// the prompt opened.
     pub fn commit(self: *Prompt, search: *Search, view: *Viewport, lines: []const Line) !void {
         self.active = false;
-        if (self.query.items.len == 0) {
-            try self.query.appendSlice(self.allocator, self.saved_pattern.items);
-        }
         try self.update(search, view, lines);
     }
 

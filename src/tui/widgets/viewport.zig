@@ -27,6 +27,14 @@ pub const Viewport = struct {
         self.lineUp(@max(self.height, 1));
     }
 
+    pub fn halfPageDown(self: *Viewport) void {
+        self.lineDown(@max(self.height / 2, 1));
+    }
+
+    pub fn halfPageUp(self: *Viewport) void {
+        self.lineUp(@max(self.height / 2, 1));
+    }
+
     pub fn toTop(self: *Viewport) void {
         self.top = 0;
     }
@@ -83,4 +91,17 @@ test "clamps scrolling to content bounds" {
     try std.testing.expectEqual(@as(usize, 2), viewport.top);
     viewport.toBottom();
     try std.testing.expectEqual(@as(usize, 7), viewport.top);
+}
+
+test "half pages move by half the height, at least one line" {
+    var viewport = Viewport{};
+    viewport.setMetrics(10, 100);
+    viewport.halfPageDown();
+    try std.testing.expectEqual(@as(usize, 5), viewport.top);
+    viewport.halfPageUp();
+    viewport.halfPageUp();
+    try std.testing.expectEqual(@as(usize, 0), viewport.top);
+    viewport.setMetrics(1, 100);
+    viewport.halfPageDown();
+    try std.testing.expectEqual(@as(usize, 1), viewport.top);
 }
