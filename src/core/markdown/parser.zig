@@ -911,4 +911,5 @@ test "strikethrough preprocessing converts to unicode" {
 
 test {
     _ = frontmatter;
+    _ = @import("parser_test.zig");
 }
