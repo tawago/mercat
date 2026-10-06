@@ -40,7 +40,7 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
     defer canvas.deinit();
 
     for (diagram.participants.items) |*p| {
-        common.drawParticipantBox(&canvas, p, p.y);
+        try common.drawParticipantBox(&canvas, p, p.y, .scalar);
     }
 
     const padding = spacing.padding;

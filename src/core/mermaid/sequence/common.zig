@@ -8,7 +8,11 @@ const Canvas = @import("../shared/canvas.zig").Canvas;
 const Participant = model.Participant;
 const SequenceDiagram = model.SequenceDiagram;
 
-pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32) void {
+/// How a participant name is written: `scalar` drops a name the canvas cannot place one scalar
+/// to a cell, `spanning` keeps one terminal column per cell.
+pub const NameText = enum { scalar, spanning };
+
+pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i32, name_text: NameText) !void {
     const rect = types.Rect{
         .x = participant.x,
         .y = y,
@@ -16,7 +20,16 @@ pub fn drawParticipantBox(canvas: *Canvas, participant: *const Participant, y: i
         .height = 3,
     };
     canvas.drawBox(rect, types.unicode_rounded, .node_border);
-    canvas.drawTextCentered(rect, participant.displayName(), .node_text);
+    switch (name_text) {
+        .scalar => canvas.drawTextCentered(rect, participant.displayName(), .node_text),
+        .spanning => try canvas.drawTextCenteredSpanning(rect, participant.displayName(), .node_text),
+    }
+}
+
+pub fn drawLifelines(canvas: *Canvas, diagram: *const SequenceDiagram, top: i32, bottom: i32) void {
+    for (diagram.participants.items) |*p| {
+        canvas.drawVerticalLine(p.centerX(), top, bottom, types.LineChars.vertical_dotted, .edge);
+    }
 }
 
 /// A closed activation: the participant it sits on and its extent along the time axis.
@@ -29,7 +42,7 @@ pub const Bar = struct {
 /// Pairs each deactivate with the activate before it. Only the first sixteen participants
 /// are tracked.
 pub const Activations = struct {
-    const tracked = 16;
+    pub const tracked = 16;
 
     starts: [tracked]i32 = .{-1} ** tracked,
 

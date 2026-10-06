@@ -85,6 +85,11 @@ test "EAW W and F are two while ambiguous is one" {
     try testing.expect(!tables.wide.contains(0xa97d));
 }
 
+test "East Asian wide excludes pictographs" {
+    for ([_]u21{ 0x65e5, 0x3042, 0x30ab, 0xac00, 0xff21 }) |cp| try testing.expect(unicode.isEastAsianWide(cp));
+    for ([_]u21{ 0x1f600, 0x231a, 0x1f468, 0x1f1ef, 'a', 0x00b7 }) |cp| try testing.expect(!unicode.isEastAsianWide(cp));
+}
+
 test "text and emoji presentation policy" {
     try testing.expectEqual(@as(usize, 1), try unicode.rawDisplayWidth("©"));
     try testing.expectEqual(@as(usize, 2), try unicode.rawDisplayWidth("©️"));
@@ -115,6 +120,16 @@ test "RGI modifiers keycaps tags flags and ZWJ sequences are width two" {
 test "standalone combining mark is a one-cell defective grapheme" {
     try testing.expectEqual(@as(usize, 1), try unicode.rawDisplayWidth("\u{0301}"));
     try testing.expectEqual(@as(usize, 1), try unicode.rawDisplayWidth("e\u{0301}"));
+}
+
+test "a grapheme opening on a mark, modifier or joiner lacks a base" {
+    try testing.expect(unicode.lacksBase("\u{0301}"));
+    try testing.expect(unicode.lacksBase("\u{3099}"));
+    try testing.expect(unicode.lacksBase("\u{200D}"));
+    try testing.expect(!unicode.lacksBase("e\u{0301}"));
+    try testing.expect(!unicode.lacksBase("👩‍💻"));
+    try testing.expect(unicode.lacksBase("🏽"));
+    try testing.expect(!unicode.lacksBase(""));
 }
 
 test "precomposed and decomposed text keep bytes but have equal geometry" {

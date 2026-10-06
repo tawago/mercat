@@ -14,4 +14,6 @@ test {
     _ = @import("shared/canvas.zig");
     _ = @import("shared/ladder.zig");
     _ = @import("sequence/fit.zig");
+    _ = @import("shared/wrap.zig");
+    _ = @import("sequence/tb_wrap_test.zig");
 }
