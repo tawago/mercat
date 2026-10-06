@@ -153,7 +153,7 @@ pub const Canvas = struct {
             const lead: u21 = if (blank)
                 ' '
             else if (unicode.lacksBase(grapheme.bytes))
-                try self.intern(if (grapheme.width == 2) "\u{3000}" else " ", grapheme.bytes)
+                try self.intern(padFor(grapheme.bytes, grapheme.width), grapheme.bytes)
             else
                 singleScalar(grapheme.bytes) orelse try self.intern("", grapheme.bytes);
             self.setChar(col, y, lead, priority);
@@ -249,6 +249,14 @@ fn scalarTextWidth(text: []const u8) ?usize {
         width = grapheme.column_end;
     }
     return width;
+}
+
+/// The base a baseless grapheme is drawn on: a space, or an ideographic space under a mark measured
+/// wide. An emoji modifier is wide on its own, so it takes a space.
+fn padFor(bytes: []const u8, width: usize) []const u8 {
+    const len = std.unicode.utf8ByteSequenceLength(bytes[0]) catch return " ";
+    const first = std.unicode.utf8Decode(bytes[0..len]) catch return " ";
+    return if (width == 2 and !unicode.isEmojiModifier(first)) "\u{3000}" else " ";
 }
 
 fn singleScalar(bytes: []const u8) ?u21 {
@@ -373,6 +381,19 @@ test "drawTextSpanning draws every grapheme whole and keeps the column after it"
         try testing.expectEqualStrings(case.row, str[0 .. str.len - 1]);
         try testing.expectEqual(@as(usize, 8), try unicode.rawDisplayWidth(str[0 .. str.len - 1]));
     }
+}
+
+test "a lone emoji modifier opening a line is drawn on a space, keeping the cell before it" {
+    const testing = std.testing;
+    var canvas = try Canvas.init(testing.allocator, 6, 1);
+    defer canvas.deinit();
+    canvas.setChar(0, 0, '|', .edge);
+    try canvas.drawTextSpanning(1, 0, "🏽x", .edge_label);
+    canvas.setChar(5, 0, '|', .edge);
+    const str = try canvas.toString(testing.allocator);
+    defer testing.allocator.free(str);
+    try testing.expectEqualStrings("| 🏽x |\n", str);
+    try testing.expectEqual(@as(usize, 6), try unicode.rawDisplayWidth(str[0 .. str.len - 1]));
 }
 
 test "overwriting a whole grapheme blanks its continuation" {

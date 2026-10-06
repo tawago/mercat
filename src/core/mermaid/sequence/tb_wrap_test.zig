@@ -347,3 +347,16 @@ test "graphemes of several scalars and a lone mark after a break draw whole, lif
     try testing.expect(count(text, " \u{0301}x") == 1);
     try expectLifelinesAligned(text);
 }
+
+test "a lone emoji modifier opening a line draws on a space, lifelines aligned" {
+    const source = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n" ++
+        "    A->>A: 🏽 opens a self message\n    A->>C: 🏿 opens a label\n    B->>C: hi<br>🏽x\n";
+    const allocator = testing.allocator;
+    var diagram = try parse.parse(allocator, source);
+    defer diagram.deinit();
+    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
+    defer allocator.free(text);
+    try testing.expect(count(text, " 🏽x") == 1);
+    try testing.expect(count(text, " 🏿 opens") == 1);
+    try expectLifelinesAligned(text);
+}

@@ -122,13 +122,13 @@ test "standalone combining mark is a one-cell defective grapheme" {
     try testing.expectEqual(@as(usize, 1), try unicode.rawDisplayWidth("e\u{0301}"));
 }
 
-test "a grapheme opening on a mark or joiner lacks a base" {
+test "a grapheme opening on a mark, modifier or joiner lacks a base" {
     try testing.expect(unicode.lacksBase("\u{0301}"));
     try testing.expect(unicode.lacksBase("\u{3099}"));
     try testing.expect(unicode.lacksBase("\u{200D}"));
     try testing.expect(!unicode.lacksBase("e\u{0301}"));
     try testing.expect(!unicode.lacksBase("👩‍💻"));
-    try testing.expect(!unicode.lacksBase("🏽"));
+    try testing.expect(unicode.lacksBase("🏽"));
     try testing.expect(!unicode.lacksBase(""));
 }
 
