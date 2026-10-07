@@ -8,6 +8,11 @@
 //!   the editor and acted on after it exits (`setChildRunning`).
 //! - SIGTSTP: restore the terminal, stop the process, and on SIGCONT put the
 //!   tty back in raw mode and ask the app to redraw (`Hooks.on_resume`).
+//!   Continued in the background (`bg`), it stops again until it is brought
+//!   to the foreground: touching the tty from there would raise SIGTTOU.
+//!   An exit signal that arrives while suspended ends the process straight
+//!   from the handler, since the terminal was already restored (this is how
+//!   a shell's `kill %1`, TERM followed by CONT, reaches a stopped job).
 //! A panic handler (`panicHandler`) and a hook on fatal signals (SIGSEGV,
 //! SIGBUS, SIGILL, SIGFPE) restore the terminal before reporting the crash.
 const std = @import("std");
@@ -60,6 +65,12 @@ var saved_fatal: [fatal_signals.len]posix.Sigaction = undefined;
 /// HUP) that arrived meanwhile and is acted on once the child is gone.
 var child_state = std.atomic.Value(u32).init(0);
 var child_pid = std.atomic.Value(i32).init(0);
+/// Set while the process is suspended with the terminal restored, from just
+/// before it stops until it is back in the foreground in raw mode.
+var suspended = std.atomic.Value(bool).init(false);
+
+extern "c" fn tcgetpgrp(fd: c_int) posix.pid_t;
+extern "c" fn getpgrp() posix.pid_t;
 const child_running_bit: u32 = 1;
 
 /// Arms the guard for `fd`, whose current (raw) mode is captured for resume;
@@ -106,8 +117,13 @@ pub fn isActive() bool {
 
 /// Writes `restore_sequence` and restores the cooked tty mode. Safe to call
 /// from any thread, including a panicking one; a no-op when not installed.
+///
+/// Skipped while the process is in the background: tcsetattr there raises
+/// SIGTTOU and would stop the process instead of letting it exit. The only
+/// way to get there with the TUI up is a suspend, which already restored it.
 pub fn restoreTerminal() void {
     if (!active.load(.acquire)) return;
+    if (!inForeground(tty_fd)) return;
     writeAllFd(tty_fd, restore_sequence);
     posix.tcsetattr(tty_fd, .NOW, cooked_termios) catch {};
 }
@@ -115,12 +131,14 @@ pub fn restoreTerminal() void {
 /// Puts the tty back into the raw mode captured at install time.
 pub fn reenterRawMode() void {
     if (!active.load(.acquire)) return;
+    if (!inForeground(tty_fd)) return;
     posix.tcsetattr(tty_fd, .NOW, raw_termios) catch {};
 }
 
 /// Restores the cooked tty mode only (the caller already reset the screen).
 pub fn enterCookedMode() void {
     if (!active.load(.acquire)) return;
+    if (!inForeground(tty_fd)) return;
     posix.tcsetattr(tty_fd, .NOW, cooked_termios) catch {};
 }
 
@@ -132,14 +150,46 @@ pub fn stopProcess() void {
     if (active.load(.acquire)) setHandler(posix.SIG.TSTP, forwardSignal);
 }
 
+/// Whether this process's group owns the terminal `fd`. Anything that is not
+/// a terminal with a foreground group (a pipe in tests, a hung-up tty) counts
+/// as foreground so restoring is still attempted there.
+pub fn inForeground(fd: posix.fd_t) bool {
+    const owner = tcgetpgrp(fd);
+    return foregroundDecision(owner, getpgrp());
+}
+
+/// `owner` is tcgetpgrp's result (negative on error), `own` our group.
+pub fn foregroundDecision(owner: posix.pid_t, own: posix.pid_t) bool {
+    return owner <= 0 or owner == own;
+}
+
+/// After SIGCONT: while a shell's `bg` keeps us in the background, stop again
+/// (as a background read would, SIGTTIN) until `fg`. The sleep keeps an
+/// orphaned process group, whose stop signals the kernel discards, from
+/// spinning.
+fn waitForForeground() void {
+    while (!inForeground(tty_fd)) {
+        posix.raise(posix.SIG.TTIN) catch {};
+        if (!inForeground(tty_fd)) std.Thread.sleep(100 * std.time.ns_per_ms);
+    }
+}
+
 /// Ctrl-Z from the keyboard (raw mode delivers it as a key, not a signal):
 /// restore the terminal, stop, and return in raw mode after SIGCONT. The
 /// caller then re-enters its screen.
 pub fn suspendSelf() void {
     if (!active.load(.acquire)) return;
     restoreTerminal();
+    suspended.store(true, .release);
     stopProcess();
+    waitForForeground();
     reenterRawMode();
+    suspended.store(false, .release);
+}
+
+/// Test hook: whether the process is suspended with the terminal restored.
+pub fn isSuspended() bool {
+    return suspended.load(.acquire);
 }
 
 /// Panic hook: restore the terminal, explain where to report, then defer to
@@ -193,6 +243,14 @@ fn forwardSignal(sig: c_int) callconv(.c) void {
     // Decide now, not when the watcher gets to it: by then the child may have
     // died from the very same Ctrl-C and cleared the flag.
     if (!deferOrDrop(byte)) return;
+    // Suspended: the terminal is already restored and the process may be
+    // stopped or in the background, so nothing needs the watcher. Die now,
+    // before the suspended thread can stop the process again.
+    if (suspended.load(.acquire) and isExitSignal(byte)) {
+        setHandler(byte, null);
+        _ = posix.system.kill(posix.system.getpid(), sig);
+        return;
+    }
     const fd = pipe_fds[1];
     if (fd < 0) return;
     _ = posix.system.write(fd, @ptrCast(&byte), 1);
@@ -217,6 +275,10 @@ fn deferOrDrop(sig: u8) bool {
             else => return true,
         }
     }
+}
+
+fn isExitSignal(sig: u8) bool {
+    return std.mem.indexOfScalar(u8, &exit_signals, sig) != null;
 }
 
 fn watch() void {

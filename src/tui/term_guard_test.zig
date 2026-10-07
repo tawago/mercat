@@ -125,3 +125,44 @@ test "SIGTERM while the editor runs waits for the editor instead of resetting it
     try std.testing.expect(guard.wouldForward(SIG.TERM));
     try std.testing.expect(guard.wouldForward(SIG.TSTP));
 }
+
+test "anything that is not a terminal with a foreground group counts as foreground" {
+    try std.testing.expect(guard.foregroundDecision(-1, 42));
+    try std.testing.expect(guard.foregroundDecision(0, 42));
+    try std.testing.expect(guard.foregroundDecision(42, 42));
+    // Another group owns the tty (the shell after Ctrl-Z, or `bg`): hands off.
+    try std.testing.expect(!guard.foregroundDecision(7, 42));
+
+    const fds = try std.posix.pipe2(.{});
+    defer std.posix.close(fds[0]);
+    defer std.posix.close(fds[1]);
+    try std.testing.expect(guard.inForeground(fds[1]));
+    try std.testing.expect(!guard.isSuspended());
+}
+
+test "kill of a suspended process (TERM then CONT) terminates it instead of stopping it again" {
+    const posix = std.posix;
+    inline for (.{ posix.SIG.TERM, posix.SIG.HUP }) |sig| {
+        const fds = try posix.pipe2(.{});
+        defer posix.close(fds[0]);
+        const pid = try posix.fork();
+        if (pid == 0) {
+            // A group of its own, with the parent outside it, is not orphaned,
+            // so the kernel honours the stop wherever the runner was started.
+            posix.setpgid(0, 0) catch posix.exit(2);
+            guard.install(fds[1], std.mem.zeroes(posix.termios), null) catch posix.exit(2);
+            guard.suspendSelf();
+            // Only reached if the exit signal did not end the process.
+            posix.exit(3);
+        }
+        posix.close(fds[1]);
+        const stopped = posix.waitpid(pid, posix.W.UNTRACED);
+        try std.testing.expect(posix.W.IFSTOPPED(stopped.status));
+        // What a shell's `kill %1` does to a stopped job.
+        try posix.kill(pid, sig);
+        try posix.kill(pid, posix.SIG.CONT);
+        const done = posix.waitpid(pid, 0);
+        try std.testing.expect(posix.W.IFSIGNALED(done.status));
+        try std.testing.expectEqual(@as(u32, sig), posix.W.TERMSIG(done.status));
+    }
+}
