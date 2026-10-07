@@ -176,27 +176,6 @@ test "a block that cannot be rendered falls back to its raw source" {
     try testing.expectEqualStrings("  after", after);
 }
 
-test "fallback without a known source shows a placeholder" {
-    const allocator = testing.allocator;
-    const content = try allocator.alloc(markdown.Inline, 1);
-    content[0] = .{ .text = try allocator.dupe(u8, "esc \x1b") };
-    const blocks = try allocator.alloc(markdown.Block, 1);
-    blocks[0] = .{ .paragraph = .{ .content = content } };
-    const document: markdown.Document = .{ .blocks = blocks };
-    defer document.deinit(allocator);
-    const rendered = try render_model.renderDocument(allocator, document, .{ .width = 40 });
-    defer rendered.deinit(allocator);
-    const text = try rendered.lines[0].joinedText(allocator);
-    defer allocator.free(text);
-    try testing.expectEqualStrings("  [block could not be rendered]", text);
-}
-
-test "sanitize replaces invalid UTF-8 and controls, keeps tabs and text" {
-    const out = try render_model.sanitize(testing.allocator, "a\tb\x01c\xffd\u{0085}é\xe2\x82");
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings("a\tb\u{FFFD}c\u{FFFD}d\u{FFFD}é\u{FFFD}\u{FFFD}", out);
-}
-
 test "kitchen-sink fixture renders in every built-in style without fallback" {
     for (presets.ALL) |preset| {
         const theme = resolve.builtinResolved(testing.allocator, preset.name);

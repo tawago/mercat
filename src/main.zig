@@ -22,6 +22,7 @@ const export_png = @import("export/png.zig");
 const export_glyph_sheet = @import("export/glyph_sheet.zig");
 const export_test = @import("export/export_test.zig");
 const terminal = @import("platform/terminal.zig");
+const platform_fs = @import("platform/fs.zig");
 const tui = @import("tui/app.zig");
 const term_guard = @import("tui/term_guard.zig");
 const theme_color = @import("core/theme/color.zig");
@@ -132,7 +133,7 @@ fn run(allocator: std.mem.Allocator) !void {
     // Empty input renders to nothing: no stray newline on stdout, and an
     // empty file for `--format plain -o`.
     if (parsed.mode == .cli and parsed.format != .png and std.mem.trim(u8, content, " \t\r\n").len == 0) {
-        if (parsed.format == .plain) writePlainOutput("", parsed.output_path);
+        if (parsed.format == .plain) writePlainOutput(allocator, "", parsed.output_path);
         return;
     }
 
@@ -237,7 +238,7 @@ fn usageExit(suggestion: ?[]const u8) noreturn {
 fn checkTuiEntry(input: args.Input) !args.Input {
     const path = input.filePath();
     const is_dir = if (path) |p| isDirectory(p) else false;
-    const readme = if (std.fs.cwd().statFile(tui_entry.default_file)) |st| st.kind != .directory else |_| false;
+    const readme = platform_fs.isNonDirectory(tui_entry.default_file);
     const outcome = tui_entry.decide(input, .{
         .stdin_tty = terminal.stdinIsTty(),
         .stdout_tty = terminal.stdoutIsTty(),
@@ -254,8 +255,7 @@ fn checkTuiEntry(input: args.Input) !args.Input {
 }
 
 fn isDirectory(path: []const u8) bool {
-    const st = std.fs.cwd().statFile(path) catch return false;
-    return st.kind == .directory;
+    return platform_fs.isDirectory(path);
 }
 
 fn listThemes(allocator: std.mem.Allocator) !void {
@@ -326,7 +326,7 @@ fn runCli(
                 diag.fail("plain export failed: {s}", .{exportDetail(&buf, err, .{})});
             };
             defer allocator.free(output);
-            writePlainOutput(output, parsed.output_path);
+            writePlainOutput(allocator, output, parsed.output_path);
         },
         .png => {
             const output_path = parsed.output_path.?;
@@ -437,11 +437,10 @@ fn exportPng(
     result.deinit(allocator);
 }
 
-fn writePlainOutput(output: []const u8, output_path: ?[]const u8) void {
+fn writePlainOutput(allocator: std.mem.Allocator, output: []const u8, output_path: ?[]const u8) void {
     const path = output_path orelse return writeStdoutOrFail(output);
-    const file = std.fs.cwd().createFile(path, .{}) catch |err| diag.failWrite(path, err);
-    defer file.close();
-    file.writeAll(output) catch |err| diag.failWrite(path, err);
+    // Same rules as the PNG export: through symlinks, atomic for files.
+    platform_fs.writeOutput(allocator, path, output) catch |err| diag.failWrite(path, err);
 }
 
 /// The one-line warning for input that was not valid UTF-8, or null.
@@ -519,4 +518,5 @@ test {
     _ = tui_entry;
     _ = @import("cli/help.zig");
     _ = encoding;
+    _ = platform_fs;
 }

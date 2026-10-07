@@ -358,4 +358,5 @@ test {
     _ = @import("render_test2.zig");
     _ = @import("render_blocks_test.zig");
     _ = @import("render_input_test.zig");
+    _ = @import("render_fallback_test.zig");
 }

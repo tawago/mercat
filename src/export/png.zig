@@ -6,6 +6,7 @@ const layout = @import("layout.zig");
 const types = @import("types.zig");
 const surface_mod = @import("surface.zig");
 const png_encode = @import("png_encode.zig");
+const out_fs = @import("../platform/fs.zig");
 
 const Color = types.Color;
 const Surface = surface_mod.Surface;
@@ -14,7 +15,7 @@ const Geometry = types.Geometry;
 
 pub const RenderError = layout.Error || png_encode.Error || font.Error;
 
-pub const WriteError = RenderError || std.fs.File.OpenError || std.fs.File.WriteError || std.posix.RenameError;
+pub const WriteError = RenderError || out_fs.WriteError || error{SymLinkLoop};
 
 pub const Diagnostic = struct {
     missing_codepoint: u21 = 0,
@@ -105,7 +106,7 @@ pub fn writeFile(
 ) WriteError!RenderResult {
     const result = try render(allocator, doc, face, color_mode, diag);
     errdefer result.deinit(allocator);
-    try atomicWrite(allocator, path, result.encoded.bytes);
+    try out_fs.writeOutput(allocator, path, result.encoded.bytes);
     return result;
 }
 
@@ -235,29 +236,6 @@ fn drawStrikethrough(surface: *Surface, g: Geometry, run: types.PositionedRun) v
     const width_px = @as(u32, run.columns) * g.cell_width_px;
     const y = runTopPx(g, run.row) + @as(i64, @divFloor(@as(i64, g.cell_height_px) * 45, 100));
     surface.fillRect(left, y, width_px, t, run.foreground);
-}
-
-fn atomicWrite(allocator: std.mem.Allocator, path: []const u8, bytes: []const u8) WriteError!void {
-    var suffix: [8]u8 = undefined;
-    std.crypto.random.bytes(&suffix);
-    const hex = std.fmt.bytesToHex(suffix, .lower);
-    const temp_path = try std.fmt.allocPrint(
-        allocator,
-        "{s}.mercat-tmp-{s}",
-        .{ path, hex },
-    );
-    defer allocator.free(temp_path);
-
-    const cwd = std.fs.cwd();
-    {
-        const file = try cwd.createFile(temp_path, .{ .truncate = true });
-        errdefer cwd.deleteFile(temp_path) catch {};
-        defer file.close();
-        try file.writeAll(bytes);
-    }
-    errdefer cwd.deleteFile(temp_path) catch {};
-
-    try cwd.rename(temp_path, path);
 }
 
 const testing = std.testing;

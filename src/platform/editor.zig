@@ -76,8 +76,7 @@ fn findInPath(path_env: ?[]const u8, name: []const u8) bool {
 
 fn isExecutable(path: []const u8) bool {
     std.posix.access(path, std.posix.X_OK) catch return false;
-    const stat = std.fs.cwd().statFile(path) catch return false;
-    return stat.kind != .directory;
+    return @import("fs.zig").isNonDirectory(path);
 }
 
 /// The program name of an editor command (its first word), for messages.

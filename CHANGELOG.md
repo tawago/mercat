@@ -18,9 +18,10 @@ All notable changes to this project will be documented in this file.
   of printing the literal `**`. The fix is a patch to the bundled koino parser,
   now vendored in `vendor/koino` (see `vendor/koino/PIN.md`).
 - **One bad block no longer fails the document.** A block that cannot be
-  rendered (an unexpected internal error) is shown as dimmed raw source, with bad
-  bytes replaced by `�` (or as a placeholder when no source is available), and
-  mercat prints one warning and exits 0. Previously
+  rendered (an unexpected internal error) is shown as dimmed raw source, cleaned
+  like all other text (bad bytes and controls become `�`, invisible format
+  characters are dropped), and mercat prints one warning and exits 0. The text
+  is never replaced by a placeholder. Previously
   the whole run failed with `error: InvalidUtf8` or `error: DisallowedControl`.
 - **Invalid UTF-8 is decoded, not fatal.** Input is decoded before parsing:
   each invalid sequence becomes `�` (U+FFFD, one per maximal subpart), so the
@@ -35,6 +36,10 @@ All notable changes to this project will be documented in this file.
   paragraph containing one rendered as `[block could not be rendered]`.
   Escape sequences in text, code, link URLs, tables, front matter or character
   references (`&#27;`) never reach the terminal.
+- **Inline HTML across lines.** A paragraph with a tag or comment that spans
+  lines (`<span\nclass=x>`, `<!-- a\nb -->`, `<a\nhref="u">`) renders
+  normally instead of falling back to raw source: the tag is shown on one line,
+  inline comments are hidden, and an inline `<br>` breaks the line.
 - Links with an empty URL (`[text]()`, `<a href="">text</a>`) no longer show a
   stray `<>`; an empty `<a href=""></a>` shows nothing.
 - Block quotes have one space after the bar in every theme (was three before
@@ -80,6 +85,13 @@ All notable changes to this project will be documented in this file.
 - Output write failures read `cannot write to stdout: …` or
   `cannot write '<path>': …`; a closed stdout is `bad file descriptor`. An
   empty `-o` value and `--monochrome` without `--format png` are usage errors.
+- **`-o` writes through symlinks.** `--format png` and `--format plain` with
+  `-o` write to a symlink's target (a dangling link creates it) instead of
+  replacing the link, replace a regular file atomically from its own directory
+  (keeping its permissions), and write into an existing fifo, device or socket
+  directly instead of replacing it with a file.
+- A file name with a component longer than 255 bytes is reported as
+  `<path>: file name too long` (exit 1) instead of crashing.
 - Config lines mercat cannot parse (`[section` without `]`, no `=`, an
   unterminated string) warn `path:N: cannot parse line` and no longer shift
   later keys into the previous section; string keys given a non-string value

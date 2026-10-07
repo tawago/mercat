@@ -335,5 +335,51 @@ for col in never always; do
   if [ "$col" = never ]; then check inject-never-no-esc lacks "$esc" "$work/inject.out"; fi
 done
 
+# --- over-long path components: an error, never a trap ---
+long=$(printf 'a%.0s' $(seq 1 300)).md
+expect long-name-input 1 "mercat: error: $long: file name too long" -- "$long"
+expect long-name-plain 1 "mercat: error: $long: file name too long" -- --format plain "$long"
+expect long-name-output 1 "mercat: error: cannot write '$long': file name too long" -- --format plain -o "$long" h.md
+expect long-name-png 1 "mercat: error: cannot write '$long': file name too long" -- --format png -o "$long" h.md
+
+# --- output through symlinks and into fifos: never replace the link or node ---
+png_sig=$(printf '\211PNG')
+for fmt in plain png; do
+  mkdir -p "out-$fmt/real"
+  printf 'old\n' > "out-$fmt/real/target"
+  ln -s real/target "out-$fmt/link"
+  expect "symlink-$fmt" 0 "" -- --format "$fmt" -o "out-$fmt/link" h.md
+  check "symlink-$fmt-still-link" [ -L "out-$fmt/link" ]
+  check "symlink-$fmt-target-written" lacks '^old$' "out-$fmt/real/target"
+  check "symlink-$fmt-no-temp" [ -z "$(ls -A "out-$fmt" "out-$fmt/real" | grep mercat-tmp)" ]
+  ln -s made "out-$fmt/dangling"
+  expect "dangling-$fmt" 0 "" -- --format "$fmt" -o "out-$fmt/dangling" h.md
+  check "dangling-$fmt-still-link" [ -L "out-$fmt/dangling" ]
+  check "dangling-$fmt-target-created" [ -s "out-$fmt/made" ]
+  mkfifo "out-$fmt/fifo"
+  timeout 20 cat "out-$fmt/fifo" > "out-$fmt/from-fifo" &
+  reader=$!
+  expect "fifo-$fmt" 0 "" -- --format "$fmt" -o "out-$fmt/fifo" h.md
+  wait "$reader"
+  check "fifo-$fmt-reader-rc" [ $? = 0 ]
+  check "fifo-$fmt-still-fifo" [ -p "out-$fmt/fifo" ]
+  check "fifo-$fmt-received" [ -s "out-$fmt/from-fifo" ]
+done
+check symlink-png-is-png [ "$(head -c 4 out-png/real/target)" = "$png_sig" ]
+check symlink-plain-text grep -q '# hi' out-plain/real/target
+check fifo-png-is-png [ "$(head -c 4 out-png/from-fifo)" = "$png_sig" ]
+mkdir out-dir
+expect output-directory 1 "mercat: error: cannot write 'out-dir': is a directory" -- --format plain -o out-dir h.md
+
+# --- inline HTML across lines renders as markdown, not as raw source ---
+printf 'one <span\nclass=x>two</span>\n\nc <!-- a\nb --> d\n\na<br>b\n' > inline-html.md
+out=$(m --format plain inline-html.md 2>"$work/ihtml.err")
+check inline-html-quiet [ ! -s "$work/ihtml.err" ]
+check inline-html-joined has '<span class=x>two</span>' <<<"$out"
+check inline-html-comment-hidden lacks -e '<!--' <<<"$out"
+check inline-html-br [ "$(printf '%s\n' "$out" | tail -2)" = "  a
+  b" ]
+
+
 printf 'cli: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -532,11 +532,41 @@ fn leafInline(allocator: std.mem.Allocator, value: koino.nodes.NodeValue) !?Inli
     return switch (value) {
         .Text => |text| .{ .text = try clean(allocator, text) },
         .Code => |text| .{ .code = try clean(allocator, text) },
-        .HtmlInline => |text| .{ .html = try clean(allocator, text) },
+        .HtmlInline => |text| try inlineHtml(allocator, text),
         .SoftBreak => .soft_break,
         .LineBreak => .line_break,
         else => null,
     };
+}
+
+/// Inline HTML as a reader sees it: a comment is hidden, `<br>` is a line
+/// break, and any other tag or construct is kept on one line (its line
+/// breaks are whitespace, as in HTML), so `<span\nclass=x>` renders like
+/// `<span class=x>` instead of making the paragraph unrenderable.
+fn inlineHtml(allocator: std.mem.Allocator, text: []const u8) !?Inline {
+    if (std.mem.startsWith(u8, text, "<!--")) return null;
+    if (isBreakTag(text)) return .line_break;
+    const html = try clean(allocator, text);
+    var len: usize = 0;
+    var i: usize = 0;
+    while (i < html.len) : (i += 1) {
+        if (html[i] == '\r' and i + 1 < html.len and html[i + 1] == '\n') continue;
+        html[len] = switch (html[i]) {
+            '\r', '\n' => ' ',
+            else => html[i],
+        };
+        len += 1;
+    }
+    if (len == html.len) return .{ .html = html };
+    defer allocator.free(html);
+    return .{ .html = try allocator.dupe(u8, html[0..len]) };
+}
+
+/// `<br>`, `<br/>`, `<br />` and `<br class=x>`, in any letter case.
+fn isBreakTag(text: []const u8) bool {
+    if (text.len < 4 or !std.ascii.eqlIgnoreCase(text[0..3], "<br")) return false;
+    const next = text[3];
+    return next == '>' or next == '/' or std.ascii.isWhitespace(next);
 }
 
 /// Copies document text so it can reach a terminal safely: controls (ESC
