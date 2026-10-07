@@ -166,3 +166,35 @@ test "kill of a suspended process (TERM then CONT) terminates it instead of stop
         try std.testing.expectEqual(@as(u32, sig), posix.W.TERMSIG(done.status));
     }
 }
+
+extern "c" fn openpty(master: *c_int, slave: *c_int, name: ?[*]u8, termp: ?*const std.posix.termios, winp: ?*const anyopaque) c_int;
+
+test "an exit signal just as a suspended process resumes leaves the tty cooked" {
+    const posix = std.posix;
+    var master: c_int = -1;
+    var slave: c_int = -1;
+    if (openpty(&master, &slave, null, null, null) != 0) return error.SkipZigTest;
+    defer posix.close(master);
+    defer posix.close(slave);
+    const cooked = try posix.tcgetattr(slave);
+    try std.testing.expect(cooked.lflag.ICANON and cooked.lflag.ECHO);
+
+    const pid = try posix.fork();
+    if (pid == 0) {
+        posix.setpgid(0, 0) catch posix.exit(2);
+        // Resuming: the tty is raw again but the suspended flag is still set.
+        var raw = cooked;
+        raw.lflag.ICANON = false;
+        raw.lflag.ECHO = false;
+        posix.tcsetattr(slave, .NOW, raw) catch posix.exit(2);
+        guard.install(slave, cooked, null) catch posix.exit(2);
+        guard.setSuspendedForTest(true);
+        posix.raise(posix.SIG.TERM) catch posix.exit(2);
+        posix.exit(3);
+    }
+    const done = posix.waitpid(pid, 0);
+    try std.testing.expect(posix.W.IFSIGNALED(done.status));
+    try std.testing.expectEqual(@as(u32, posix.SIG.TERM), posix.W.TERMSIG(done.status));
+    const after = try posix.tcgetattr(slave);
+    try std.testing.expect(after.lflag.ICANON and after.lflag.ECHO);
+}

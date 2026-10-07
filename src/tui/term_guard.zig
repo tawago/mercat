@@ -243,10 +243,13 @@ fn forwardSignal(sig: c_int) callconv(.c) void {
     // Decide now, not when the watcher gets to it: by then the child may have
     // died from the very same Ctrl-C and cleared the flag.
     if (!deferOrDrop(byte)) return;
-    // Suspended: the terminal is already restored and the process may be
-    // stopped or in the background, so nothing needs the watcher. Die now,
-    // before the suspended thread can stop the process again.
+    // Suspended: the terminal is restored and the process may be stopped or
+    // in the background, so nothing needs the watcher. Die now, before the
+    // suspended thread can stop the process again. Resuming puts the tty
+    // back in raw mode just before clearing the flag, so restore the cooked
+    // mode (tcsetattr is async-signal-safe) when we own the terminal.
     if (suspended.load(.acquire) and isExitSignal(byte)) {
+        if (inForeground(tty_fd)) posix.tcsetattr(tty_fd, .NOW, cooked_termios) catch {};
         setHandler(byte, null);
         _ = posix.system.kill(posix.system.getpid(), sig);
         return;
@@ -310,6 +313,12 @@ pub fn setChildRunning(running: bool) void {
 /// Records the running child's pid so deferred exit signals reach it too.
 pub fn setChildPid(pid: posix.pid_t) void {
     child_pid.store(pid, .release);
+}
+
+/// Test hook: marks the process suspended, as `suspendSelf` does while
+/// stopped, without stopping it.
+pub fn setSuspendedForTest(value: bool) void {
+    suspended.store(value, .release);
 }
 
 /// Test hook: the exit signal waiting for the child to finish, if any.
