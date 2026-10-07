@@ -80,6 +80,13 @@ All notable changes to this project will be documented in this file.
 - Output write failures read `cannot write to stdout: …` or
   `cannot write '<path>': …`; a closed stdout is `bad file descriptor`. An
   empty `-o` value and `--monochrome` without `--format png` are usage errors.
+- **`-o` writes through symlinks.** `--format png` and `--format plain` with
+  `-o` write to a symlink's target (a dangling link creates it) instead of
+  replacing the link, replace a regular file atomically from its own directory
+  (keeping its permissions), and write into an existing fifo, device or socket
+  directly instead of replacing it with a file.
+- A file name with a component longer than 255 bytes is reported as
+  `<path>: file name too long` (exit 1) instead of crashing.
 - Config lines mercat cannot parse (`[section` without `]`, no `=`, an
   unterminated string) warn `path:N: cannot parse line` and no longer shift
   later keys into the previous section; string keys given a non-string value
