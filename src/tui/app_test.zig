@@ -408,3 +408,14 @@ test "matches are recomputed on resize and reload" {
     _ = try fx.app.handleKeyPress(key("r"));
     try std.testing.expectEqual(@as(usize, 1), fx.app.pager.search.matches.items.len);
 }
+
+test "resuming picks up a terminal resized while the TUI was stopped" {
+    const resize = app_mod.resizeOnResume;
+    const small: vaxis.Winsize = .{ .rows = 20, .cols = 60, .x_pixel = 0, .y_pixel = 0 };
+    try std.testing.expectEqual(@as(?vaxis.Winsize, small), resize(100, 30, small));
+    // Unchanged, unknown or empty sizes keep the current layout.
+    try std.testing.expectEqual(@as(?vaxis.Winsize, null), resize(60, 20, small));
+    try std.testing.expectEqual(@as(?vaxis.Winsize, null), resize(100, 30, null));
+    const empty: vaxis.Winsize = .{ .rows = 0, .cols = 0, .x_pixel = 0, .y_pixel = 0 };
+    try std.testing.expectEqual(@as(?vaxis.Winsize, null), resize(100, 30, empty));
+}

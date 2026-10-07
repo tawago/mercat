@@ -44,6 +44,16 @@ const Event = union(enum) {
     resumed,
 };
 
+/// The size to resize to when the TUI comes back (Ctrl-Z, SIGTSTP, editor):
+/// the queried terminal size when it is known, non-empty and different from
+/// what is on screen; null to keep the current layout.
+pub fn resizeOnResume(cols: u16, rows: u16, queried: ?vaxis.Winsize) ?vaxis.Winsize {
+    const ws = queried orelse return null;
+    if (ws.cols == 0 or ws.rows == 0) return null;
+    if (ws.cols == cols and ws.rows == rows) return null;
+    return ws;
+}
+
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
     if (cli_input.isMermaidSource(input_source.filePath(), content)) return markdown.parseMermaid(allocator, content);
     return markdown.parse(allocator, content);
@@ -660,6 +670,10 @@ pub const App = struct {
     /// reset (editor, Ctrl-Z, SIGTSTP) and forces a full repaint.
     fn reenterScreen(self: *App) !void {
         const writer = self.tty.writer();
+        // A resize while stopped or in the editor went to someone else's
+        // SIGWINCH; pick up the current size before repainting.
+        const queried = vaxis.Tty.getWinsize(self.tty.fd) catch null;
+        if (resizeOnResume(self.vx.screen.width, self.vx.screen.height, queried)) |ws| try self.handleResize(ws);
         try self.vx.enterAltScreen(writer);
         self.vx.state.kitty_keyboard = false;
         try self.vx.enableDetectedFeatures(writer);
