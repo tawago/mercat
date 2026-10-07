@@ -371,5 +371,15 @@ check fifo-png-is-png [ "$(head -c 4 out-png/from-fifo)" = "$png_sig" ]
 mkdir out-dir
 expect output-directory 1 "mercat: error: cannot write 'out-dir': is a directory" -- --format plain -o out-dir h.md
 
+# --- inline HTML across lines renders as markdown, not as raw source ---
+printf 'one <span\nclass=x>two</span>\n\nc <!-- a\nb --> d\n\na<br>b\n' > inline-html.md
+out=$(m --format plain inline-html.md 2>"$work/ihtml.err")
+check inline-html-quiet [ ! -s "$work/ihtml.err" ]
+check inline-html-joined has '<span class=x>two</span>' <<<"$out"
+check inline-html-comment-hidden lacks -e '<!--' <<<"$out"
+check inline-html-br [ "$(printf '%s\n' "$out" | tail -2)" = "  a
+  b" ]
+
+
 printf 'cli: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

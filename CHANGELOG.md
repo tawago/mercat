@@ -18,9 +18,10 @@ All notable changes to this project will be documented in this file.
   of printing the literal `**`. The fix is a patch to the bundled koino parser,
   now vendored in `vendor/koino` (see `vendor/koino/PIN.md`).
 - **One bad block no longer fails the document.** A block that cannot be
-  rendered (an unexpected internal error) is shown as dimmed raw source, with bad
-  bytes replaced by `�` (or as a placeholder when no source is available), and
-  mercat prints one warning and exits 0. Previously
+  rendered (an unexpected internal error) is shown as dimmed raw source, cleaned
+  like all other text (bad bytes and controls become `�`, invisible format
+  characters are dropped), and mercat prints one warning and exits 0. The text
+  is never replaced by a placeholder. Previously
   the whole run failed with `error: InvalidUtf8` or `error: DisallowedControl`.
 - **Invalid UTF-8 is decoded, not fatal.** Input is decoded before parsing:
   each invalid sequence becomes `�` (U+FFFD, one per maximal subpart), so the
@@ -35,6 +36,10 @@ All notable changes to this project will be documented in this file.
   paragraph containing one rendered as `[block could not be rendered]`.
   Escape sequences in text, code, link URLs, tables, front matter or character
   references (`&#27;`) never reach the terminal.
+- **Inline HTML across lines.** A paragraph with a tag or comment that spans
+  lines (`<span\nclass=x>`, `<!-- a\nb -->`, `<a\nhref="u">`) renders
+  normally instead of falling back to raw source: the tag is shown on one line,
+  inline comments are hidden, and an inline `<br>` breaks the line.
 - Links with an empty URL (`[text]()`, `<a href="">text</a>`) no longer show a
   stray `<>`; an empty `<a href=""></a>` shows nothing.
 - Block quotes have one space after the bar in every theme (was three before
