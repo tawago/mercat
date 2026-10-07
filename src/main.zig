@@ -217,6 +217,18 @@ fn checkThemeName(
 
     var names = try cli_themes.collect(allocator);
     defer names.deinit();
+    if (names.contains(name)) {
+        // Listed in the theme directory but not loadable (unreadable, or a
+        // dangling or over-long symlink): say why instead of "unknown".
+        const why = diag.describeError(registry.last_read_error orelse error.FileNotFound);
+        if (parsed.style != null) {
+            diag.err("cannot read theme '{s}': {s}", .{ name, why });
+            std.process.exit(diag.exit_failure);
+        }
+        diag_list.drop(.unreadable_file);
+        diag.warn("cannot read theme '{s}': {s}; using dark", .{ name, why });
+        return "dark";
+    }
     if (parsed.style != null) {
         diag.err("unknown theme '{s}' (expected one of: {s})", .{ name, names.joined() });
         usageExit(names.suggest(name));

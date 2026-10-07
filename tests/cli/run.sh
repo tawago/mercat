@@ -341,6 +341,15 @@ expect long-name-input 1 "mercat: error: $long: file name too long" -- "$long"
 expect long-name-plain 1 "mercat: error: $long: file name too long" -- --format plain "$long"
 expect long-name-output 1 "mercat: error: cannot write '$long': file name too long" -- --format plain -o "$long" h.md
 expect long-name-png 1 "mercat: error: cannot write '$long': file name too long" -- --format png -o "$long" h.md
+EXTRA_ENV="XDG_CONFIG_HOME=$work/$long" expect long-name-config 0 "mercat: warning: cannot read config file $work/$long/mercat/config.toml: file name too long; using defaults" -- h.md
+# A theme file that is listed but cannot be read says why, not "unknown theme".
+mkdir -p badxdg/mercat/themes
+ln -s "$long" badxdg/mercat/themes/longlink.toml
+ln -s nothere badxdg/mercat/themes/dangling.toml
+EXTRA_ENV="XDG_CONFIG_HOME=$work/badxdg" expect theme-long-link 1 "mercat: error: cannot read theme 'longlink': file name too long" -- --theme longlink h.md
+EXTRA_ENV="XDG_CONFIG_HOME=$work/badxdg" expect theme-dangling 1 "mercat: error: cannot read theme 'dangling': no such file or directory" -- --theme dangling h.md
+printf '[display]\ntheme = "longlink"\n' > badxdg/mercat/config.toml
+EXTRA_ENV="XDG_CONFIG_HOME=$work/badxdg" expect config-theme-long-link 0 "mercat: warning: cannot read theme 'longlink': file name too long; using dark" -- h.md
 
 # --- output through symlinks and into fifos: never replace the link or node ---
 png_sig=$(printf '\211PNG')

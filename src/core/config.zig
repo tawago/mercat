@@ -134,6 +134,9 @@ fn readErrorText(err: anyerror) []const u8 {
         error.AccessDenied, error.PermissionDenied => "permission denied",
         error.IsDir => "is a directory",
         error.FileTooBig, error.StreamTooLong => "file is too large",
+        error.NameTooLong => "file name too long",
+        error.NotDir => "not a directory",
+        error.SymLinkLoop => "too many levels of symbolic links",
         else => "read error",
     };
 }
