@@ -148,6 +148,13 @@ All notable changes to this project will be documented in this file.
   signals (SIGSEGV/SIGBUS/SIGILL/SIGFPE) restore the terminal (alt screen,
   mouse, cursor, tty mode) before exiting; crashes print where to report them.
   `Ctrl-Z` (and `kill -TSTP`) suspends cleanly and redraws on `fg`.
+- **Suspended mercat can be killed.** `kill %1` (or `kill -HUP %1`) on a
+  suspended mercat ends it instead of leaving it `Stopped (tty output)`, and
+  `bg` stops it again (`Stopped (tty input)`) without touching the terminal
+  until `fg`.
+- **Resize while suspended.** Returning with `fg`, or from the editor, re-reads
+  the terminal size, so a window resized meanwhile is redrawn at its new size
+  instead of the old width.
 
 ### Diagrams
 
