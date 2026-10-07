@@ -273,7 +273,7 @@ const Converter = struct {
         }
         const children = try self.allocator.dupe(Inline, self.out.items[link_at..]);
         errdefer self.allocator.free(children);
-        const url = try self.allocator.dupe(u8, self.link_url);
+        const url = try dupeOneLine(self.allocator, self.link_url);
         errdefer self.allocator.free(url);
         try self.out.ensureUnusedCapacity(self.allocator, 1);
         self.out.shrinkRetainingCapacity(link_at);
@@ -304,10 +304,11 @@ const Converter = struct {
                 self.link_space = self.pending_space and self.line_started;
                 self.pending_space = false;
                 self.link_start = self.out.items.len;
-                self.link_url = href;
+                // Browsers strip the whitespace around a URL.
+                self.link_url = std.mem.trim(u8, href, &std.ascii.whitespace);
             },
             .keep => {
-                const raw = try self.allocator.dupe(u8, t.text);
+                const raw = try dupeOneLine(self.allocator, t.text);
                 errdefer self.allocator.free(raw);
                 try self.push(.{ .html = raw });
             },
@@ -315,11 +316,11 @@ const Converter = struct {
     }
 
     fn image(self: *Converter, tag_text: []const u8) !void {
-        const src = attrValue(tag_text, "src") orelse "";
+        const src = std.mem.trim(u8, attrValue(tag_text, "src") orelse "", &std.ascii.whitespace);
         const alt_text = attrValue(tag_text, "alt") orelse std.fs.path.basename(src);
-        const url = try self.allocator.dupe(u8, src);
+        const url = try dupeOneLine(self.allocator, src);
         errdefer self.allocator.free(url);
-        const alt_owned = try self.allocator.dupe(u8, alt_text);
+        const alt_owned = try dupeOneLine(self.allocator, alt_text);
         errdefer self.allocator.free(alt_owned);
         const alt = try self.allocator.alloc(Inline, 1);
         errdefer self.allocator.free(alt);
@@ -327,6 +328,22 @@ const Converter = struct {
         try self.push(.{ .image = .{ .alt = alt, .url = url } });
     }
 };
+
+/// A copy of a tag or attribute value with its line breaks and tabs turned
+/// into spaces (CRLF into one), since a tag spanning lines shows on one line
+/// as in HTML, and a rendered line cannot hold control characters.
+fn dupeOneLine(allocator: std.mem.Allocator, bytes: []const u8) ![]u8 {
+    var out = try std.ArrayList(u8).initCapacity(allocator, bytes.len);
+    errdefer out.deinit(allocator);
+    for (bytes, 0..) |ch, i| {
+        if (ch == '\r' and i + 1 < bytes.len and bytes[i + 1] == '\n') continue;
+        out.appendAssumeCapacity(switch (ch) {
+            '\r', '\n', '\t' => ' ',
+            else => ch,
+        });
+    }
+    return out.toOwnedSlice(allocator);
+}
 
 const Entity = struct { text: []const u8, len: usize };
 

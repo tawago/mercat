@@ -73,6 +73,25 @@ test "inline HTML spanning lines renders as a normal paragraph" {
     }
 }
 
+test "HTML blocks with tags spanning lines render without the fallback" {
+    const cases = [_]struct { input: []const u8, want: []const []const u8, lacks: []const []const u8 = &.{} }{
+        .{ .input = "<div>\n<sup\nclass=x>1</sup>\n</div>\n", .want = &.{"<sup class=x>1</sup>"} },
+        .{ .input = "<div>\n<my-widget\r\n\tdata-x=\"1\"></my-widget>\n</div>\n", .want = &.{"<my-widget  data-x=\"1\">"} },
+        .{ .input = "<p>\n<a href='\n'>x</a>\n</p>\n", .want = &.{"x"}, .lacks = &.{"<"} },
+        .{ .input = "<p>\n<img src='a\nb.png' alt='two\nlines'>\n</p>\n", .want = &.{"two lines"} },
+        .{ .input = "<d>\n<f\n>\n", .want = &.{"<f >"} },
+        .{ .input = "<![CDATA[x>\n<a\nhref='\n'>\n", .want = &.{"CDATA"} },
+    };
+    for (cases) |case| {
+        const out = try renderSource(case.input, 60);
+        defer out.deinit();
+        errdefer std.debug.print("input: {s}\noutput:\n{s}\n", .{ case.input, out.text });
+        try testing.expectEqual(@as(usize, 0), out.fallbacks);
+        for (case.want) |needle| try testing.expect(out.has(needle));
+        for (case.lacks) |needle| try testing.expect(!out.has(needle));
+    }
+}
+
 test "inline <br> breaks the line" {
     for ([_][]const u8{ "a<br>b\n", "a<br/>b\n", "a<BR />b\n", "a<br\nclass=x>b\n" }) |input| {
         const out = try renderSource(input, 60);
