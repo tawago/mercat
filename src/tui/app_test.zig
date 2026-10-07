@@ -419,3 +419,25 @@ test "resuming picks up a terminal resized while the TUI was stopped" {
     const empty: vaxis.Winsize = .{ .rows = 0, .cols = 0, .x_pixel = 0, .y_pixel = 0 };
     try std.testing.expectEqual(@as(?vaxis.Winsize, null), resize(100, 30, empty));
 }
+
+test "resuming resizes only after entering the alternate screen" {
+    const allocator = std.testing.allocator;
+    const ws: vaxis.Winsize = .{ .rows = 30, .cols = 120, .x_pixel = 0, .y_pixel = 0 };
+    // After Ctrl-Z vaxis still believes it is on the alt screen; after the
+    // editor it knows it is not. Either way no clear may precede smcup.
+    for ([_]bool{ true, false }) |was_alt| {
+        var vx = try vaxis.init(allocator, .{});
+        defer vx.deinit(allocator, @constCast(&std.Io.Writer.failing));
+        vx.state.alt_screen = was_alt;
+        vx.state.cursor.row = 5;
+        var out: std.Io.Writer.Allocating = .init(allocator);
+        defer out.deinit();
+        try app_mod.enterAltScreenResized(&vx, allocator, &out.writer, ws);
+        const bytes = out.written();
+        const smcup = std.mem.indexOf(u8, bytes, vaxis.ctlseqs.smcup) orelse return error.TestUnexpectedResult;
+        try std.testing.expectEqual(@as(usize, 0), smcup);
+        try std.testing.expect(std.mem.indexOf(u8, bytes, vaxis.ctlseqs.erase_below_cursor).? > smcup);
+        try std.testing.expectEqual(@as(u16, 120), vx.screen.width);
+        vx.state.alt_screen = false;
+    }
+}

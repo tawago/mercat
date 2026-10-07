@@ -54,6 +54,14 @@ pub fn resizeOnResume(cols: u16, rows: u16, queried: ?vaxis.Winsize) ?vaxis.Wins
     return ws;
 }
 
+/// Enters the alternate screen, then applies `ws`. Vaxis's resize clears the
+/// screen that is showing, so resizing first would wipe the shell's primary
+/// screen that the user returns to on quit.
+pub fn enterAltScreenResized(vx: *vaxis.Vaxis, allocator: std.mem.Allocator, writer: *std.Io.Writer, ws: ?vaxis.Winsize) !void {
+    try vx.enterAltScreen(writer);
+    if (ws) |size| try vx.resize(allocator, writer, size);
+}
+
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
     if (cli_input.isMermaidSource(input_source.filePath(), content)) return markdown.parseMermaid(allocator, content);
     return markdown.parse(allocator, content);
@@ -673,8 +681,9 @@ pub const App = struct {
         // A resize while stopped or in the editor went to someone else's
         // SIGWINCH; pick up the current size before repainting.
         const queried = vaxis.Tty.getWinsize(self.tty.fd) catch null;
-        if (resizeOnResume(self.vx.screen.width, self.vx.screen.height, queried)) |ws| try self.handleResize(ws);
-        try self.vx.enterAltScreen(writer);
+        const ws = resizeOnResume(self.vx.screen.width, self.vx.screen.height, queried);
+        try enterAltScreenResized(&self.vx, self.allocator, writer, ws);
+        if (ws != null) try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
         self.vx.state.kitty_keyboard = false;
         try self.vx.enableDetectedFeatures(writer);
         if (self.vx.state.in_band_resize) try writer.writeAll(ctlseqs.in_band_resize_set);
