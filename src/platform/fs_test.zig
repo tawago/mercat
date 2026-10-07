@@ -139,3 +139,56 @@ test "over-long path components are errors, not traps" {
     try testing.expectError(error.NameTooLong, fs.writeOutput(testing.allocator, long, "x"));
     try testing.expectEqual(fs.Kind.missing, try fs.kindOf("no-such-dir/no-such-file", true));
 }
+
+test "writeOutput refuses a regular file it cannot write, as > does" {
+    if (builtin.os.tag != .linux or std.os.linux.geteuid() == 0) return error.SkipZigTest;
+    var s = try Scratch.init();
+    defer s.deinit();
+    try s.tmp.dir.writeFile(.{ .sub_path = "ro.txt", .data = "RO" });
+    const file = try s.tmp.dir.openFile("ro.txt", .{});
+    try file.chmod(0o444);
+    file.close();
+    const ro = try s.path("ro.txt");
+    defer testing.allocator.free(ro);
+
+    try testing.expectError(error.AccessDenied, fs.writeOutput(testing.allocator, ro, "new"));
+    try expectContent(&s, "ro.txt", "RO");
+    try s.expectNoTemp();
+}
+
+test "writeOutput keeps the inode of a file with other hard links" {
+    if (builtin.os.tag != .linux) return error.SkipZigTest;
+    var s = try Scratch.init();
+    defer s.deinit();
+    try s.tmp.dir.writeFile(.{ .sub_path = "own.txt", .data = "x" });
+    const rc = std.os.linux.linkat(s.tmp.dir.fd, "own.txt", s.tmp.dir.fd, "hard.txt", 0);
+    if (std.os.linux.E.init(rc) != .SUCCESS) return error.SkipZigTest;
+    const before = try s.tmp.dir.statFile("own.txt");
+    const own = try s.path("own.txt");
+    defer testing.allocator.free(own);
+
+    try fs.writeOutput(testing.allocator, own, "rendered");
+    try expectContent(&s, "own.txt", "rendered");
+    try expectContent(&s, "hard.txt", "rendered");
+    try testing.expectEqual(before.inode, (try s.tmp.dir.statFile("own.txt")).inode);
+    try s.expectNoTemp();
+}
+
+test "writeOutput keeps the owner of another user's file" {
+    if (builtin.os.tag != .linux or std.os.linux.geteuid() != 0) return error.SkipZigTest;
+    var s = try Scratch.init();
+    defer s.deinit();
+    try s.tmp.dir.writeFile(.{ .sub_path = "theirs.txt", .data = "x" });
+    const file = try s.tmp.dir.openFile("theirs.txt", .{});
+    try std.posix.fchown(file.handle, 65534, 65534);
+    file.close();
+    const theirs = try s.path("theirs.txt");
+    defer testing.allocator.free(theirs);
+
+    try fs.writeOutput(testing.allocator, theirs, "rendered");
+    try expectContent(&s, "theirs.txt", "rendered");
+    const st = try std.posix.fstatat(s.tmp.dir.fd, "theirs.txt", 0);
+    try testing.expectEqual(@as(std.posix.uid_t, 65534), st.uid);
+    try testing.expectEqual(@as(std.posix.gid_t, 65534), st.gid);
+    try s.expectNoTemp();
+}

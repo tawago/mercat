@@ -75,8 +75,15 @@ pub fn resolveOutputPath(allocator: std.mem.Allocator, path: []const u8) (WriteE
 ///
 /// - symlinks are written through, never replaced (a dangling one creates
 ///   its target);
-/// - a regular file (or a new one) is written to a temporary file in the
-///   target's own directory and renamed over it, keeping the old mode;
+/// - a new file, or an existing regular file that we own with a single
+///   link, is written to a temporary file in the target's own directory and
+///   renamed over it, keeping the old mode;
+/// - an existing regular file must be writable, as for `>`
+///   (`error.AccessDenied` otherwise). One owned by another user or with
+///   other hard links is truncated and written in place instead, so its
+///   owner, group and inode survive (a rename would also fail on another
+///   user's file in a sticky directory such as /tmp); so is one whose
+///   directory we cannot create a temporary file in;
 /// - an existing fifo, character device or socket is opened and written
 ///   directly, with no rename;
 /// - a directory is `error.IsDir`.
@@ -90,7 +97,13 @@ pub fn writeOutput(allocator: std.mem.Allocator, path: []const u8, bytes: []cons
     };
     switch (kindFromMode(st.mode)) {
         .directory => return error.IsDir,
-        .regular => return writeReplacing(allocator, final, bytes, st.mode & 0o7777),
+        .regular => {
+            // Opening for writing checks permission exactly as `>` would.
+            const existing = try cwd.openFile(final, .{ .mode = .write_only });
+            defer existing.close();
+            if (st.nlink > 1 or st.uid != posix.geteuid()) return writeInPlace(existing, bytes);
+            return writeReplacing(allocator, final, bytes, .{ .mode = st.mode & 0o7777, .file = existing });
+        },
         else => {
             const file = try cwd.openFile(final, .{ .mode = .write_only });
             defer file.close();
@@ -99,7 +112,16 @@ pub fn writeOutput(allocator: std.mem.Allocator, path: []const u8, bytes: []cons
     }
 }
 
-fn writeReplacing(allocator: std.mem.Allocator, final: []const u8, bytes: []const u8, mode: ?posix.mode_t) (WriteError || error{SymLinkLoop})!void {
+fn writeInPlace(file: std.fs.File, bytes: []const u8) WriteError!void {
+    try file.setEndPos(0);
+    try file.writeAll(bytes);
+}
+
+/// An existing regular file being replaced: its mode, and a write-only
+/// handle to fall back on when the temporary file cannot be used.
+const Existing = struct { mode: posix.mode_t, file: std.fs.File };
+
+fn writeReplacing(allocator: std.mem.Allocator, final: []const u8, bytes: []const u8, existing: ?Existing) (WriteError || error{SymLinkLoop})!void {
     var suffix: [8]u8 = undefined;
     std.crypto.random.bytes(&suffix);
     const name = std.fmt.bytesToHex(suffix, .lower);
@@ -115,21 +137,28 @@ fn writeReplacing(allocator: std.mem.Allocator, final: []const u8, bytes: []cons
         const file = cwd.createFile(temp_path, .{ .exclusive = true }) catch |err| switch (err) {
             // A writable file in a directory we cannot create in: write in place.
             error.AccessDenied, error.PermissionDenied => {
-                if (mode == null) return err;
-                const existing = try cwd.openFile(final, .{ .mode = .write_only });
-                defer existing.close();
-                try existing.setEndPos(0);
-                return existing.writeAll(bytes);
+                const e = existing orelse return err;
+                return writeInPlace(e.file, bytes);
             },
             else => return err,
         };
         errdefer cwd.deleteFile(temp_path) catch {};
         defer file.close();
-        if (mode) |m| try file.chmod(m);
+        if (existing) |e| try file.chmod(e.mode);
         try file.writeAll(bytes);
     }
-    errdefer cwd.deleteFile(temp_path) catch {};
-    try cwd.rename(temp_path, final);
+    cwd.rename(temp_path, final) catch |err| {
+        cwd.deleteFile(temp_path) catch {};
+        switch (err) {
+            // Not allowed to replace the entry (a sticky directory, say), but
+            // the file itself is writable: write in place.
+            error.AccessDenied, error.PermissionDenied => {
+                const e = existing orelse return err;
+                return writeInPlace(e.file, bytes);
+            },
+            else => return err,
+        }
+    };
 }
 
 test {

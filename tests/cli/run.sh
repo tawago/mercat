@@ -371,6 +371,39 @@ check fifo-png-is-png [ "$(head -c 4 out-png/from-fifo)" = "$png_sig" ]
 mkdir out-dir
 expect output-directory 1 "mercat: error: cannot write 'out-dir': is a directory" -- --format plain -o out-dir h.md
 
+# --- -o over existing files as another user: same rules as `>` ---
+# Run as root only (to switch to uid 65534), and only when that user can reach
+# the binary and the work directory.
+as_nobody() {
+  setpriv --reuid=65534 --regid=65534 --clear-groups \
+    env -i PATH="$PATH" HOME="$work/home" XDG_CONFIG_HOME="$work/xdg" TERM=xterm-256color "$bin" "$@"
+}
+if [ "$(id -u)" = 0 ] && command -v setpriv >/dev/null; then
+  chmod 711 "$work"
+  mkdir -m 1777 sticky
+  chmod 644 h.md
+  if as_nobody --version >/dev/null 2>&1 && setpriv --reuid=65534 --regid=65534 --clear-groups test -w sticky; then
+    for fmt in plain png; do
+      # Another user's writable file in a sticky directory: written in place.
+      printf 'old\n' > "sticky/f-$fmt"
+      chmod 666 "sticky/f-$fmt"
+      err=$(as_nobody --format "$fmt" -o "sticky/f-$fmt" "$work/h.md" 2>&1)
+      check "sticky-$fmt-rc (err=$err)" [ $? = 0 ]
+      check "sticky-$fmt-written" lacks '^old$' "sticky/f-$fmt"
+      check "sticky-$fmt-owner-kept" [ "$(stat -c %u "sticky/f-$fmt")" = 0 ]
+      # A file the user cannot write is refused, as `>` refuses it.
+      printf 'RO\n' > "sticky/ro-$fmt"
+      chown 65534:65534 "sticky/ro-$fmt"
+      chmod 444 "sticky/ro-$fmt"
+      err=$(as_nobody --format "$fmt" -o "sticky/ro-$fmt" "$work/h.md" 2>&1)
+      check "readonly-$fmt-rc" [ $? = 1 ]
+      check "readonly-$fmt-err (err=$err)" [ "$err" = "mercat: error: cannot write 'sticky/ro-$fmt': permission denied" ]
+      check "readonly-$fmt-kept" cmp -s "sticky/ro-$fmt" <(printf 'RO\n')
+    done
+    check sticky-no-temp [ -z "$(ls -A sticky | grep mercat-tmp)" ]
+  fi
+fi
+
 # --- inline HTML across lines renders as markdown, not as raw source ---
 printf 'one <span\nclass=x>two</span>\n\nc <!-- a\nb --> d\n\na<br>b\n' > inline-html.md
 out=$(m --format plain inline-html.md 2>"$work/ihtml.err")
