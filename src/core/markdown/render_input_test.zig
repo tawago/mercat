@@ -1,4 +1,4 @@
-//! Hostile input: invalid UTF-8 (the files in tests/repro/invalid-utf8),
+//! Hostile input: invalid UTF-8, including inside a mermaid fence,
 //! invisible and control characters, and terminal escape injection. Every
 //! case must render as normal markdown with no block falling back to raw
 //! source, lose no visible text, and never emit a control character.
@@ -93,6 +93,7 @@ test "invalid UTF-8 repro files render as markdown" {
         .{ .input = "[link](http://example.com/\xFF) and text\n", .want = &.{"link <http://example.com/\u{FFFD}> and text"} },
         .{ .input = "---\ntitle: T\xFFt\n---\n\n# Heading\n", .want = &.{ "T\u{FFFD}t", "# Heading" } },
         .{ .input = "- one\n- tw\xFF\n- three\n", .want = &.{ "one", "tw\u{FFFD}", "three" } },
+        .{ .input = "```mermaid\ngraph TD\n  A[St\xFFart] --> B\n```\n", .want = &.{"St\u{FFFD}art"} },
         .{ .input = "line 1 \xFF\n\nline 2 \xFF\n\nline 3 \xFF\n\nline 4 \xFF\n\nline 5 \xFF\n", .want = &.{ "line 1 \u{FFFD}", "line 5 \u{FFFD}" } },
         .{ .input = "\xFF\xFE#\x00 \x00H\x00i\x00\n\x00\n\x00U\x00T\x00F\x00-\x001\x006\x00 \x00t\x00e\x00x\x00t\x00\n\x00", .want = &.{ "# Hi", "UTF-16 text" } },
     };
