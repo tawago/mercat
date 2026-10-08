@@ -3,7 +3,9 @@ const vaxis = @import("vaxis");
 const guard = @import("term_guard.zig");
 const ctlseqs = vaxis.ctlseqs;
 
-test "restore sequence leaves the alt screen last" {
+test "restore sequence shows the cursor, resets modes, and leaves the alt screen last" {
+    for ([_][]const u8{ ctlseqs.show_cursor, ctlseqs.mouse_reset, ctlseqs.sgr_reset, ctlseqs.csi_u_pop, ctlseqs.bp_reset }) |seq|
+        try std.testing.expect(std.mem.indexOf(u8, guard.restore_sequence, seq) != null);
     // Leaving the alt screen comes last so the resets apply to it first.
     try std.testing.expect(std.mem.endsWith(u8, guard.restore_sequence, ctlseqs.rmcup));
 }
@@ -47,9 +49,11 @@ test "uninstall restores the fatal-signal handlers that were there before" {
     try std.testing.expectEqual(before.handler.sigaction, after.handler.sigaction);
 }
 
-test "Ctrl-C exits, Ctrl-Z suspends, and Ctrl-Z in an editor only stops" {
+test "Ctrl-C exits, Ctrl-Z suspends, and in an editor Ctrl-C is ignored and Ctrl-Z only stops" {
     const SIG = std.posix.SIG;
     try std.testing.expectEqual(guard.Response.stop_only, guard.respond(SIG.TSTP, true));
+    try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.INT, true));
+    try std.testing.expectEqual(guard.Response.ignore, guard.respond(SIG.QUIT, true));
     try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.INT, false));
     try std.testing.expectEqual(guard.Response.restore_and_exit, guard.respond(SIG.QUIT, false));
     try std.testing.expectEqual(guard.Response.suspend_and_resume, guard.respond(SIG.TSTP, false));
