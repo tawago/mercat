@@ -238,6 +238,22 @@ fn emptyMask() posix.sigset_t {
     };
 }
 
+fn addSignal(set: *posix.sigset_t, sig: u8) void {
+    switch (builtin.os.tag) {
+        .macos => set.* |= @as(posix.sigset_t, 1) << @intCast(sig - 1),
+        else => posix.sigaddset(set, sig),
+    }
+}
+
+/// Blocks the signals the guard handles in the calling thread.
+fn blockGuardedSignals() void {
+    var set = emptyMask();
+    for (exit_signals) |sig| addSignal(&set, sig);
+    addSignal(&set, posix.SIG.TSTP);
+    var old: posix.sigset_t = undefined;
+    _ = std.c.pthread_sigmask(posix.SIG.BLOCK, &set, &old);
+}
+
 fn forwardSignal(sig: c_int) callconv(.c) void {
     const byte: u8 = @intCast(sig);
     // Decide now, not when the watcher gets to it: by then the child may have
@@ -285,6 +301,10 @@ fn isExitSignal(sig: u8) bool {
 }
 
 fn watch() void {
+    // Process-directed signals then always reach the main thread. On macOS
+    // a TERM pending across a stop could otherwise run its handler here
+    // while the main thread clears `suspended` and carries on.
+    blockGuardedSignals();
     var byte: [1]u8 = undefined;
     while (true) {
         const n = posix.read(pipe_fds[0], &byte) catch return;

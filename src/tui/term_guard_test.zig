@@ -108,7 +108,9 @@ test "kill of a suspended process (TERM then CONT) terminates it instead of stop
             posix.setpgid(0, 0) catch posix.exit(2);
             guard.install(fds[1], std.mem.zeroes(posix.termios), null) catch posix.exit(2);
             guard.suspendSelf();
-            // Only reached if the exit signal did not end the process.
+            // Only reached if the exit signal did not end the process; wait
+            // as the app would rather than racing the signal to exit.
+            std.Thread.sleep(2 * std.time.ns_per_s);
             posix.exit(3);
         }
         posix.close(fds[1]);
