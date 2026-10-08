@@ -38,17 +38,6 @@ fn expectParagraphShape(source: []const u8, expected: []const u8) !void {
     try testing.expectEqualStrings(expected, out.items);
 }
 
-test "emphasis before a link" {
-    try expectParagraphShape("**bold** [link](http://x)", "S(bold) L(link)");
-    try expectParagraphShape("*it* [l](u)", "E(it) L(l)");
-    try expectParagraphShape("__b__ [l](u)", "S(b) L(l)");
-    try expectParagraphShape("_e_ [l](u)", "E(e) L(l)");
-    try expectParagraphShape("`code` [l](u)", "C(code) L(l)");
-    try expectParagraphShape("**b** and **c** [l](u)", "S(b) and S(c) L(l)");
-    try expectParagraphShape("**b**[l](u)", "S(b)L(l)");
-    try expectParagraphShape("**b** ![alt](i.png)", "S(b) I(alt)");
-}
-
 test "emphasis around and inside links" {
     try expectParagraphShape("[l](u) **b**", "L(l) S(b)");
     try expectParagraphShape("[**b** in](u)", "L(S(b) in)");

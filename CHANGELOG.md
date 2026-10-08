@@ -14,9 +14,6 @@ All notable changes to this project will be documented in this file.
   `<center>` wrappers are dropped but their text is kept; `<summary>X</summary>`
   shows as `▸ X`; `<br>` breaks the line; `<img>` and `<a href>` render like
   markdown images and links. Multi-line HTML blocks no longer crash.
-- **Emphasis before a link.** `**bold** [link](url)` keeps its bold text instead
-  of printing the literal `**`. The fix is a patch to the bundled koino parser,
-  now vendored in `vendor/koino` (see `vendor/koino/PIN.md`).
 - **One bad block no longer fails the document.** A block that cannot be
   rendered (an unexpected internal error) is shown as dimmed raw source, cleaned
   like all other text (bad bytes and controls become `�`, invisible format

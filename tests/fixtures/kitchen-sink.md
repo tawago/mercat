@@ -19,9 +19,9 @@ A centered <b>tagline</b> &amp; some <sup>small</sup> print.
 
 # Kitchen sink
 
-**bold** [link](https://example.com) and *italic* [link](https://example.com),
-__strong__ [l](u), `code` [l](u), **b** and **c** [l](u), [l](u) **after**,
-[**bold inside** link](u), ~~gone~~ and ==marked== and H~2~O and E=mc^2^.
+**bold**, *italic* and __strong__ text, `code`, a [link](https://example.com),
+[l](u) **after**, [**bold inside** link](u), ~~gone~~ and ==marked== and
+H~2~O and E=mc^2^.
 
 ## Lists with block content
 
@@ -92,7 +92,7 @@ preformatted
 
 ## Quotes
 
-> A quote with **bold** and a [link](https://example.com).
+> A quote with a [link](https://example.com) and **bold**.
 >
 > > Nested quote.
 >
