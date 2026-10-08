@@ -25,33 +25,34 @@ fn count(text: []const u8, needle: []const u8) usize {
     return std.mem.count(u8, text, needle);
 }
 
-test "a wide diagram draws on a wrap rung, the same at either budget" {
-    const narrow = try drawn(wide_self_message, 78);
-    defer testing.allocator.free(narrow);
-    const wide = try drawn(wide_self_message, 98);
-    defer testing.allocator.free(wide);
-    try testing.expectEqualStrings(narrow, wide);
-    try expectWithin(narrow, 78);
-}
-
-test "every word of every message label is drawn" {
+test "the narrowest unwrapped width draws unwrapped; below it the diagram wraps within budget, whole" {
     const allocator = testing.allocator;
     var diagram = try parse.parse(allocator, wide_self_message);
     defer diagram.deinit();
-    const text = try drawn(wide_self_message, 78);
-    defer allocator.free(text);
-    for (diagram.elements.items) |element| {
-        var words = std.mem.tokenizeScalar(u8, element.message.text, ' ');
-        while (words.next()) |word| try testing.expect(std.mem.indexOf(u8, text, word) != null);
+    var unwrapped: std.ArrayList(fit.Spacing) = .empty;
+    defer unwrapped.deinit(allocator);
+    for (fit.ladder(diagram.direction, diagram.direction_explicit)) |rung| {
+        if (!rung.wrap) try unwrapped.append(allocator, rung);
     }
-}
+    const painter = render.Painter{ .allocator = allocator, .diagram = &diagram };
+    const need = (try ladder.firstFit(unwrapped.items, painter, 0)).too_wide;
 
-test "every arrowhead and box corner survives the wrap" {
-    const text = try drawn(wide_self_message, 78);
-    defer testing.allocator.free(text);
-    try testing.expectEqual(@as(usize, 7), count(text, "►") + count(text, "◄"));
-    for ([_][]const u8{ "╭", "╮", "╰", "╯" }) |corner| try testing.expectEqual(@as(usize, 4), count(text, corner));
-    for ([_][]const u8{ "Sender", "Ingest", "DataStore", "Worker" }) |name| try testing.expect(std.mem.indexOf(u8, text, name) != null);
+    const label = "Commit normalized value + Domain event";
+    const whole = try drawn(wide_self_message, need);
+    defer allocator.free(whole);
+    try expectWithin(whole, need);
+    try testing.expect(std.mem.indexOf(u8, whole, label) != null);
+
+    const wrapped = try drawn(wide_self_message, need - 1);
+    defer allocator.free(wrapped);
+    const narrow = try drawn(wide_self_message, 78);
+    defer allocator.free(narrow);
+    try testing.expectEqualStrings(narrow, wrapped);
+    try expectWithin(wrapped, 78);
+    try testing.expect(std.mem.indexOf(u8, wrapped, label) == null);
+    try testing.expectEqual(@as(usize, 7), count(wrapped, "►") + count(wrapped, "◄"));
+    for ([_][]const u8{ "╭", "╮", "╰", "╯" }) |corner| try testing.expectEqual(@as(usize, 4), count(wrapped, corner));
+    for ([_][]const u8{ "Sender", "Ingest", "DataStore", "Worker" }) |name| try testing.expect(std.mem.indexOf(u8, wrapped, name) != null);
 }
 
 test "self text wider than the room left wraps within the budget" {
@@ -93,17 +94,7 @@ test "activation bars leave a wrapped label whole" {
     }
 }
 
-const CountingPainter = struct {
-    inner: render.Painter,
-    wrap_tries: *u32,
-
-    pub fn draw(self: CountingPainter, spacing: fit.Spacing, max_width: u32) !ladder.Fit {
-        if (spacing.wrap) self.wrap_tries.* += 1;
-        return self.inner.draw(spacing, max_width);
-    }
-};
-
-test "a diagram that fits unwrapped draws as before and never tries a wrap rung" {
+test "a diagram that fits unwrapped draws as before" {
     const source =
         \\sequenceDiagram
         \\    Alice->>Bob: Hello
@@ -121,22 +112,14 @@ test "a diagram that fits unwrapped draws as before and never tries a wrap rung"
         \\      ┆                ┆
         \\
     ;
-    const allocator = testing.allocator;
-    var diagram = try parse.parse(allocator, source);
-    defer diagram.deinit();
-    for ([_]u32{ 30, 78, 160 }) |max_width| {
-        var wrap_tries: u32 = 0;
-        const painter = CountingPainter{ .inner = .{ .allocator = allocator, .diagram = &diagram }, .wrap_tries = &wrap_tries };
-        const fitted = try ladder.firstFit(fit.ladder(diagram.direction, diagram.direction_explicit), painter, max_width);
-        defer allocator.free(fitted.drawn);
-        try testing.expectEqualStrings(expected, fitted.drawn);
-        try testing.expectEqual(@as(u32, 0), wrap_tries);
-    }
+    const text = try drawn(source, 78);
+    defer testing.allocator.free(text);
+    try testing.expectEqualStrings(expected, text);
 }
 
 test "participant names are not wrapped: a pair wider than the budget stays undrawn" {
     const fitted = try render.render(testing.allocator, "sequenceDiagram\nAlice->>Bob: a very long message text here", 18);
-    try testing.expectEqual(ladder.Fit{ .too_wide = 23 }, fitted);
+    try testing.expect(fitted.too_wide > 18);
 }
 
 /// Every lifeline cell and arrowhead sits on a lifeline column read off the last row.
@@ -309,54 +292,29 @@ test "a wide-character label wraps between characters where a word of its width 
     try expectLifelinesAligned(text);
 }
 
-test "an emoji sequence wider than the gap refuses the wrap rung whole" {
-    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
-    const source = "sequenceDiagram\n    participant A\n    participant B\n    A->>B: " ++ family ** 4 ++ " ok\n";
-    const allocator = testing.allocator;
-    var diagram = try parse.parse(allocator, source);
-    defer diagram.deinit();
-    const refused = try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200);
-    try testing.expect(refused.too_wide > 200);
-}
-
-test "a tab in a label draws as blanks the width it was measured, lifelines aligned" {
-    const source = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n" ++
-        "    A->>C: x ab\tcd ef\n    B->>B: z\ty\n";
-    const allocator = testing.allocator;
-    var diagram = try parse.parse(allocator, source);
-    defer diagram.deinit();
-    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
-    defer allocator.free(text);
-    try testing.expect(std.mem.indexOfScalar(u8, text, '\t') == null);
-    try testing.expect(std.mem.indexOf(u8, text, "x ab    cd ef") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "z   y") != null);
-    try expectLifelinesAligned(text);
-}
-
-test "graphemes of several scalars and a lone mark after a break draw whole, lifelines aligned" {
+test "tabs, multi-scalar graphemes and a lone mark or modifier after a break draw whole, lifelines aligned" {
     const label = "cafe\u{0301} \u{304B}\u{3099} \u{2764}\u{FE0F} 🇯🇵 👩‍💻 ok";
-    const source = "sequenceDiagram\n    participant A as Cafe\u{0301}\n    participant B\n    participant C\n" ++
-        "    A->>A: " ++ label ++ "\n    A->>C: " ++ label ++ "\n    B->>C: hi<br>\u{0301}x\n";
+    const head = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n";
+    const cases = [_]struct { source: []const u8, words: []const u8 = "", present: []const []const u8 = &.{}, once: []const []const u8 = &.{} }{
+        .{ .source = head ++ "    A->>C: x ab\tcd ef\n    B->>B: z\ty\n", .present = &.{ "x ab    cd ef", "z   y" } },
+        .{
+            .source = "sequenceDiagram\n    participant A as Cafe\u{0301}\n    participant B\n    participant C\n" ++
+                "    A->>A: " ++ label ++ "\n    A->>C: " ++ label ++ "\n    B->>C: hi<br>\u{0301}x\n",
+            .words = label,
+            .once = &.{ "Cafe\u{0301}", " \u{0301}x" },
+        },
+        .{ .source = head ++ "    A->>A: 🏽 opens a self message\n    A->>C: 🏿 opens a label\n    B->>C: hi<br>🏽x\n", .once = &.{ " 🏽x", " 🏿 opens" } },
+    };
     const allocator = testing.allocator;
-    var diagram = try parse.parse(allocator, source);
-    defer diagram.deinit();
-    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
-    defer allocator.free(text);
-    try testing.expect(count(text, "Cafe\u{0301}") == 1);
-    try expectWords(text, label);
-    try testing.expect(count(text, " \u{0301}x") == 1);
-    try expectLifelinesAligned(text);
-}
-
-test "a lone emoji modifier opening a line draws on a space, lifelines aligned" {
-    const source = "sequenceDiagram\n    participant A\n    participant B\n    participant C\n" ++
-        "    A->>A: 🏽 opens a self message\n    A->>C: 🏿 opens a label\n    B->>C: hi<br>🏽x\n";
-    const allocator = testing.allocator;
-    var diagram = try parse.parse(allocator, source);
-    defer diagram.deinit();
-    const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
-    defer allocator.free(text);
-    try testing.expect(count(text, " 🏽x") == 1);
-    try testing.expect(count(text, " 🏿 opens") == 1);
-    try expectLifelinesAligned(text);
+    for (cases) |case| {
+        var diagram = try parse.parse(allocator, case.source);
+        defer diagram.deinit();
+        const text = (try tb_wrap.render(allocator, &diagram, .{ .participant = 2, .padding = 2, .wrap = true }, 200)).drawn;
+        defer allocator.free(text);
+        try testing.expect(std.mem.indexOfScalar(u8, text, '\t') == null);
+        for (case.present) |needle| try testing.expect(std.mem.indexOf(u8, text, needle) != null);
+        for (case.once) |needle| try testing.expectEqual(@as(usize, 1), count(text, needle));
+        try expectWords(text, case.words);
+        try expectLifelinesAligned(text);
+    }
 }

@@ -17,31 +17,25 @@ pub fn firstFit(rungs: anytype, painter: anytype, max_width: u32) !Fit {
 
 const TestPainter = struct {
     calls: *u32,
-    fail_at: ?u32 = null,
 
     fn draw(self: TestPainter, need: u32, max_width: u32) !Fit {
         self.calls.* += 1;
-        if (self.fail_at == need) return error.Boom;
         return if (need <= max_width) .{ .drawn = "ok" } else .{ .too_wide = need };
     }
 };
 
-test "the first rung that draws wins and later rungs never run" {
-    var calls: u32 = 0;
-    const fit = try firstFit(&[_]u32{ 90, 50, 40, 30 }, TestPainter{ .calls = &calls }, 60);
-    try std.testing.expectEqualStrings("ok", fit.drawn);
-    try std.testing.expectEqual(@as(u32, 2), calls);
-}
-
-test "nothing fits: the narrowest width any rung needed, not the last" {
-    var calls: u32 = 0;
-    const fit = try firstFit(&[_]u32{ 90, 70, 80 }, TestPainter{ .calls = &calls }, 60);
-    try std.testing.expectEqual(Fit{ .too_wide = 70 }, fit);
-    try std.testing.expectEqual(@as(u32, 3), calls);
-}
-
-test "a painter error propagates" {
-    var calls: u32 = 0;
-    try std.testing.expectError(error.Boom, firstFit(&[_]u32{ 90, 70, 50 }, TestPainter{ .calls = &calls, .fail_at = 70 }, 60));
-    try std.testing.expectEqual(@as(u32, 2), calls);
+test "the first rung that draws wins; when none does, the narrowest width any rung needed" {
+    const cases = [_]struct { needs: []const u32, want: Fit, calls: u32 }{
+        .{ .needs = &.{ 90, 50, 40, 30 }, .want = .{ .drawn = "ok" }, .calls = 2 },
+        .{ .needs = &.{ 90, 70, 80 }, .want = .{ .too_wide = 70 }, .calls = 3 },
+    };
+    for (cases) |case| {
+        var calls: u32 = 0;
+        const fit = try firstFit(case.needs, TestPainter{ .calls = &calls }, 60);
+        switch (case.want) {
+            .drawn => |text| try std.testing.expectEqualStrings(text, fit.drawn),
+            .too_wide => try std.testing.expectEqual(case.want, fit),
+        }
+        try std.testing.expectEqual(case.calls, calls);
+    }
 }

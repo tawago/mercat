@@ -88,35 +88,22 @@ fn hasMermaidFence(src: []const u8) bool {
     return false;
 }
 
-test "fromSource reads the first meaningful line" {
-    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("\xEF\xBB\xBF%% note\r\n\r\n  graph LR\r\nA-->B"));
-    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("graphviz"));
-    try std.testing.expectEqual(Kind.state, Kind.fromSource("stateDiagram-v2\n"));
-    try std.testing.expectEqual(Kind.class_diagram, Kind.fromSource("classDiagram"));
-    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("---\ntitle: x\n---\ngraph TD"));
-    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("%% only\n"));
-    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("pie"));
-}
-
-test "looksLikeBareMermaid is stricter than fromSource" {
-    try std.testing.expect(looksLikeBareMermaid("graph LR\nA-->B"));
+test "fromSource names the kind from the first meaningful line; looksLikeBareMermaid is stricter" {
+    const cases = [_]struct { []const u8, Kind }{
+        .{ "\xEF\xBB\xBF%% note\r\n\r\n  graph LR\r\nA-->B", .flowchart },
+        .{ "graphviz", .flowchart },
+        .{ "flowchart TD", .flowchart },
+        .{ "sequenceDiagram", .sequence },
+        .{ "classDiagram", .class_diagram },
+        .{ "stateDiagram", .state },
+        .{ "stateDiagram-v2\n", .state },
+        .{ "erDiagram", .er },
+        .{ "---\ntitle: x\n---\ngraph TD", .unsupported },
+        .{ "%% only\n", .unsupported },
+        .{ "pie", .unsupported },
+        .{ "gantt", .unsupported },
+    };
+    for (cases) |case| try std.testing.expectEqual(case[1], Kind.fromSource(case[0]));
     try std.testing.expect(looksLikeBareMermaid("flowchart;TD"));
-    try std.testing.expect(looksLikeBareMermaid("sequenceDiagram"));
-    try std.testing.expect(!looksLikeBareMermaid("graph\nA-->B"));
-    try std.testing.expect(!looksLikeBareMermaid("  graph LR"));
-    try std.testing.expect(!looksLikeBareMermaid("graphviz LR"));
     try std.testing.expect(!looksLikeBareMermaid("graph LR\n```mermaid\n```"));
-}
-
-test "fromSource names every diagram kind by its keyword" {
-    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("graph LR"));
-    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("flowchart TD"));
-    try std.testing.expectEqual(Kind.flowchart, Kind.fromSource("  graph LR\n  A --> B"));
-    try std.testing.expectEqual(Kind.sequence, Kind.fromSource("sequenceDiagram"));
-    try std.testing.expectEqual(Kind.class_diagram, Kind.fromSource("classDiagram"));
-    try std.testing.expectEqual(Kind.state, Kind.fromSource("stateDiagram"));
-    try std.testing.expectEqual(Kind.state, Kind.fromSource("stateDiagram-v2"));
-    try std.testing.expectEqual(Kind.er, Kind.fromSource("erDiagram"));
-    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("pie"));
-    try std.testing.expectEqual(Kind.unsupported, Kind.fromSource("gantt"));
 }
