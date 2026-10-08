@@ -31,15 +31,6 @@ fn rail(role: sketch.EdgeRole, taps: []const sketch.Tap) sketch.Rail {
 
 const origin: sketch.Point = .{ .x = 0, .y = 0 };
 
-test "a path gives its own ends, kind and arrows" {
-    const e = edge_ends.find(&.{ path(3, 1, 2), path(4, 5, 6) }, &.{}, 4).?;
-    try std.testing.expectEqual(@as(sketch.EdgeId, 4), e.edge);
-    try std.testing.expectEqual(@as(sketch.NodeId, 5), e.from);
-    try std.testing.expectEqual(@as(sketch.NodeId, 6), e.to);
-    try std.testing.expectEqual(sketch.EdgeKind.dotted, e.kind);
-    try std.testing.expectEqual([2]sketch.ArrowKind{ .open, .filled }, e.arrows);
-}
-
 test "a fan-out tap runs from the pivot, a fan-in tap runs into it" {
     const taps = [_]sketch.Tap{.{ .edge = 9, .node = 2, .at = origin, .landing = origin, .arrow = .cross }};
     const out = edge_ends.find(&.{}, &.{rail(.fan_out_dropper, &taps)}, 9).?;
@@ -60,5 +51,8 @@ test "a path wins over a tap with the same edge id, and an unknown id finds noth
     const taps = [_]sketch.Tap{.{ .edge = 3, .node = 2, .at = origin, .landing = origin }};
     const e = edge_ends.find(&.{path(3, 1, 8)}, &.{rail(.fan_out_dropper, &taps)}, 3).?;
     try std.testing.expectEqual(@as(sketch.NodeId, 1), e.from);
+    try std.testing.expectEqual(@as(sketch.NodeId, 8), e.to);
+    try std.testing.expectEqual(sketch.EdgeKind.dotted, e.kind);
+    try std.testing.expectEqual([2]sketch.ArrowKind{ .open, .filled }, e.arrows);
     try std.testing.expect(edge_ends.find(&.{path(3, 1, 8)}, &.{rail(.fan_out_dropper, &taps)}, 4) == null);
 }

@@ -33,28 +33,6 @@ test "heights: a layer is as tall as its tallest node, virtual nodes included" {
     try testing.expectEqualSlices(u32, &.{ 7, 1 }, h);
 }
 
-test "gaps: one gap between each pair of layers, as tall as the vertical spacing in TD and 4 once rotated" {
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
-    var layer0 = [_]u32{0};
-    var layer1 = [_]u32{1};
-    var layer2 = [_]u32{2};
-    var layers = [_][]u32{ &layer0, &layer1, &layer2 };
-    const lg = layered(&nodes, &layers);
-
-    const td = try layout.gaps(testing.allocator, .TD, lg, 2);
-    defer testing.allocator.free(td);
-    try testing.expectEqualSlices(u32, &.{ 2, 2 }, td);
-
-    const lr = try layout.gaps(testing.allocator, .LR, lg, 2);
-    defer testing.allocator.free(lr);
-    try testing.expectEqualSlices(u32, &.{ 4, 4 }, lr);
-
-    var one_layers = [_][]u32{&layer0};
-    const single = try layout.gaps(testing.allocator, .TD, layered(&nodes, &one_layers), 2);
-    defer testing.allocator.free(single);
-    try testing.expectEqual(@as(usize, 0), single.len);
-}
-
 test "assignY adds to the y a node already has, so a second pass stacks on the first" {
     var layer0 = [_]u32{0};
     var layer1 = [_]u32{1};

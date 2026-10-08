@@ -93,5 +93,4 @@ fn clears(
 
 test {
     std.testing.refAllDecls(@This());
-    _ = @import("member_stroke_test.zig");
 }

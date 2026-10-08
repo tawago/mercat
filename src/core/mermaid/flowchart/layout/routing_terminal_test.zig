@@ -39,19 +39,15 @@ test "terminalsStraight refuses a turn inside a decorated terminal cell at eithe
     try testing.expect(rt.terminalsStraight(&straight, .{ .from = true, .to = true }));
 }
 
-test "satisfyApproach grows a corner-fed len-2 final into a straight base approach" {
+test "satisfyApproach grows a corner-fed len-2 final into a straight base approach, and leaves blocked, formal and tip finals alone" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const target = mkPlacement(1, .{ .x = 3, .y = 10, .w = 20, .h = 3 });
     const placements = [_]sketch.NodePlacement{target};
-    var poly = [_]sketch.Point{
-        .{ .x = 4, .y = 5 },
-        .{ .x = 4, .y = 8 },
-        .{ .x = 10, .y = 8 },
-        .{ .x = 10, .y = 10 },
-    };
+    const corner_fed = [_]sketch.Point{ .{ .x = 4, .y = 5 }, .{ .x = 4, .y = 8 }, .{ .x = 10, .y = 8 }, .{ .x = 10, .y = 10 } };
+    var poly = corner_fed;
     const grown = try rt.satisfyApproach(a, &poly, &placements);
     try testing.expect(grown.ptr != (&poly).ptr);
     try testing.expectEqual(sketch.Point{ .x = 4, .y = 7 }, grown[1]);
@@ -59,39 +55,16 @@ test "satisfyApproach grows a corner-fed len-2 final into a straight base approa
     try testing.expectEqual(sketch.Point{ .x = 10, .y = 10 }, grown[3]);
     try testing.expectEqual(@as(i32, 3), grown[3].y - grown[2].y);
     try testing.expectEqual(grown[2].x, grown[3].x);
-}
 
-test "satisfyApproach accept-fallback: no clear cell leaves the polyline untouched" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
+    // Accept-fallback: with no clear cell the polyline comes back untouched.
+    const blocked_placements = [_]sketch.NodePlacement{ target, mkPlacement(2, .{ .x = 4, .y = 6, .w = 10, .h = 3 }) };
+    var blocked = corner_fed;
+    try testing.expectEqual((&blocked).ptr, (try rt.satisfyApproach(a, &blocked, &blocked_placements)).ptr);
+    try testing.expectEqualSlices(sketch.Point, &corner_fed, &blocked);
 
-    const target = mkPlacement(1, .{ .x = 3, .y = 10, .w = 20, .h = 3 });
-    const blocker = mkPlacement(2, .{ .x = 4, .y = 6, .w = 10, .h = 3 });
-    const placements = [_]sketch.NodePlacement{ target, blocker };
-    var poly = [_]sketch.Point{
-        .{ .x = 4, .y = 5 },
-        .{ .x = 4, .y = 8 },
-        .{ .x = 10, .y = 8 },
-        .{ .x = 10, .y = 10 },
-    };
-    const result = try rt.satisfyApproach(a, &poly, &placements);
-    try testing.expectEqual((&poly).ptr, result.ptr);
-    try testing.expectEqual(sketch.Point{ .x = 4, .y = 8 }, poly[1]);
-    try testing.expectEqual(sketch.Point{ .x = 10, .y = 8 }, poly[2]);
-}
-
-test "satisfyApproach is a no-op for a formal (length-3) or turn-at-tip (length-1) final" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const placements = [_]sketch.NodePlacement{mkPlacement(1, .{ .x = 3, .y = 10, .w = 20, .h = 3 })};
-
+    // A formal (length-3) or turn-at-tip (length-1) final needs nothing.
     var formal = [_]sketch.Point{ .{ .x = 4, .y = 5 }, .{ .x = 4, .y = 7 }, .{ .x = 10, .y = 7 }, .{ .x = 10, .y = 10 } };
-    const r1 = try rt.satisfyApproach(a, &formal, &placements);
-    try testing.expectEqual((&formal).ptr, r1.ptr);
-
+    try testing.expectEqual((&formal).ptr, (try rt.satisfyApproach(a, &formal, &placements)).ptr);
     var tip = [_]sketch.Point{ .{ .x = 4, .y = 8 }, .{ .x = 10, .y = 8 }, .{ .x = 10, .y = 9 } };
-    const r2 = try rt.satisfyApproach(a, &tip, &placements);
-    try testing.expectEqual((&tip).ptr, r2.ptr);
+    try testing.expectEqual((&tip).ptr, (try rt.satisfyApproach(a, &tip, &placements)).ptr);
 }

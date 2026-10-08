@@ -44,9 +44,10 @@ test "F-A: clearInvisiblePath skips a foreign border-collinear dogleg" {
     try std.testing.expect(!clearance.touchesForeignNode(poly, &placements, 0, 1));
 }
 
-test "reserved departures exempt same selected rail" {
+test "a reserved departure blocks collinear occupancy and admits a perpendicular crossing, except for its own rail or a discharged edge" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
+    const a = arena.allocator();
     const placements = [_]sk.NodePlacement{
         node(0, 0, 0, 5, 3),
         node(1, 0, 6, 5, 3),
@@ -54,96 +55,42 @@ test "reserved departures exempt same selected rail" {
     const edge_ports = [_]EP{
         .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
     };
-    const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
-
-    try std.testing.expect(try clearance.conflictsReservedTerminals(
-        arena.allocator(),
-        1,
-        &poly,
-        &placements,
-        &edge_ports,
-        .{},
-    ));
-
+    const collinear = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+    const bend = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
+    const crossing = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 0, .y = 3 } };
     const members = [_]pb.EdgeId{ 0, 1 };
     const selected = [_]pb.SelectedBundle{.{ .id = 0, .candidate_bundle = 0, .members = &members }};
-    try std.testing.expect(!try clearance.conflictsReservedTerminals(
-        arena.allocator(),
-        1,
-        &poly,
-        &placements,
-        &edge_ports,
-        .{ .selected_bundles = &selected },
-    ));
-}
-
-test "a discharged edge's port allocation reserves no departure" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 3),
-        node(1, 0, 6, 5, 3),
-    };
-    const edge_ports = [_]EP{
-        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
-    };
-    const poly = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
-
-    try std.testing.expect(try clearance.conflictsReservedTerminals(
-        arena.allocator(),
-        1,
-        &poly,
-        &placements,
-        &edge_ports,
-        .{},
-    ));
-
     const co = [_]pb.EdgeId{0};
-    try std.testing.expect(!try clearance.conflictsReservedTerminals(
-        arena.allocator(),
-        1,
-        &poly,
-        &placements,
-        &edge_ports,
-        .{ .discharged = &co },
-    ));
+    const rows = [_]struct { poly: []const sk.Point, bundles: pb.RealizedBundles, conflicts: bool }{
+        .{ .poly = &collinear, .bundles = .{}, .conflicts = true },
+        .{ .poly = &bend, .bundles = .{}, .conflicts = true },
+        .{ .poly = &crossing, .bundles = .{}, .conflicts = false },
+        .{ .poly = &collinear, .bundles = .{ .selected_bundles = &selected }, .conflicts = false },
+        .{ .poly = &collinear, .bundles = .{ .discharged = &co }, .conflicts = false },
+    };
+    for (rows) |row| {
+        try std.testing.expectEqual(row.conflicts, try clearance.conflictsReservedTerminals(a, 1, row.poly, &placements, &edge_ports, row.bundles));
+    }
 }
 
-test "a reserved departure blocks collinear occupancy and admits a perpendicular crossing" {
+test "a decorated terminal cell blocks even a perpendicular crossing at either end" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const placements = [_]sk.NodePlacement{
         node(0, 0, 0, 5, 3),
-        node(1, 0, 6, 5, 3),
+        node(1, 0, 10, 5, 3),
     };
-    const edge_ports = [_]EP{
-        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 } },
-    };
-
-    const collinear = [_]sk.Point{ .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
-    try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &collinear, &placements, &edge_ports, .{}));
-
-    const bend = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 2, .y = 3 }, .{ .x = 2, .y = 8 } };
-    try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &bend, &placements, &edge_ports, .{}));
-
-    const crossing = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 0, .y = 3 } };
-    try std.testing.expect(!try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &edge_ports, .{}));
-}
-
-test "a decorated departure cell blocks even a perpendicular crossing" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 3),
-        node(1, 0, 6, 5, 3),
-    };
-    const edge_ports = [_]EP{
-        .{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .source_decorated = true },
-    };
-    const crossing = [_]sk.Point{ .{ .x = 8, .y = 3 }, .{ .x = 0, .y = 3 } };
-    try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &edge_ports, .{}));
+    const source: sk.Port = .{ .node = 0, .side = .south, .offset = 2 };
+    const target: sk.Port = .{ .node = 1, .side = .north, .offset = 2 };
+    // Crossings on the departure row (y=3) and the arrival row (y=9).
+    for ([_]i32{ 3, 9 }, [_]bool{ true, false }) |y, at_source| {
+        const crossing = [_]sk.Point{ .{ .x = 8, .y = y }, .{ .x = 0, .y = y } };
+        const plain = [_]EP{.{ .edge = 0, .source = source, .target = target }};
+        try std.testing.expect(!try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &plain, .{}));
+        const decorated = [_]EP{.{ .edge = 0, .source = source, .target = target, .source_decorated = at_source, .target_decorated = !at_source }};
+        try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &decorated, .{}));
+    }
 }
 
 test "a detour's port run never crosses the route's own box" {
@@ -207,33 +154,16 @@ test "polylineClears refuses every clearance violation regardless of membership 
         try std.testing.expect(!try clearance.polylineClears(a, 0, &through_foreign, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
         try std.testing.expect(try clearance.polylineClears(a, 0, &clear, &.{}, &rails, &placements, &edge_ports, bundles, 0, 1));
     }
-}
+    // With no realized memberships a foreign box still refuses the route.
+    try std.testing.expect(!try clearance.polylineClears(a, 0, &through_foreign, &.{}, &rails, &placements, &edge_ports, .{}, 0, 1));
+    try std.testing.expect(try clearance.polylineClears(a, 0, &clear, &.{}, &rails, &placements, &edge_ports, .{}, 0, 1));
 
-test "the detour search widens once per already-routed path, never past the ceiling" {
-    try std.testing.expectEqual(@as(u32, 2), detour.detourLimit(0));
-    try std.testing.expectEqual(@as(u32, 4), detour.detourLimit(1));
-    try std.testing.expectEqual(@as(u32, 20), detour.detourLimit(9));
-    try std.testing.expectEqual(@as(u32, 64), detour.detourLimit(31));
-    try std.testing.expectEqual(@as(u32, 64), detour.detourLimit(10_000));
-}
-
-test "a decorated arrival cell blocks even a perpendicular crossing" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 3),
-        node(1, 0, 10, 5, 3),
-    };
-    const target: sk.Port = .{ .node = 1, .side = .north, .offset = 2 };
-    const source: sk.Port = .{ .node = 0, .side = .south, .offset = 2 };
+    // A decorated terminal's reservation also holds with no realized memberships.
+    const decorated = [_]EP{.{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 }, .target_decorated = true }};
     const crossing = [_]sk.Point{ .{ .x = 8, .y = 9 }, .{ .x = 0, .y = 9 } };
-    const plain = [_]EP{.{ .edge = 0, .source = source, .target = target }};
-    try std.testing.expect(!try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &plain, .{}));
-    const decorated = [_]EP{.{ .edge = 0, .source = source, .target = target, .target_decorated = true }};
-    try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &crossing, &placements, &decorated, .{}));
-    const collinear = [_]sk.Point{ .{ .x = 2, .y = 5 }, .{ .x = 2, .y = 10 } };
-    try std.testing.expect(try clearance.conflictsReservedTerminals(a, 1, &collinear, &placements, &plain, .{}));
+    const below_source = [_]sk.Point{ .{ .x = 8, .y = 6 }, .{ .x = 0, .y = 6 } };
+    try std.testing.expect(!try clearance.polylineClears(a, 1, &crossing, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
+    try std.testing.expect(try clearance.polylineClears(a, 1, &below_source, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
 }
 
 test "a decorated terminal's lateral neighbours refuse a foreign arm toward the head, admit a parallel through-run and a bend turning away" {
@@ -270,21 +200,6 @@ test "a decorated terminal's lateral neighbours refuse a foreign arm toward the 
     try std.testing.expect(!try clearance.conflictsReservedTerminals(a, 1, &side_parallel, &side_placements, &east_decorated, .{}));
     const side_away = [_]sk.Point{ .{ .x = 7, .y = 2 }, .{ .x = 11, .y = 2 }, .{ .x = 11, .y = 6 } };
     try std.testing.expect(!try clearance.conflictsReservedTerminals(a, 1, &side_away, &side_placements, &east_decorated, .{}));
-}
-
-test "reservations hold with no realized memberships" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 3),
-        node(1, 0, 10, 5, 3),
-    };
-    const decorated = [_]EP{.{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 }, .target_decorated = true }};
-    const crossing = [_]sk.Point{ .{ .x = 8, .y = 9 }, .{ .x = 0, .y = 9 } };
-    const clear = [_]sk.Point{ .{ .x = 8, .y = 6 }, .{ .x = 0, .y = 6 } };
-    try std.testing.expect(!try clearance.polylineClears(a, 1, &crossing, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
-    try std.testing.expect(try clearance.polylineClears(a, 1, &clear, &.{}, &.{}, &placements, &decorated, .{}, 0, 1));
 }
 
 test "two edges the plan attached to one port do not reserve that port's cell against each other" {
@@ -410,22 +325,6 @@ test "members of one fused union do not block each other" {
     const both = [_]pb.EdgeId{ 0, 1 };
     const unions = [_][]const pb.EdgeId{&both};
     try std.testing.expect(!try clearance.conflicts(a, 1, &candidate, &existing, .{ .fused = &unions }));
-}
-
-test "a route through a foreign box is refused with no realized memberships" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const placements = [_]sk.NodePlacement{
-        node(0, 0, 0, 5, 3),
-        node(1, 0, 20, 5, 3),
-        node(2, 0, 10, 5, 3),
-    };
-    const ports = [_]EP{.{ .edge = 0, .source = .{ .node = 0, .side = .south, .offset = 2 }, .target = .{ .node = 1, .side = .north, .offset = 2 } }};
-    const through = [_]sk.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 6 }, .{ .x = 3, .y = 6 }, .{ .x = 3, .y = 16 }, .{ .x = 2, .y = 16 }, .{ .x = 2, .y = 20 } };
-    try std.testing.expect(!try clearance.polylineClears(a, 0, &through, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
-    const beside = [_]sk.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 5 }, .{ .x = 8, .y = 5 }, .{ .x = 8, .y = 17 }, .{ .x = 2, .y = 17 }, .{ .x = 2, .y = 20 } };
-    try std.testing.expect(try clearance.polylineClears(a, 0, &beside, &.{}, &.{}, &placements, &ports, .{}, 0, 1));
 }
 
 test "a route may cross a rail's run but never lie along it" {

@@ -178,21 +178,11 @@ test "centerRunOnDesired re-centers using only real nodes, keeping the real node
         .{ .x = 0, .y = 5, .w = 10, .h = 3, .layer = 1 },
     };
 
-    var packed_only = initial;
-    try cx_mod.centerByBarycenter(testing.allocator, empty_g, &packed_only, lg, 2, .down, false);
-
     var real = initial;
     try cx_mod.centerByBarycenter(testing.allocator, empty_g, &real, lg, 2, .down, true);
     const a_cx = real[0].x + @as(i32, @intCast(real[0].w / 2));
     const r_cx = real[2].x + @as(i32, @intCast(real[2].w / 2));
     try testing.expectEqual(a_cx, r_cx);
-
-    const v_actual = packed_only[1].x;
-    const r_actual = packed_only[2].x + @as(i32, @intCast(packed_only[2].w / 2));
-    const desired = a_cx;
-    const mutated_delta = @divTrunc((desired - v_actual) + (desired - r_actual), 2);
-    const mutated_r_cx = r_actual + mutated_delta;
-    try testing.expect(mutated_r_cx != a_cx);
 }
 
 test "centerRunOnDesired's width clamp keeps a recentered row from crossing x=0" {

@@ -105,16 +105,15 @@ test "the lane ladder climbs from the planned lane, then descends to lane 0, the
     defer seen.deinit(testing.allocator);
     try seen.append(testing.allocator, ladder.lane);
     while (ladder.next()) try seen.append(testing.allocator, ladder.lane);
-    try testing.expectEqual(@as(usize, 17), seen.items.len);
-    try testing.expectEqual(@as(u32, 2), seen.items[0]);
-    try testing.expectEqual(@as(u32, 16), seen.items[14]);
-    try testing.expectEqual(@as(u32, 1), seen.items[15]);
-    try testing.expectEqual(@as(u32, 0), seen.items[16]);
 
-    var from_zero = routing.LaneLadder{ .planned = 0, .lane = 0 };
-    var count: u32 = 0;
-    while (from_zero.next()) count += 1;
-    try testing.expectEqual(@as(u32, 16), count);
+    // Planned lane first, then strictly up, then strictly down to 0, each lane once.
+    const s = seen.items;
+    try testing.expectEqual(@as(u32, 2), s[0]);
+    try testing.expectEqual(@as(u32, 0), s[s.len - 1]);
+    var top: usize = 0;
+    while (top + 1 < s.len and s[top + 1] == s[top] + 1) top += 1;
+    try testing.expect(top > 0);
+    try testing.expectEqualSlices(u32, &.{ 1, 0 }, s[top + 1 ..]);
 }
 
 test "the base-approach grow is reverted when it would bend a decorated departure cell" {

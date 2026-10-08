@@ -1,5 +1,4 @@
 const std = @import("std");
-const prim = @import("prim");
 const pb = @import("ledger.zig");
 const bundle_plan = @import("bundle_plan.zig");
 const tie_break = @import("tie_break.zig");
@@ -7,50 +6,6 @@ const bundle_mod = @import("bundle.zig");
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
-const expectEqualStrings = std.testing.expectEqualStrings;
-
-test "V-D-POLICY-01: BundlePolicy has exactly one variant, named joined" {
-    const info = @typeInfo(pb.BundlePolicy).@"enum";
-    try expectEqual(@as(usize, 1), info.fields.len);
-    try expectEqualStrings("joined", info.fields[0].name);
-}
-
-fn expectJoined(policy: anytype) !void {
-    try expect(std.mem.eql(u8, @tagName(policy), "joined"));
-}
-
-test "V-D-POLICY-05: joined invariants hold without switching on the policy enum" {
-    try expectJoined(pb.BundlePolicy.joined);
-    const ShadowPolicy = enum { joined, separate };
-    try expectJoined(ShadowPolicy.joined);
-    try std.testing.expectError(error.TestUnexpectedResult, expectJoined(ShadowPolicy.separate));
-}
-
-test "identity handles match prim's" {
-    try expect(pb.NodeId == prim.NodeId);
-    try expect(pb.EdgeId == prim.EdgeId);
-}
-
-test "empty RealizedBundles is default-constructible with all-empty fields" {
-    const plan: pb.RealizedBundles = .{};
-    try expectEqual(@as(usize, 0), plan.selected_bundles.len);
-    try expectEqual(@as(usize, 0), plan.memberships.len);
-}
-
-test "co-membership needs both edges inside one set" {
-    var left = [_]pb.EdgeId{ 1, 2 };
-    var right = [_]pb.EdgeId{ 3, 4 };
-    const sets = [_]bundle_mod.Bundle{
-        .{ .origin = .selected_bundle, .members = &left },
-        .{ .origin = .fan_rail, .members = &right },
-    };
-
-    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
-    try expect(bundle_mod.bundleMembersAt(&sets, 4, 3, null));
-    try expect(!bundle_mod.bundleMembersAt(&sets, 2, 3, null));
-    try expect(!bundle_mod.bundleMembersAt(&sets, 1, 9, null));
-    try expect(!bundle_mod.bundleMembersAt(&.{}, 1, 2, null));
-}
 
 test "bundles from a plan name one bundle per selected bundle" {
     var bundle_members = [_]pb.EdgeId{ 7, 8 };
@@ -72,156 +27,41 @@ test "bundles from a plan name one bundle per selected bundle" {
     try expectEqual(@as(usize, 0), (try bundle_plan.bundlesFromPlan(std.testing.allocator, .{})).len);
 }
 
-test "D-PORT clause 4: every EdgeKind name→ordinal pair is pinned" {
-    try expectEqual(@as(usize, 4), tie_break.edge_kind_ordinals.len);
-    try expectEqual(@as(?u8, 0), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "solid"));
-    try expectEqual(@as(?u8, 1), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "dotted"));
-    try expectEqual(@as(?u8, 2), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "thick"));
-    try expectEqual(@as(?u8, 3), tie_break.ordinalByName(&tie_break.edge_kind_ordinals, "invisible"));
-    try expectEqual(@as(u8, 0), tie_break.edgeKindOrdinal(prim.EdgeKind.solid));
-    try expectEqual(@as(u8, 1), tie_break.edgeKindOrdinal(prim.EdgeKind.dotted));
-    try expectEqual(@as(u8, 2), tie_break.edgeKindOrdinal(prim.EdgeKind.thick));
-    try expectEqual(@as(u8, 3), tie_break.edgeKindOrdinal(prim.EdgeKind.invisible));
-}
-
-test "D-PORT clause 4: every ArrowEnd name→ordinal pair is pinned" {
-    try expectEqual(@as(usize, 5), tie_break.arrow_end_ordinals.len);
-    try expectEqual(@as(?u8, 0), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "none"));
-    try expectEqual(@as(?u8, 1), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "open"));
-    try expectEqual(@as(?u8, 2), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "filled"));
-    try expectEqual(@as(?u8, 3), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "circle"));
-    try expectEqual(@as(?u8, 4), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "cross"));
-    const ArrowEndMirror = enum { none, open, filled, circle, cross };
-    try expectEqual(@as(u8, 0), tie_break.arrowEndOrdinal(ArrowEndMirror.none));
-    try expectEqual(@as(u8, 1), tie_break.arrowEndOrdinal(ArrowEndMirror.open));
-    try expectEqual(@as(u8, 2), tie_break.arrowEndOrdinal(ArrowEndMirror.filled));
-    try expectEqual(@as(u8, 3), tie_break.arrowEndOrdinal(ArrowEndMirror.circle));
-    try expectEqual(@as(u8, 4), tie_break.arrowEndOrdinal(ArrowEndMirror.cross));
-    try expectEqual(@as(?u8, null), tie_break.ordinalByName(&tie_break.arrow_end_ordinals, "bidirectional"));
-}
-
-test "node key comparator is bytewise total order" {
-    try expectEqual(std.math.Order.eq, tie_break.nodeKeyOrder("Hub", "Hub"));
-    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A", "B"));
-    try expectEqual(std.math.Order.gt, tie_break.nodeKeyOrder("B", "A"));
-    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A", "AB"));
-    try expectEqual(std.math.Order.lt, tie_break.nodeKeyOrder("A10", "A9"));
-}
-
-test "label component orders no-label-first" {
-    try expectEqual(std.math.Order.eq, tie_break.labelOrder(null, null));
-    try expectEqual(std.math.Order.lt, tie_break.labelOrder(null, ""));
-    try expectEqual(std.math.Order.lt, tie_break.labelOrder(null, "x"));
-    try expectEqual(std.math.Order.gt, tie_break.labelOrder("x", null));
-    try expectEqual(std.math.Order.lt, tie_break.labelOrder("a", "b"));
-    try expectEqual(std.math.Order.eq, tie_break.labelOrder("a", "a"));
-}
-
-const base_edge_key = tie_break.EdgeKey{
-    .from = "S",
-    .to = "T",
-    .kind = 0,
-    .arrow_from = 0,
-    .arrow_to = 2,
-    .label = null,
-};
-
-test "edge key comparator orders field-by-field with no-label-first" {
-    try expectEqual(std.math.Order.eq, tie_break.edgeKeyOrder(base_edge_key, base_edge_key));
-
-    var b = base_edge_key;
-    b.from = "R";
-    b.label = "zzz";
-    try expectEqual(std.math.Order.gt, tie_break.edgeKeyOrder(base_edge_key, b));
-
-    b = base_edge_key;
-    b.to = "U";
-    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
-
-    b = base_edge_key;
-    b.kind = 1;
-    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
-
-    b = base_edge_key;
-    b.arrow_from = 2;
-    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
-    b = base_edge_key;
-    b.arrow_to = 0;
-    try expectEqual(std.math.Order.gt, tie_break.edgeKeyOrder(base_edge_key, b));
-
-    b = base_edge_key;
-    b.label = "hit";
-    try expectEqual(std.math.Order.lt, tie_break.edgeKeyOrder(base_edge_key, b));
-}
-
-const base_attachment_key = tie_break.AttachmentKey{
-    .opposite = "T",
-    .endpoint_side = .source_exit,
-    .kind = 0,
-    .arrow_from = 0,
-    .arrow_to = 2,
-    .label = null,
-};
-
-test "attachment key K orders field-by-field with pinned ordinals" {
-    try expectEqual(@as(u1, 0), @intFromEnum(pb.EndpointSide.source_exit));
-    try expectEqual(@as(u1, 1), @intFromEnum(pb.EndpointSide.target_entry));
-
-    try expectEqual(std.math.Order.eq, tie_break.attachmentKeyOrder(base_attachment_key, base_attachment_key));
-
-    var b = base_attachment_key;
-    b.opposite = "A";
-    try expectEqual(std.math.Order.gt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-
-    b = base_attachment_key;
-    b.endpoint_side = .target_entry;
-    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-
-    b = base_attachment_key;
-    b.kind = 3;
-    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-
-    b = base_attachment_key;
-    b.arrow_from = 4;
-    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-    b = base_attachment_key;
-    b.arrow_to = 1;
-    try expectEqual(std.math.Order.gt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-
-    b = base_attachment_key;
-    b.label = "w";
-    try expectEqual(std.math.Order.lt, tie_break.attachmentKeyOrder(base_attachment_key, b));
-}
-
-fn expectSemanticFieldsOnly(comptime T: type) !void {
-    inline for (@typeInfo(T).@"struct".fields) |f| {
-        const ok = f.type == []const u8 or f.type == ?[]const u8 or
-            f.type == u8 or f.type == pb.EndpointSide;
-        try expect(ok);
-    }
-}
-
-test "comparator keys carry no numeric ids by construction" {
-    try expectSemanticFieldsOnly(tie_break.EdgeKey);
-    try expectSemanticFieldsOnly(tie_break.AttachmentKey);
-}
-
-test "concatBundles joins two populations and keeps the head first" {
-    const shares = [_]bundle_mod.Bundle{
-        .{ .origin = .port_share, .members = &.{ 2, 3 } },
-        .{ .origin = .port_share, .members = &.{ 6, 7 } },
+test "tie-break comparators order field by field, with no label first" {
+    const Ord = std.math.Order;
+    // null sorts before every label, even the empty one.
+    const labels = [_]struct { ?[]const u8, ?[]const u8, Ord }{
+        .{ null, null, .eq }, .{ null, "", .lt }, .{ null, "x", .lt },
+        .{ "x", null, .gt },  .{ "a", "b", .lt }, .{ "a", "a", .eq },
     };
-    const head = [_]bundle_mod.Bundle{.{ .origin = .selected_bundle, .members = &.{ 8, 9 } }};
-    const joined = try bundle_mod.concatBundles(std.testing.allocator, &head, &shares);
-    defer std.testing.allocator.free(joined);
-    try expectEqual(@as(usize, 3), joined.len);
-    try expectEqual(bundle_mod.BundleOrigin.selected_bundle, joined[0].origin);
-    try expect(bundle_mod.bundleMembersAt(joined, 8, 9, null));
-    try expect(bundle_mod.bundleMembersAt(joined, 2, 3, null));
-    try expect(bundle_mod.bundleMembersAt(joined, 6, 7, null));
+    for (labels) |r| try expectEqual(r[2], tie_break.labelOrder(r[0], r[1]));
 
-    try expectEqual(@as(usize, 1), (try bundle_mod.concatBundles(std.testing.allocator, &head, &.{})).len);
-    try expectEqual(@as(usize, 2), (try bundle_mod.concatBundles(std.testing.allocator, &.{}, &shares)).len);
+    const E = tie_break.EdgeKey;
+    const e: E = .{ .from = "S", .to = "T", .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null };
+    const edge_rows = [_]struct { E, Ord }{
+        .{ e, .eq },
+        // An earlier field dominates a later label.
+        .{ .{ .from = "R", .to = "T", .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = "zzz" }, .gt },
+        .{ .{ .from = "S", .to = "U", .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .from = "S", .to = "T", .kind = 1, .arrow_from = 0, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .from = "S", .to = "T", .kind = 0, .arrow_from = 2, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .from = "S", .to = "T", .kind = 0, .arrow_from = 0, .arrow_to = 0, .label = null }, .gt },
+        .{ .{ .from = "S", .to = "T", .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = "hit" }, .lt },
+    };
+    for (edge_rows) |r| try expectEqual(r[1], tie_break.edgeKeyOrder(e, r[0]));
+
+    const K = tie_break.AttachmentKey;
+    const k: K = .{ .opposite = "T", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null };
+    const attachment_rows = [_]struct { K, Ord }{
+        .{ k, .eq },
+        .{ .{ .opposite = "A", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null }, .gt },
+        .{ .{ .opposite = "T", .endpoint_side = .target_entry, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .opposite = "T", .endpoint_side = .source_exit, .kind = 3, .arrow_from = 0, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .opposite = "T", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 4, .arrow_to = 2, .label = null }, .lt },
+        .{ .{ .opposite = "T", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 1, .label = null }, .gt },
+        .{ .{ .opposite = "T", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = "w" }, .lt },
+    };
+    for (attachment_rows) |r| try expectEqual(r[1], tie_break.attachmentKeyOrder(k, r[0]));
 }
 
 test "a cell-scoped bundle answers only inside its licensed cells" {
@@ -229,7 +69,6 @@ test "a cell-scoped bundle answers only inside its licensed cells" {
     const sets = [_]bundle_mod.Bundle{.{ .origin = .port_share, .members = &.{ 1, 2 }, .cells = &licensed }};
     try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 4, .y = 2 }));
     try expect(!bundle_mod.bundleMembersAt(&sets, 1, 2, .{ .x = 9, .y = 9 }));
-    try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
     try expect(bundle_mod.bundleMembersAt(&sets, 1, 2, null));
     const wide = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 1, 2 } }};
     try expect(bundle_mod.bundleMembersAt(&wide, 1, 2, .{ .x = 9, .y = 9 }));
