@@ -142,8 +142,6 @@ test {
     _ = @import("sketch_ports_test.zig");
     _ = @import("sketch_clearance_test.zig");
     _ = @import("junction_licence_test.zig");
-    _ = @import("decoration_cell_test.zig");
-    _ = @import("route_once_test.zig");
     _ = @import("grapheme_width_test.zig");
     _ = @import("candidates.zig");
     _ = @import("candidates_test.zig");

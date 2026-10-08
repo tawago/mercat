@@ -75,104 +75,69 @@ fn edgeCell(nb: lattice.Neighbours) lattice.Cell {
     };
 }
 
-test "┼ with an empty east neighbour reconciles to ┤" {
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
+const Put = struct { x: u32, y: u32, cell: lattice.Cell };
+const Case = struct { w: u32, h: u32, puts: []const Put, at: [2]u32 = .{ 1, 1 }, want: u4 };
 
-    lat.at(1, 1).* = edgeCell(.{ .n = true, .e = true, .s = true, .w = true });
-    lat.at(1, 0).* = edgeCell(.{ .s = true });
-    lat.at(1, 2).* = edgeCell(.{ .n = true });
-    lat.at(0, 1).* = edgeCell(.{ .e = true });
-
-    reconcileNeighbours(&lat);
-
-    const got = lat.atConst(1, 1).neighbours;
-    try testing.expectEqual(@as(u4, 0b1101), got.toMask());
-    try testing.expect(!got.e);
+fn runCases(cases: []const Case) !void {
+    for (cases) |c| {
+        var buf: [20]lattice.Cell = undefined;
+        for (&buf) |*cell| cell.* = lattice.Cell.empty;
+        var lat = lattice.Lattice{ .width = c.w, .height = c.h, .cells = buf[0 .. c.w * c.h] };
+        for (c.puts) |p| lat.at(p.x, p.y).* = p.cell;
+        reconcileNeighbours(&lat);
+        try testing.expectEqual(c.want, lat.atConst(c.at[0], c.at[1]).neighbours.toMask());
+    }
 }
 
-test "┼ with all four neighbours occupied stays ┼" {
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-
-    lat.at(1, 1).* = edgeCell(.{ .n = true, .e = true, .s = true, .w = true });
-    lat.at(1, 0).* = edgeCell(.{ .s = true });
-    lat.at(1, 2).* = edgeCell(.{ .n = true });
-    lat.at(0, 1).* = edgeCell(.{ .e = true });
-    lat.at(2, 1).* = edgeCell(.{ .w = true });
-
-    reconcileNeighbours(&lat);
-
-    try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
+const all4: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
+fn nodeBorder(nb: lattice.Neighbours) lattice.Cell {
+    return .{ .occupant = .{ .node_border = .{ .node = 5, .role = .edge_n } }, .neighbours = nb };
+}
+fn frame(role: lattice.BorderRole, nb: lattice.Neighbours) lattice.Cell {
+    return .{ .occupant = .{ .cluster_border = .{ .cluster = 0, .role = role } }, .neighbours = nb };
+}
+fn head(dir: lattice.Dir4) lattice.Cell {
+    return .{ .occupant = .{ .arrowhead = .{ .dir = dir, .edge = 0 } }, .neighbours = .{} };
 }
 
-test "node_border and arrowhead neighbours keep the bit" {
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-
-    lat.at(1, 1).* = edgeCell(.{ .n = true, .e = true, .s = true, .w = true });
-    lat.at(1, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
-    lat.at(2, 1).* = .{ .occupant = .{ .arrowhead = .{ .dir = .west, .edge = 0 } }, .neighbours = .{} };
-    lat.at(0, 1).* = .{ .occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_e } }, .neighbours = .{} };
-    reconcileNeighbours(&lat);
-
-    const got = lat.atConst(1, 1).neighbours;
-    try testing.expect(got.n);
-    try testing.expect(got.e);
-    try testing.expect(!got.s);
-    try testing.expect(got.w);
+test "reconcileNeighbours clears arms into nothing and keeps arms into real connections" {
+    try runCases(&.{
+        // ┼ with an empty east neighbour reconciles to ┤.
+        .{ .w = 3, .h = 3, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(all4) }, .{ .x = 1, .y = 0, .cell = edgeCell(.{ .s = true }) }, .{ .x = 1, .y = 2, .cell = edgeCell(.{ .n = true }) }, .{ .x = 0, .y = 1, .cell = edgeCell(.{ .e = true }) } }, .want = 0b1101 },
+        // ┼ with all four neighbours occupied stays ┼.
+        .{ .w = 3, .h = 3, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(all4) }, .{ .x = 1, .y = 0, .cell = edgeCell(.{ .s = true }) }, .{ .x = 1, .y = 2, .cell = edgeCell(.{ .n = true }) }, .{ .x = 0, .y = 1, .cell = edgeCell(.{ .e = true }) }, .{ .x = 2, .y = 1, .cell = edgeCell(.{ .w = true }) } }, .want = 0b1111 },
+        // Node border, arrowhead and cluster border neighbours keep the bit; the empty south clears.
+        .{ .w = 3, .h = 3, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(all4) }, .{ .x = 1, .y = 0, .cell = nodeBorder(.{}) }, .{ .x = 2, .y = 1, .cell = head(.west) }, .{ .x = 0, .y = 1, .cell = frame(.edge_e, .{}) } }, .want = 0b1011 },
+        // Non-junction occupants are left untouched.
+        .{ .w = 3, .h = 3, .puts = &.{.{ .x = 1, .y = 1, .cell = .{ .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 0 } }, .neighbours = all4 } }}, .want = 0b1111 },
+        // A trailing ┬ on a rail past the last child loses its into-empty arms.
+        .{ .w = 4, .h = 3, .puts = &.{ .{ .x = 2, .y = 1, .cell = edgeCell(.{ .e = true, .w = true }) }, .{ .x = 3, .y = 1, .cell = edgeCell(.{ .e = true, .s = true, .w = true }) } }, .at = .{ 3, 1 }, .want = 0b1000 },
+        // A label neighbour keeps the bit (so reconcile must run before labels are painted).
+        .{ .w = 3, .h = 3, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(.{ .s = true }) }, .{ .x = 1, .y = 2, .cell = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} } } }, .want = 0b0100 },
+        // A genuinely empty cell 2 steps out still clears (no reprieve).
+        .{ .w = 3, .h = 4, .puts = &.{.{ .x = 1, .y = 1, .cell = edgeCell(.{ .s = true }) }}, .want = 0 },
+    });
 }
 
-test "non-junction occupants are left untouched" {
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-
-    lat.at(1, 1).* = .{
-        .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 0 } },
-        .neighbours = .{ .n = true, .e = true, .s = true, .w = true },
-    };
-
-    reconcileNeighbours(&lat);
-
-    try testing.expectEqual(@as(u4, 0b1111), lat.atConst(1, 1).neighbours.toMask());
+test "reconcileNeighbours reprieves a 1-cell port gap only before a reciprocating border, a head, or a frame bridge" {
+    try runCases(&.{
+        // Duplicate-point reprieve: a reciprocating node border.
+        .{ .w = 3, .h = 4, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(.{ .s = true }) }, .{ .x = 1, .y = 3, .cell = nodeBorder(.{ .n = true }) } }, .want = 0b0100 },
+        // Terminal reprieve: an arrowhead.
+        .{ .w = 3, .h = 4, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(.{ .s = true }) }, .{ .x = 1, .y = 3, .cell = head(.south) } }, .want = 0b0100 },
+        // Denied for a perpendicular horizontal node border (fan-in rail ┼→┴).
+        .{ .w = 3, .h = 4, .puts = &.{ .{ .x = 1, .y = 1, .cell = edgeCell(all4) }, .{ .x = 1, .y = 0, .cell = edgeCell(.{ .s = true }) }, .{ .x = 2, .y = 1, .cell = edgeCell(.{ .w = true }) }, .{ .x = 0, .y = 1, .cell = edgeCell(.{ .e = true }) }, .{ .x = 1, .y = 3, .cell = nodeBorder(.{ .e = true, .w = true }) } }, .want = 0b1011 },
+        // Denied for a perpendicular vertical cluster wall (fan rail ┼→├).
+        .{ .w = 5, .h = 3, .puts = &.{ .{ .x = 3, .y = 1, .cell = edgeCell(all4) }, .{ .x = 3, .y = 0, .cell = edgeCell(.{ .s = true }) }, .{ .x = 4, .y = 1, .cell = edgeCell(.{ .w = true }) }, .{ .x = 3, .y = 2, .cell = edgeCell(.{ .n = true }) }, .{ .x = 1, .y = 1, .cell = frame(.edge_w, .{ .n = true, .s = true }) } }, .at = .{ 3, 1 }, .want = 0b0111 },
+        // A frame-bridge approach arm facing a non-reciprocating cluster border is kept, and the border stays ─.
+        .{ .w = 3, .h = 3, .puts = &frame_bridge, .at = .{ 1, 0 }, .want = 0b0100 },
+        .{ .w = 3, .h = 3, .puts = &frame_bridge, .want = 0b1010 },
+    });
 }
 
-test "trailing ┬ on a rail past the last child loses into-empty arms" {
-    var buf: [12]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 4, .height = 3, .cells = &buf };
-
-    lat.at(2, 1).* = edgeCell(.{ .e = true, .w = true });
-    lat.at(3, 1).* = edgeCell(.{ .e = true, .s = true, .w = true });
-
-    reconcileNeighbours(&lat);
-
-    const got = lat.atConst(3, 1).neighbours;
-    try testing.expectEqual(@as(u4, 0b1000), got.toMask());
-}
-
-test "reconcile is NOT order-independent w.r.t. labels: swapping the pipeline position changes the result" {
-    var buf_before: [9]lattice.Cell = undefined;
-    for (&buf_before) |*c| c.* = lattice.Cell.empty;
-    var lat_before = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_before };
-    lat_before.at(1, 1).* = edgeCell(.{ .s = true });
-    reconcileNeighbours(&lat_before);
-    lat_before.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    try testing.expect(!lat_before.atConst(1, 1).neighbours.s);
-
-    var buf_after: [9]lattice.Cell = undefined;
-    for (&buf_after) |*c| c.* = lattice.Cell.empty;
-    var lat_after = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf_after };
-    lat_after.at(1, 1).* = edgeCell(.{ .s = true });
-    lat_after.at(1, 2).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    reconcileNeighbours(&lat_after);
-    try testing.expect(lat_after.atConst(1, 1).neighbours.s);
-}
-
-test {
-    _ = @import("reconcile_test.zig");
-}
+const frame_bridge = [_]Put{
+    .{ .x = 0, .y = 1, .cell = frame(.edge_s, .{ .e = true }) },
+    .{ .x = 1, .y = 1, .cell = frame(.edge_s, .{ .e = true, .w = true }) },
+    .{ .x = 2, .y = 1, .cell = frame(.edge_s, .{ .w = true }) },
+    .{ .x = 1, .y = 0, .cell = edgeCell(.{ .s = true }) },
+};

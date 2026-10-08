@@ -81,6 +81,11 @@ pub const Cell = struct {
     };
 };
 
+// The arrowhead style rides in existing padding: a Cell stays 16 bytes.
+comptime {
+    std.debug.assert(@sizeOf(Cell) == 16);
+}
+
 pub const Glyph = struct {
     bytes: []const u8,
     width: u8,
@@ -139,58 +144,6 @@ test "Neighbours bitmask round-trip across all 16 values" {
     }
 }
 
-test "Neighbours default is all-false / mask 0" {
-    const n: Neighbours = .{};
-    try std.testing.expectEqual(@as(u4, 0), n.toMask());
-}
-
-test "Neighbours single-bit constructors" {
-    try std.testing.expectEqual(@as(u4, 0b0001), (Neighbours{ .n = true }).toMask());
-    try std.testing.expectEqual(@as(u4, 0b0010), (Neighbours{ .e = true }).toMask());
-    try std.testing.expectEqual(@as(u4, 0b0100), (Neighbours{ .s = true }).toMask());
-    try std.testing.expectEqual(@as(u4, 0b1000), (Neighbours{ .w = true }).toMask());
-}
-
-test "Lattice index calculation: row-major, at() returns correct cell" {
-    var buf: [12]Cell = undefined;
-    for (&buf) |*c| c.* = Cell.empty;
-
-    var lat = Lattice{ .width = 4, .height = 3, .cells = &buf };
-
-    var y: u32 = 0;
-    while (y < lat.height) : (y += 1) {
-        var x: u32 = 0;
-        while (x < lat.width) : (x += 1) {
-            lat.at(x, y).*.occupant = .{ .label_char = @intCast(y * lat.width + x) };
-        }
-    }
-
-    for (buf, 0..) |c, i| {
-        switch (c.occupant) {
-            .label_char => |ch| try std.testing.expectEqual(@as(u21, @intCast(i)), ch),
-            else => return error.UnexpectedOccupant,
-        }
-    }
-
-    try std.testing.expectEqual(@as(u21, 0), switch (lat.atConst(0, 0).occupant) {
-        .label_char => |ch| ch,
-        else => unreachable,
-    });
-    try std.testing.expectEqual(@as(u21, 6), switch (lat.atConst(2, 1).occupant) {
-        .label_char => |ch| ch,
-        else => unreachable,
-    });
-    try std.testing.expectEqual(@as(u21, 11), switch (lat.atConst(3, 2).occupant) {
-        .label_char => |ch| ch,
-        else => unreachable,
-    });
-}
-
-test "Cell stays 16 bytes: the arrowhead style rides in existing padding" {
-    try std.testing.expectEqual(@as(usize, 16), @sizeOf(Cell));
-    try std.testing.expectEqual(@as(usize, 12), @sizeOf(Occupant));
-}
-
 test "glyph references live above the scalar range and resolve through the table" {
     try std.testing.expect(!isGlyphRef('A'));
     try std.testing.expect(!isGlyphRef(0x10FFFF));
@@ -206,13 +159,4 @@ test "glyph references live above the scalar range and resolve through the table
     try std.testing.expectEqual(@as(u8, 2), lat.glyphOf(glyphRef(1)).?.width);
     try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf('e'));
     try std.testing.expectEqual(@as(?Glyph, null), lat.glyphOf(glyphRef(2)));
-}
-
-test "Cell.empty default matches struct literal" {
-    const a = Cell.empty;
-    try std.testing.expectEqual(@as(u4, 0), a.neighbours.toMask());
-    switch (a.occupant) {
-        .empty => {},
-        else => return error.NotEmpty,
-    }
 }

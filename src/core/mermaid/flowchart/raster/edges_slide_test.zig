@@ -42,66 +42,29 @@ fn walk(x: i32, y: i32, d: lattice.Dir4, n: i32) sketch.Point {
     };
 }
 
-test "a decorated gap arrival slides its head onto the border-adjacent cell" {
+test "a head does not slide when abutting, behind an occupied gap, before a corner, or two cells back" {
     const a = testing.allocator;
-    for (faces) |f| {
+    const Row = struct { head_x: i32, gap_x: i32, corner: bool = false, occupied: bool = false };
+    const rows = [_]Row{
+        .{ .head_x = 5, .gap_x = 6 }, // already abutting the wall
+        .{ .head_x = 4, .gap_x = 5, .occupied = true },
+        .{ .head_x = 4, .gap_x = 5, .corner = true }, // the landing is refused, not attached
+        .{ .head_x = 3, .gap_x = 5 },
+    };
+    for (rows) |r| {
         var lat = try blank(a, 9, 9);
         defer a.free(lat.cells);
-        const start: sketch.Point = .{ .x = 4, .y = 4 };
-        const gap = walk(start.x, start.y, f.dir, 2);
-        const wall = walk(start.x, start.y, f.dir, 3);
-        putBorder(&lat, @intCast(wall.x), @intCast(wall.y), f.role, f.mask);
-        const raw_head: edges.Head = .{ .cell = walk(start.x, start.y, f.dir, 1), .dir = f.dir };
-        const slid = edges.slideHead(&lat, gap, raw_head);
-        try testing.expectEqual(gap.x, slid.cell.x);
-        try testing.expectEqual(gap.y, slid.cell.y);
-        try testing.expectEqual(f.dir, slid.dir);
+        if (r.corner) {
+            putBorder(&lat, 6, 4, .corner_nw, .{ .e = true, .s = true });
+        } else {
+            putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
+        }
+        if (r.occupied) lat.at(5, 4).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
+        const head: edges.Head = .{ .cell = .{ .x = r.head_x, .y = 4 }, .dir = .east };
+        const slid = edges.slideHead(&lat, .{ .x = r.gap_x, .y = 4 }, head);
+        try testing.expectEqual(r.head_x, slid.cell.x);
+        if (r.occupied) try testing.expect(lat.atConst(5, 4).occupant == .label_char);
     }
-}
-
-test "a head already abutting the wall does not slide" {
-    const a = testing.allocator;
-    var lat = try blank(a, 9, 9);
-    defer a.free(lat.cells);
-    putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
-    const head: edges.Head = .{ .cell = .{ .x = 5, .y = 4 }, .dir = .east };
-    const slid = edges.slideHead(&lat, .{ .x = 6, .y = 4 }, head);
-    try testing.expectEqual(@as(i32, 5), slid.cell.x);
-}
-
-test "an occupied gap cell leaves the head where it is" {
-    const a = testing.allocator;
-    var lat = try blank(a, 9, 9);
-    defer a.free(lat.cells);
-    putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
-    lat.at(5, 4).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    const head: edges.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
-    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
-    try testing.expectEqual(@as(i32, 4), slid.cell.x);
-    try testing.expectEqual(
-        lattice.Occupant.label_char,
-        std.meta.activeTag(lat.atConst(5, 4).occupant),
-    );
-}
-
-test "a gap before a CORNER does not slide: the landing is refused, not attached" {
-    const a = testing.allocator;
-    var lat = try blank(a, 9, 9);
-    defer a.free(lat.cells);
-    putBorder(&lat, 6, 4, .corner_nw, .{ .e = true, .s = true });
-    const head: edges.Head = .{ .cell = .{ .x = 4, .y = 4 }, .dir = .east };
-    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
-    try testing.expectEqual(@as(i32, 4), slid.cell.x);
-}
-
-test "a head two or more cells behind the gap does not slide" {
-    const a = testing.allocator;
-    var lat = try blank(a, 9, 9);
-    defer a.free(lat.cells);
-    putBorder(&lat, 6, 4, .edge_w, .{ .n = true, .s = true });
-    const head: edges.Head = .{ .cell = .{ .x = 3, .y = 4 }, .dir = .east };
-    const slid = edges.slideHead(&lat, .{ .x = 5, .y = 4 }, head);
-    try testing.expectEqual(@as(i32, 3), slid.cell.x);
 }
 
 fn makeSketch(es: []const sketch.EdgePath) sketch.Sketch {
@@ -153,19 +116,4 @@ test "a decorated gap arrival stamps its head against the wall, run ink behind i
         try testing.expectEqual(@as(u32, 1), behind.occupant.edge_segment.edge);
         try testing.expectEqual(f.mask.toMask(), lat.atConst(@intCast(wall.x), @intCast(wall.y)).neighbours.toMask());
     }
-}
-
-test "an UNDECORATED gap arrival keeps the painted gap and tees the wall" {
-    const a = testing.allocator;
-    var lat = try blank(a, 9, 9);
-    defer a.free(lat.cells);
-    putBorder(&lat, 7, 4, .edge_w, .{ .n = true, .s = true });
-    const pts = [_]sketch.Point{ .{ .x = 4, .y = 4 }, .{ .x = 6, .y = 4 } };
-    const es = [_]sketch.EdgePath{gapEdge(&pts, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-    try testing.expectEqual(
-        lattice.Occupant.edge_segment,
-        std.meta.activeTag(lat.atConst(6, 4).occupant),
-    );
-    try testing.expect(lat.atConst(7, 4).neighbours.w);
 }

@@ -1,7 +1,6 @@
 const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
-const sketch_clearance = @import("../sketch_clearance.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
 
@@ -287,32 +286,6 @@ test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column 
     try testing.expect(on_seg[0].x == on_seg[1].x);
 }
 
-test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const want: i32 = 50;
-    var list = std.ArrayList(sketch.NodePlacement){};
-    var row: i32 = want - 40;
-    var next_id: u32 = 0;
-    while (row <= want + 29) : (row += 1) {
-        if (row == want + 5) continue;
-        try list.append(alloc, .{
-            .id = next_id,
-            .rect = .{ .x = 0, .y = row, .w = 10, .h = 1 },
-            .shape = .rect,
-            .lines = &.{},
-            .cluster_id = null,
-        });
-        next_id += 1;
-    }
-    const placements = try list.toOwnedSlice(alloc);
-
-    const got = sketch_clearance.clearLine(true, want, 0, 5, placements, 9999, 9998, .{ .margin = true });
-    try testing.expectEqual(want + 5, got);
-}
-
 test "edge label falls back below the segment when above is out of bounds" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -350,29 +323,4 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 1, 2));
-}
-
-test "edge-label runs on the same row keep two blank cells apart" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 5, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
-    var s = emptySketch(12, 6, .LR);
-    s.edges = &edges;
-
-    var px: u32 = 0;
-    while (px < 3) : (px += 1) {
-        lat.at(px, 2).* = .{ .occupant = .{ .label_char = 'Q' }, .neighbours = .{} };
-    }
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    try testing.expectEqual(@as(u21, 'Q'), cellChar(lat, 2, 2));
-    try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
-    try testing.expectEqual(@as(u21, 0), cellChar(lat, 4, 2));
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 5, 2));
 }

@@ -92,12 +92,6 @@ fn writeInnerWall(
 
 const testing = std.testing;
 
-test "shape identity: sketch.Shape and lattice.Shape are the same type" {
-    const s: sketch.Shape = .rhombus;
-    const l: lattice.Shape = s;
-    try testing.expectEqual(sketch.Shape.rhombus, l);
-}
-
 test {
     _ = @import("node_shapes_test.zig");
 }

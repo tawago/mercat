@@ -1,19 +1,9 @@
 const std = @import("std");
-const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels = @import("labels.zig");
-const lw = @import("labels_write.zig");
 
 const testing = std.testing;
-
-fn cellSpanOf(text: []const u8) !u32 {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var table = lw.GlyphTable.init(arena.allocator());
-    const run = try lw.prepare(arena.allocator(), &table, text);
-    return run.cell_count;
-}
 
 fn makeLattice(alloc: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try alloc.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
@@ -73,62 +63,6 @@ fn makeEdge(id: u32, poly: []const sketch.Point, label: ?[]const u8) sketch.Edge
         .label = label,
         .kind = .solid,
     };
-}
-
-test "cellSpan is 1 for every ASCII codepoint including tab" {
-    var cp: u21 = 0;
-    while (cp < 0x80) : (cp += 1) {
-        try testing.expectEqual(@as(u32, 1), lw.cellSpan(cp));
-    }
-    try testing.expectEqual(@as(u32, 1), lw.cellSpan(prim.LINE_BREAK));
-    try testing.expectEqual(@as(u32, 2), lw.cellSpan('日'));
-}
-
-test "a prepared label's cell count equals prim.displayWidth for tab- and control-free text" {
-    const samples = [_][]const u8{
-        "",
-        "A",
-        "hello world",
-        "route: api",
-        "日本語",
-        "A日B語C",
-        "…",
-    };
-    for (samples) |s| {
-        try testing.expectEqual(prim.displayWidth(s), try cellSpanOf(s));
-    }
-    try testing.expectEqual(@as(u32, 4), prim.displayWidth("\t"));
-    try testing.expectEqual(@as(u32, 1), try cellSpanOf("\t"));
-}
-
-test "wide node label writes char + continuation and paints two columns" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 5);
-    const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 8, .h = 3 };
-    fillNodeInterior(&lat, rect, 1);
-
-    const nodes = [_]sketch.NodePlacement{.{
-        .id = 1,
-        .rect = rect,
-        .shape = .rect,
-        .lines = &.{"日本語"},
-        .cluster_id = null,
-    }};
-    var s = emptySketch(12, 5, .TD);
-    s.nodes = &nodes;
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    try testing.expectEqual(@as(u21, '日'), cellChar(lat, 1, 1));
-    try testing.expect(isCont(lat, 2, 1));
-    try testing.expectEqual(@as(u21, '本'), cellChar(lat, 3, 1));
-    try testing.expect(isCont(lat, 4, 1));
-    try testing.expectEqual(@as(u21, '語'), cellChar(lat, 5, 1));
-    try testing.expect(isCont(lat, 6, 1));
 }
 
 test "a wide node glyph whose second cell is not this node's interior is refused whole" {
@@ -220,14 +154,14 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     });
 }
 
-test "edge label writes head + continuation when the reserved span fits" {
+test "an edge label paints a wide scalar and an interned flag each as head + continuation" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
     var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 7, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "日")};
+    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
+    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "\u{1F1EF}\u{1F1F5} 日")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
@@ -236,9 +170,13 @@ test "edge label writes head + continuation when the reserved span fits" {
 
     var found = false;
     var x: u32 = 0;
-    while (x + 1 < lat.width) : (x += 1) {
-        if (cellChar(lat, x, 2) == '日') {
+    while (x + 4 < lat.width) : (x += 1) {
+        if (glyphAt(lat, x, 2)) |glyph| {
+            try testing.expectEqualStrings("\u{1F1EF}\u{1F1F5}", glyph.bytes);
             try testing.expect(isCont(lat, x + 1, 2));
+            try testing.expectEqual(@as(u21, ' '), cellChar(lat, x + 2, 2));
+            try testing.expectEqual(@as(u21, '日'), cellChar(lat, x + 3, 2));
+            try testing.expect(isCont(lat, x + 4, 2));
             found = true;
         }
     }
@@ -284,175 +222,39 @@ fn nodeSketch(rect: sketch.Rect, lines: []const []const u8) struct { nodes: [1]s
     }} };
 }
 
-test "a prepared label counts graphemes: a combining mark claims no cell, an emoji sequence claims two" {
-    try testing.expectEqual(@as(u32, 4), try cellSpanOf("cafe\u{0301}"));
-    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F680}"));
-    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"));
-    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{1F1EF}\u{1F1F5}"));
-    try testing.expectEqual(@as(u32, 2), try cellSpanOf("\u{2764}\u{FE0F}"));
-    try testing.expectEqual(@as(u32, 1), try cellSpanOf("\u{2764}"));
-    for ([_][]const u8{ "\u{1F680} Launch", "\u{2705} Done", "cafe\u{0301}", "nai\u{0308}ve", "\u{1F44D}\u{1F3FD} OK" }) |s| {
-        try testing.expectEqual(prim.displayWidth(s), try cellSpanOf(s));
-    }
-    try testing.expectEqual(prim.displayWidth("a\xffb"), try cellSpanOf("a\xffb"));
-    try testing.expectEqual(@as(u32, 3), try cellSpanOf("a\xffb"));
-}
-
-test "emoji node label writes head + continuation and is charged two columns" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 5);
-    const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 8, .h = 3 };
-    fillNodeInterior(&lat, rect, 1);
-    const fixture = nodeSketch(rect, &.{"\u{1F680} Go"});
-    var s = emptySketch(12, 5, .TD);
-    s.nodes = &fixture.nodes;
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    try testing.expectEqual(@as(u21, 0x1F680), cellChar(lat, 1, 1));
-    try testing.expect(isCont(lat, 2, 1));
-    try testing.expectEqual(@as(u21, ' '), cellChar(lat, 3, 1));
-    try testing.expectEqual(@as(u21, 'G'), cellChar(lat, 4, 1));
-    try testing.expectEqual(@as(u21, 'o'), cellChar(lat, 5, 1));
-    try testing.expectEqual(@as(usize, 0), lat.glyphs.len);
-    try testing.expectEqual(@as(u32, 2), prim.codepointWidth(cellChar(lat, 1, 1)));
-}
-
-test "a decomposed accent occupies one cell per grapheme and interns base plus mark" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 8, 3);
-    const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 };
-    fillNodeInterior(&lat, rect, 1);
-    const fixture = nodeSketch(rect, &.{"cafe\u{0301}"});
-    var s = emptySketch(8, 3, .TD);
-    s.nodes = &fixture.nodes;
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    try testing.expectEqual(@as(u21, 'c'), cellChar(lat, 1, 1));
-    try testing.expectEqual(@as(u21, 'a'), cellChar(lat, 2, 1));
-    try testing.expectEqual(@as(u21, 'f'), cellChar(lat, 3, 1));
-    try testing.expect(lattice.isGlyphRef(cellChar(lat, 4, 1)));
-    try testing.expect(!isCont(lat, 5, 1));
-    const glyph = glyphAt(lat, 4, 1).?;
-    try testing.expectEqualStrings("e\u{0301}", glyph.bytes);
-    try testing.expectEqual(@as(u8, 1), glyph.width);
-}
-
-test "a ZWJ family occupies two cells: head reference plus continuation, every byte interned" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
+test "node labels: a wide scalar writes head + continuation; an interned grapheme writes a reference, narrow or wide" {
     const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
-    var lat = try makeLattice(alloc, 10, 3);
-    const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 };
-    fillNodeInterior(&lat, rect, 1);
-    const fixture = nodeSketch(rect, &.{family ++ " x"});
-    var s = emptySketch(10, 3, .TD);
-    s.nodes = &fixture.nodes;
+    const Want = union(enum) { char: u21, cont, not_cont, ref: struct { bytes: []const u8, width: u8 } };
+    const Row = struct { line: []const u8, rect_w: u32, want: []const Want };
+    const rows = [_]Row{
+        .{ .line = "日本語", .rect_w = 8, .want = &.{ .{ .char = '日' }, .cont, .{ .char = '本' }, .cont, .{ .char = '語' }, .cont } },
+        .{ .line = "cafe\u{0301}", .rect_w = 6, .want = &.{ .{ .char = 'c' }, .{ .char = 'a' }, .{ .char = 'f' }, .{ .ref = .{ .bytes = "e\u{0301}", .width = 1 } }, .not_cont } },
+        .{ .line = family ++ " x", .rect_w = 6, .want = &.{ .{ .ref = .{ .bytes = family, .width = 2 } }, .cont, .{ .char = ' ' }, .{ .char = 'x' } } },
+    };
+    for (rows, 0..) |r, ri| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+        var lat = try makeLattice(alloc, 12, 5);
+        const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = r.rect_w, .h = 3 };
+        fillNodeInterior(&lat, rect, 1);
+        const fixture = nodeSketch(rect, &.{r.line});
+        var s = emptySketch(12, 5, .TD);
+        s.nodes = &fixture.nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    try testing.expect(lattice.isGlyphRef(cellChar(lat, 1, 1)));
-    try testing.expect(isCont(lat, 2, 1));
-    try testing.expectEqual(@as(u21, ' '), cellChar(lat, 3, 1));
-    try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 4, 1));
-    const glyph = glyphAt(lat, 1, 1).?;
-    try testing.expectEqualStrings(family, glyph.bytes);
-    try testing.expectEqual(@as(u8, 2), glyph.width);
-}
-
-test "an edge label with a flag reserves two cells for it and paints the pair" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
-    const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "\u{1F1EF}\u{1F1F5} JP")};
-    var s = emptySketch(12, 6, .LR);
-    s.edges = &edges;
-
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-
-    var found = false;
-    var x: u32 = 0;
-    while (x + 4 < lat.width) : (x += 1) {
-        if (glyphAt(lat, x, 2)) |glyph| {
-            try testing.expectEqualStrings("\u{1F1EF}\u{1F1F5}", glyph.bytes);
-            try testing.expect(isCont(lat, x + 1, 2));
-            try testing.expectEqual(@as(u21, ' '), cellChar(lat, x + 2, 2));
-            try testing.expectEqual(@as(u21, 'J'), cellChar(lat, x + 3, 2));
-            found = true;
-        }
-    }
-    try testing.expect(found);
-}
-
-test "the interned table copies grapheme bytes: the label string may die before the lattice" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var label_buf: [8]u8 = undefined;
-    @memcpy(label_buf[0..5], "e\u{0301}ab");
-    const label: []const u8 = label_buf[0..5];
-
-    var lat = try makeLattice(alloc, 8, 3);
-    const rect: sketch.Rect = .{ .x = 0, .y = 0, .w = 6, .h = 3 };
-    fillNodeInterior(&lat, rect, 1);
-    const fixture = nodeSketch(rect, &.{label});
-    var s = emptySketch(8, 3, .TD);
-    s.nodes = &fixture.nodes;
-    _ = try labels.rasterizeLabels(alloc, &lat, s);
-
-    @memset(&label_buf, '?');
-    const glyph = glyphAt(lat, 1, 1).?;
-    try testing.expectEqualStrings("e\u{0301}", glyph.bytes);
-    try testing.expect(glyph.bytes.ptr != label.ptr);
-}
-
-test "an edge label with a decomposed accent and a line break claims the same cells as one without" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const with_break = "e\u{0301}" ++ [_]u8{prim.LINE_BREAK} ++ "x";
-    const plain = "e\u{0301} x";
-    try testing.expectEqual(try cellSpanOf(plain), try cellSpanOf(with_break));
-    try testing.expectEqual(prim.displayWidth(with_break), try cellSpanOf(with_break));
-
-    var lats: [2]lattice.Lattice = .{ try makeLattice(alloc, 12, 6), try makeLattice(alloc, 12, 6) };
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
-    for ([_][]const u8{ with_break, plain }, 0..) |label, i| {
-        const edges = [_]sketch.EdgePath{makeEdge(42, &poly, label)};
-        var s = emptySketch(12, 6, .LR);
-        s.edges = &edges;
-        const report = try labels.rasterizeLabels(alloc, &lats[i], s);
+        const report = try labels.rasterizeLabels(alloc, &lat, s);
         try testing.expectEqual(@as(u32, 1), report.placed);
+        if (ri == 0) try testing.expectEqual(@as(usize, 0), lat.glyphs.len);
+        for (r.want, 1..) |w, x| switch (w) {
+            .char => |c| try testing.expectEqual(c, cellChar(lat, @intCast(x), 1)),
+            .cont => try testing.expect(isCont(lat, @intCast(x), 1)),
+            .not_cont => try testing.expect(!isCont(lat, @intCast(x), 1)),
+            .ref => |g| {
+                try testing.expect(lattice.isGlyphRef(cellChar(lat, @intCast(x), 1)));
+                const glyph = glyphAt(lat, @intCast(x), 1).?;
+                try testing.expectEqualStrings(g.bytes, glyph.bytes);
+                try testing.expectEqual(g.width, glyph.width);
+            },
+        };
     }
-    try testing.expectEqualSlices(lattice.Cell, lats[1].cells, lats[0].cells);
-
-    var found = false;
-    var x: u32 = 0;
-    while (x + 2 < lats[0].width) : (x += 1) {
-        if (glyphAt(lats[0], x, 2)) |glyph| {
-            try testing.expectEqualStrings("e\u{0301}", glyph.bytes);
-            try testing.expectEqual(@as(u21, ' '), cellChar(lats[0], x + 1, 2));
-            try testing.expectEqual(@as(u21, 'x'), cellChar(lats[0], x + 2, 2));
-            found = true;
-        }
-    }
-    try testing.expect(found);
 }

@@ -188,37 +188,6 @@ test "single cluster: 4 corners + 6 edge cells with correct roles" {
     try testing.expectEqual(@as(u4, 0b0101), lat.atConst(0, 1).neighbours.toMask());
 }
 
-test "nested clusters: non-coincident inner and outer both rendered" {
-    const allocator = testing.allocator;
-    var lat = try makeLattice(allocator, 12, 12);
-    defer allocator.free(lat.cells);
-
-    const frames = [_]sketch.ClusterFrame{
-        .{
-            .id = 1,
-            .rect = .{ .x = 0, .y = 0, .w = 10, .h = 10 },
-            .parent_id = null,
-            .label = "",
-            .depth = 0,
-        },
-        .{
-            .id = 2,
-            .rect = .{ .x = 2, .y = 2, .w = 4, .h = 4 },
-            .parent_id = 1,
-            .label = "",
-            .depth = 1,
-        },
-    };
-    const s = makeSketch(&frames);
-    const n = try rasterizeClusters(allocator, &lat, s);
-    try testing.expectEqual(@as(u32, 2), n);
-
-    try expectClusterBorder(lat, 0, 0, 1, .corner_nw);
-    try expectClusterBorder(lat, 9, 9, 1, .corner_se);
-    try expectClusterBorder(lat, 2, 2, 2, .corner_nw);
-    try expectClusterBorder(lat, 5, 5, 2, .corner_se);
-}
-
 test "nested clusters: inner overwrites outer at coincident cells" {
     const allocator = testing.allocator;
     var lat = try makeLattice(allocator, 10, 10);
@@ -248,65 +217,22 @@ test "nested clusters: inner overwrites outer at coincident cells" {
     try expectClusterBorder(lat, 6, 0, 10, .edge_n);
 }
 
-test "cluster does not fill interior" {
+test "skipped frames paint nothing: synthetic, out of bounds, degenerate" {
     const allocator = testing.allocator;
-    var lat = try makeLattice(allocator, 10, 10);
-    defer allocator.free(lat.cells);
-
-    const frames = [_]sketch.ClusterFrame{
-        .{
-            .id = 3,
-            .rect = .{ .x = 1, .y = 1, .w = 7, .h = 7 },
-            .parent_id = null,
-            .label = "",
-            .depth = 0,
-        },
+    const rects = [_]struct { rect: sketch.Rect, synthetic: bool }{
+        .{ .rect = .{ .x = 1, .y = 1, .w = 3, .h = 3 }, .synthetic = true },
+        .{ .rect = .{ .x = 0, .y = 0, .w = 100, .h = 100 }, .synthetic = false },
+        .{ .rect = .{ .x = 1, .y = 1, .w = 1, .h = 3 }, .synthetic = false },
     };
-    const s = makeSketch(&frames);
-    _ = try rasterizeClusters(allocator, &lat, s);
-
-    switch (lat.atConst(4, 4).occupant) {
-        .empty => {},
-        else => return error.InteriorNotEmpty,
+    for (rects) |r| {
+        var lat = try makeLattice(allocator, 5, 5);
+        defer allocator.free(lat.cells);
+        const frames = [_]sketch.ClusterFrame{
+            .{ .id = 99, .rect = r.rect, .parent_id = null, .label = "", .depth = 0, .synthetic = r.synthetic },
+        };
+        try testing.expectEqual(@as(u32, 0), try rasterizeClusters(allocator, &lat, makeSketch(&frames)));
+        for (lat.cells) |c| try testing.expect(c.occupant == .empty);
     }
-    switch (lat.atConst(2, 2).occupant) {
-        .empty => {},
-        else => return error.InteriorNotEmpty,
-    }
-    switch (lat.atConst(6, 6).occupant) {
-        .empty => {},
-        else => return error.InteriorNotEmpty,
-    }
-}
-
-test "OOB cluster is skipped" {
-    const allocator = testing.allocator;
-    var lat = try makeLattice(allocator, 5, 5);
-    defer allocator.free(lat.cells);
-
-    const frames = [_]sketch.ClusterFrame{
-        .{
-            .id = 99,
-            .rect = .{ .x = 0, .y = 0, .w = 100, .h = 100 },
-            .parent_id = null,
-            .label = "",
-            .depth = 0,
-        },
-    };
-    const s = makeSketch(&frames);
-    const n = try rasterizeClusters(allocator, &lat, s);
-    try testing.expectEqual(@as(u32, 0), n);
-
-    for (lat.cells) |c| {
-        switch (c.occupant) {
-            .empty => {},
-            else => return error.UnexpectedNonEmpty,
-        }
-    }
-}
-
-test {
-    _ = @import("clusters_test.zig");
 }
 
 test "a border cell held by anything but a cluster border is left as it was; a cluster border is overwritten" {

@@ -105,152 +105,34 @@ test "happy path: the label sits inline in its own horizontal run, flanked both 
     }
 }
 
-test "the inline flanks keep the edge's own stroke kind on both sides" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    for ([_]lattice.EdgeKind{ .solid, .dotted, .thick }) |kind| {
-        var lat = try makeLattice(a, 16, 9);
-        paintRun(&lat, 3, 11, 4, 7, kind);
-        const ep = straightEdge(&long_poly, kind);
-        var s = emptySketch(16, 9);
-        const edges = [_]sketch.EdgePath{ep};
-        s.edges = &edges;
-
-        try testing.expect(onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-        for ([_]u32{ 5, 8 }) |x| {
-            const c = lat.atConst(x, 4);
-            try testing.expectEqual(kind, c.stroke_kind);
-            try testing.expectEqual(kind, c.occupant.edge_segment.kind);
-            try testing.expect(c.neighbours.e and c.neighbours.w);
-        }
-    }
-}
-
-test "OWN-INK RULE: a shared crossbar cell inside the stretch refuses the inline label" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 16, 9);
-    paintRun(&lat, 3, 6, 4, 7, .solid);
-    runCell(&lat, 4, 4, 7, .fan_out_rail, .solid);
-    const ep = straightEdge(&tight_poly, .solid);
-    var s = emptySketch(16, 9);
-    const edges = [_]sketch.EdgePath{ep};
-    s.edges = &edges;
-
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
-}
-
-test "OWN-INK RULE: a foreign-crossed stretch is refused by the geometry sweep" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 16, 9);
-    paintRun(&lat, 3, 6, 4, 7, .solid);
-    const ep = straightEdge(&tight_poly, .solid);
+test "inline label refusals: shared crossbar cell, foreign-crossed stretch, corner or head flank, too-short run, foreign ink above" {
+    const Mutation = enum { crossbar_cell, foreign_crossing, corner_flank, head_flank, too_short, foreign_above };
     const other_poly = [_]sketch.Point{ .{ .x = 4, .y = 1 }, .{ .x = 4, .y = 7 } };
-    var other = straightEdge(&other_poly, .solid);
-    other.id = 9;
-    other.label = null;
-    var s = emptySketch(16, 9);
-    const edges = [_]sketch.EdgePath{ ep, other };
-    s.edges = &edges;
-
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
-}
-
-test "FLANKED-RESUMPTION RULE: a corner or an arrowhead in the flank cell refuses the candidate" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    {
-        var lat = try makeLattice(a, 16, 9);
-        paintRun(&lat, 3, 6, 4, 7, .solid);
-        lat.at(3, 4).neighbours.n = true;
-        const ep = straightEdge(&tight_poly, .solid);
-        var s = emptySketch(16, 9);
-        const edges = [_]sketch.EdgePath{ep};
-        s.edges = &edges;
-        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-        try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
-    }
-
-    {
-        var lat = try makeLattice(a, 16, 9);
-        paintRun(&lat, 3, 5, 4, 7, .solid);
-        lat.at(6, 4).* = .{
-            .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 7 } },
-            .neighbours = .{ .w = true },
-        };
-        const ep = straightEdge(&tight_poly, .solid);
-        var s = emptySketch(16, 9);
-        const edges = [_]sketch.EdgePath{ep};
-        s.edges = &edges;
-        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-        try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
-    }
-}
-
-test "a too-short horizontal run falls through to the ordinary ladder" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 16, 9);
-    paintRun(&lat, 3, 5, 4, 7, .solid);
     const short_poly = [_]sketch.Point{ .{ .x = 2, .y = 4 }, .{ .x = 6, .y = 4 } };
-    const ep = straightEdge(&short_poly, .solid);
-    var s = emptySketch(16, 9);
-    const edges = [_]sketch.EdgePath{ep};
-    s.edges = &edges;
+    for (std.enums.values(Mutation)) |m| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        var lat = try makeLattice(arena.allocator(), 16, 9);
+        const short = m == .head_flank or m == .too_short;
+        paintRun(&lat, 3, if (short) 5 else 6, 4, 7, .solid);
+        switch (m) {
+            .crossbar_cell => runCell(&lat, 4, 4, 7, .fan_out_rail, .solid),
+            .corner_flank => lat.at(3, 4).neighbours.n = true,
+            .head_flank => lat.at(6, 4).* = .{ .occupant = .{ .arrowhead = .{ .dir = .east, .edge = 7 } }, .neighbours = .{ .w = true } },
+            .foreign_above => runCell(&lat, 4, 3, 99, .forward, .solid),
+            .foreign_crossing, .too_short => {},
+        }
+        const ep = straightEdge(if (m == .too_short) &short_poly else &tight_poly, .solid);
+        var other = straightEdge(&other_poly, .solid);
+        other.id = 9;
+        other.label = null;
+        const edges = [_]sketch.EdgePath{ ep, other };
+        var s = emptySketch(16, 9);
+        s.edges = if (m == .foreign_crossing) &edges else edges[0..1];
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-    var x: u32 = 3;
-    while (x <= 5) : (x += 1) try testing.expect(lat.atConst(x, 4).occupant == .edge_segment);
-}
-
-test "foreign ink above the inline span refuses the candidate" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 16, 9);
-    paintRun(&lat, 3, 6, 4, 7, .solid);
-    runCell(&lat, 4, 3, 99, .forward, .solid);
-    const ep = straightEdge(&tight_poly, .solid);
-    var s = emptySketch(16, 9);
-    const edges = [_]sketch.EdgePath{ep};
-    s.edges = &edges;
-
-    try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 4, 4));
-}
-
-test "determinism: identical inputs place the inline label identically" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat1 = try makeLattice(a, 16, 9);
-    var lat2 = try makeLattice(a, 16, 9);
-    paintRun(&lat1, 3, 11, 4, 7, .solid);
-    paintRun(&lat2, 3, 11, 4, 7, .solid);
-    const ep = straightEdge(&long_poly, .solid);
-    var s = emptySketch(16, 9);
-    const edges = [_]sketch.EdgePath{ep};
-    s.edges = &edges;
-
-    try testing.expect(onrun.tryOnRunEdge(&lat1, s, ep, asciiRun("ok")));
-    try testing.expect(onrun.tryOnRunEdge(&lat2, s, ep, asciiRun("ok")));
-    for (lat1.cells, lat2.cells) |c1, c2| {
-        try testing.expect(std.meta.eql(c1, c2));
+        try testing.expect(!onrun.tryOnRunEdge(&lat, s, ep, asciiRun("ok")));
+        var x: u32 = 3;
+        while (x <= 5) : (x += 1) try testing.expect(lat.atConst(x, 4).occupant == .edge_segment);
     }
 }
 

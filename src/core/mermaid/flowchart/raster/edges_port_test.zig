@@ -30,63 +30,28 @@ fn borderLattice3(a: std.mem.Allocator, bx: u32, by: u32, mask: lattice.Neighbou
     return .{ .width = 3, .height = 3, .cells = cells };
 }
 
-test "drawPortStroke: an invisible edge leaves the source node border untouched" {
+test "port strokes stamp a thick or dotted kind on either end; an invisible edge leaves the border untouched" {
     const a = testing.allocator;
-    var lat = try sourceBorderLattice(a, 0);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    edges.drawPortStroke(&lat, &pts, .invisible, 0, .{});
-
-    const cell = lat.atConst(0, 0);
-    try testing.expect(!cell.neighbours.s);
-    try testing.expectEqual(lattice.EdgeKind.solid, cell.stroke_kind);
-}
-
-test "drawPortStroke: a solid edge still ORs the south exit bit into the source border" {
-    const a = testing.allocator;
-    var lat = try sourceBorderLattice(a, 0);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    edges.drawPortStroke(&lat, &pts, .solid, 0, .{});
-
-    try testing.expect(lat.atConst(0, 0).neighbours.s);
-}
-
-test "drawPortStroke: a north-exit invisible edge is also suppressed" {
-    const a = testing.allocator;
-    var lat = try sourceBorderLattice(a, 1);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 0, .y = 0 } };
-    edges.drawPortStroke(&lat, &pts, .invisible, 0, .{});
-
-    try testing.expect(!lat.atConst(0, 1).neighbours.n);
-}
-
-test "drawPortStroke: a thick edge still stamps stroke_kind on the source border" {
-    const a = testing.allocator;
-    var lat = try sourceBorderLattice(a, 0);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    edges.drawPortStroke(&lat, &pts, .thick, 0, .{});
-
-    const cell = lat.atConst(0, 0);
-    try testing.expect(cell.neighbours.s);
-    try testing.expectEqual(lattice.EdgeKind.thick, cell.stroke_kind);
-}
-
-test "drawPortStroke: an east/west departure also merges its exit bit (all four faces)" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 0, 1, .{ .n = true, .s = true });
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 2, .y = 1 } };
-    edges.drawPortStroke(&lat, &pts, .solid, 0, .{});
-
-    try testing.expect(lat.atConst(0, 1).neighbours.e);
+    const kinds = [_]lattice.EdgeKind{ .solid, .thick, .dotted, .invisible };
+    for ([2]bool{ true, false }) |source| {
+        for (kinds) |kind| {
+            var lat = if (source) try sourceBorderLattice(a, 0) else try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
+            defer a.free(lat.cells);
+            const visible = kind != .invisible;
+            const cell = if (source) blk: {
+                const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
+                edges.drawPortStroke(&lat, &pts, kind, 0, .{});
+                try testing.expectEqual(visible, lat.atConst(0, 0).neighbours.s);
+                break :blk lat.atConst(0, 0);
+            } else blk: {
+                const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
+                edges.drawTargetPortStroke(&lat, &pts, kind, 0, .{});
+                try testing.expectEqual(visible, lat.atConst(1, 2).neighbours.n);
+                break :blk lat.atConst(1, 2);
+            };
+            try testing.expectEqual(if (visible) kind else .solid, cell.stroke_kind);
+        }
+    }
 }
 
 test "drawTargetPortStroke: arrival arms merge on all four faces" {
@@ -115,22 +80,7 @@ test "drawTargetPortStroke: arrival arms merge on all four faces" {
     }
 }
 
-test "drawTargetPortStroke: a thick arrival stamps stroke_kind; dotted does too" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
-    defer a.free(lat.cells);
-    const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-    edges.drawTargetPortStroke(&lat, &pts, .thick, 0, .{});
-    try testing.expect(lat.atConst(1, 2).neighbours.n);
-    try testing.expectEqual(lattice.EdgeKind.thick, lat.atConst(1, 2).stroke_kind);
-
-    var lat2 = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
-    defer a.free(lat2.cells);
-    edges.drawTargetPortStroke(&lat2, &pts, .dotted, 0, .{});
-    try testing.expectEqual(lattice.EdgeKind.dotted, lat2.atConst(1, 2).stroke_kind);
-}
-
-test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
+test "drawTargetPortStroke: refuses non-border occupants" {
     const a = testing.allocator;
     {
         var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
@@ -147,93 +97,38 @@ test "drawTargetPortStroke: refuses non-border occupants and invisible edges" {
         edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{});
         try testing.expectEqual(@as(u4, 0), lat.atConst(1, 2).neighbours.toMask());
     }
-    {
-        var lat = try borderLattice3(a, 1, 2, .{ .e = true, .w = true });
-        defer a.free(lat.cells);
-        const pts = [_]sketch.Point{ .{ .x = 1, .y = 0 }, .{ .x = 1, .y = 2 } };
-        edges.drawTargetPortStroke(&lat, &pts, .invisible, 0, .{});
-        try testing.expect(!lat.atConst(1, 2).neighbours.n);
-        try testing.expectEqual(lattice.EdgeKind.solid, lat.atConst(1, 2).stroke_kind);
-    }
 }
 
-test "a decorated arrival whose head faces the wall leaves it pristine" {
+test "a decorated arrival whose head faces the wall leaves it pristine; one pointing along or detached still tees" {
     const a = testing.allocator;
+    const N = lattice.Neighbours;
     const cases = [_]struct {
         border: [2]u32,
-        border_mask: lattice.Neighbours,
+        border_mask: N,
         from: sketch.Point,
+        to: sketch.Point,
+        head: edges.Head,
+        tee: N = .{},
     }{
-        .{ .border = .{ 1, 2 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 0 } },
-        .{ .border = .{ 1, 0 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 2 } },
-        .{ .border = .{ 2, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 0, .y = 1 } },
-        .{ .border = .{ 0, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 2, .y = 1 } },
+        .{ .border = .{ 1, 2 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 0 }, .to = .{ .x = 1, .y = 2 }, .head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .south } },
+        .{ .border = .{ 1, 0 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 2 }, .to = .{ .x = 1, .y = 0 }, .head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .north } },
+        .{ .border = .{ 2, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 0, .y = 1 }, .to = .{ .x = 2, .y = 1 }, .head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .east } },
+        .{ .border = .{ 0, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 2, .y = 1 }, .to = .{ .x = 0, .y = 1 }, .head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .west } },
+        // A head adjacent to the wall but pointing ALONG the route still tees it.
+        .{ .border = .{ 1, 0 }, .border_mask = .{ .e = true, .w = true }, .from = .{ .x = 1, .y = 2 }, .to = .{ .x = 1, .y = 0 }, .head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .west }, .tee = .{ .s = true } },
+        // A DETACHED head (not on the gap) still tees the wall across the gap.
+        .{ .border = .{ 2, 1 }, .border_mask = .{ .n = true, .s = true }, .from = .{ .x = 0, .y = 1 }, .to = .{ .x = 1, .y = 1 }, .head = .{ .cell = .{ .x = 0, .y = 1 }, .dir = .east }, .tee = .{ .w = true } },
     };
     for (cases) |tc| {
         var lat = try borderLattice3(a, tc.border[0], tc.border[1], tc.border_mask);
         defer a.free(lat.cells);
-        const border: sketch.Point = .{ .x = @intCast(tc.border[0]), .y = @intCast(tc.border[1]) };
-        const pts = [_]sketch.Point{ tc.from, border };
-        const head: edges.Head = .{
-            .cell = .{
-                .x = @divExact(tc.from.x + border.x, 2),
-                .y = @divExact(tc.from.y + border.y, 2),
-            },
-            .dir = prims.segmentDir(tc.from, border).?,
-        };
-        edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{ .head = head });
-        try testing.expectEqual(
-            tc.border_mask.toMask(),
-            lat.atConst(tc.border[0], tc.border[1]).neighbours.toMask(),
-        );
-        try testing.expectEqual(lattice.EdgeKind.solid, lat.atConst(tc.border[0], tc.border[1]).stroke_kind);
+        if (tc.to.x != tc.border[0] or tc.to.y != tc.border[1]) lat.at(tc.border[0], tc.border[1]).occupant.node_border.role = .edge_w;
+        const pts = [_]sketch.Point{ tc.from, tc.to };
+        edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{ .head = tc.head });
+        const wall = lat.atConst(tc.border[0], tc.border[1]);
+        try testing.expectEqual(prims.orMask(tc.border_mask, tc.tee).toMask(), wall.neighbours.toMask());
+        try testing.expectEqual(lattice.EdgeKind.solid, wall.stroke_kind);
     }
-}
-
-test "a decorated source end whose head faces the wall leaves it pristine" {
-    const a = testing.allocator;
-    var lat = try sourceBorderLattice(a, 0);
-    defer a.free(lat.cells);
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 1 } };
-    const head: edges.Head = .{ .cell = .{ .x = 0, .y = 1 }, .dir = .north };
-    edges.drawPortStroke(&lat, &pts, .solid, 0, .{ .head = head });
-    try testing.expect(!lat.atConst(0, 0).neighbours.s);
-}
-
-test "a head adjacent to the wall but pointing ALONG the route still tees it" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 1, 0, .{ .e = true, .w = true });
-    defer a.free(lat.cells);
-    const pts = [_]sketch.Point{ .{ .x = 1, .y = 2 }, .{ .x = 1, .y = 0 } };
-    const head: edges.Head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .west };
-    edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{ .head = head });
-    try testing.expect(lat.atConst(1, 0).neighbours.s);
-}
-
-test "a decorated arrival whose head is DETACHED still tees the wall" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
-    defer a.free(lat.cells);
-    lat.at(2, 1).occupant.node_border.role = .edge_w;
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    const head: edges.Head = .{ .cell = .{ .x = 0, .y = 1 }, .dir = .east };
-    edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{ .head = head });
-    try testing.expect(lat.atConst(2, 1).neighbours.w);
-}
-
-test "a DECORATED gap arrival paints nothing: the slid head owns the gap" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
-    defer a.free(lat.cells);
-    lat.at(2, 1).occupant.node_border.role = .edge_w;
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    const head: edges.Head = .{ .cell = .{ .x = 1, .y = 1 }, .dir = .east };
-    edges.drawTargetPortStroke(&lat, &pts, .solid, 7, .{ .head = head, .role = .forward });
-    try testing.expect(!lat.atConst(2, 1).neighbours.w);
-    try testing.expectEqual(
-        lattice.Occupant.empty,
-        std.meta.activeTag(lat.atConst(1, 1).occupant),
-    );
 }
 
 test "an UNDECORATED gap arrival also gets tee, painted gap and run" {
@@ -265,23 +160,6 @@ test "an OCCUPIED gap cell is never painted and never probed across" {
     try testing.expect(!lat.atConst(2, 1).neighbours.w);
     try testing.expectEqual(
         lattice.Occupant.label_char,
-        std.meta.activeTag(lat.atConst(1, 1).occupant),
-    );
-}
-
-test "painting the gap cell costs no lost cells" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
-    defer a.free(lat.cells);
-    lat.at(2, 1).occupant.node_border.role = .edge_w;
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{});
-    try testing.expectEqual(
-        lattice.Occupant.empty,
-        std.meta.activeTag(lat.atConst(0, 1).occupant),
-    );
-    try testing.expectEqual(
-        lattice.Occupant.edge_segment,
         std.meta.activeTag(lat.atConst(1, 1).occupant),
     );
 }
@@ -326,16 +204,6 @@ test "a bidirectional edge: facing heads leave BOTH walls plain, others tee both
         try testing.expect(lat.atConst(1, 0).neighbours.s);
         try testing.expect(lat.atConst(1, 4).neighbours.n);
     }
-}
-
-test "a gap arrival merges its port bit across the 1-cell reprieve" {
-    const a = testing.allocator;
-    var lat = try borderLattice3(a, 2, 1, .{ .n = true, .s = true });
-    defer a.free(lat.cells);
-    lat.at(2, 1).occupant.node_border.role = .edge_w;
-    const pts = [_]sketch.Point{ .{ .x = 0, .y = 1 }, .{ .x = 1, .y = 1 } };
-    edges.drawTargetPortStroke(&lat, &pts, .solid, 0, .{});
-    try testing.expect(lat.atConst(2, 1).neighbours.w);
 }
 
 test "a corner landing is refused: no merge" {

@@ -268,7 +268,7 @@ test "ZWJ, flag, variation-selector and skin-tone labels box consistently and su
     }
 }
 
-test "an all-ASCII diagram paints byte-for-byte as before" {
+test "an all-ASCII diagram paints byte-for-byte: label padding, arrow gap and tee glyphs" {
     const r = try renderFramed("flowchart TD\n    A[Start] --> B[End]\n", 2);
     defer r.deinit();
     try testing.expectEqualStrings(

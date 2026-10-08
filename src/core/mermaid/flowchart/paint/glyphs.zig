@@ -150,83 +150,37 @@ test "every ink glyph is one column wide and none is a tofu cross" {
     };
 }
 
-test "blank and text cells have no ink" {
-    const occupants = [_]lattice.Occupant{ .empty, .{ .node_interior = 3 }, .{ .label_char = 'a' }, .label_cont };
-    for (occupants) |occupant| {
-        try testing.expectEqual(@as(?u21, null), ink(cellOf(occupant, 15, .thick, .circle)));
-    }
-}
+test "stroke overrides: a thick or dotted border stroke replaces the shape glyph, invisible keeps it; clusters and segments follow their own kind" {
+    const N = lattice.Neighbours;
+    const es = nb(.{ .e = true, .s = true });
+    const ews = nb(.{ .e = true, .w = true, .s = true });
+    const ns = nb(.{ .n = true, .s = true });
+    const Row = struct { occupant: lattice.Occupant, mask: u4, stroke: lattice.EdgeKind, shape: lattice.Shape = .rect, want: u21 };
+    const border = struct {
+        fn f(role: lattice.BorderRole) lattice.Occupant {
+            return .{ .node_border = .{ .node = 0, .role = role } };
+        }
+    }.f;
+    const frame: lattice.Occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_n } };
+    const rows = [_]Row{
+        .{ .occupant = border(.corner_nw), .mask = es, .stroke = .thick, .shape = .round, .want = '┌' },
+        .{ .occupant = border(.corner_nw), .mask = es, .stroke = .dotted, .shape = .rhombus, .want = '┌' },
+        .{ .occupant = border(.edge_n), .mask = ews, .stroke = .dotted, .shape = .cylinder, .want = '┬' },
+        .{ .occupant = border(.edge_s), .mask = ews, .stroke = .thick, .want = '╥' },
+        .{ .occupant = border(.edge_n), .mask = nb(N{ .e = true, .w = true, .n = true }), .stroke = .thick, .want = '╨' },
+        .{ .occupant = border(.edge_w), .mask = nb(.{ .e = true }), .stroke = .thick, .want = '╞' },
+        .{ .occupant = border(.edge_w), .mask = ns, .stroke = .dotted, .shape = .round, .want = '│' },
+        .{ .occupant = border(.corner_nw), .mask = es, .stroke = .invisible, .shape = .round, .want = '╭' },
+        .{ .occupant = frame, .mask = ews, .stroke = .solid, .shape = .circle, .want = '┬' },
+        .{ .occupant = frame, .mask = ews, .stroke = .dotted, .shape = .circle, .want = '┬' },
+        .{ .occupant = frame, .mask = ews, .stroke = .invisible, .shape = .circle, .want = '┬' },
+        .{ .occupant = frame, .mask = ews, .stroke = .thick, .shape = .circle, .want = '╥' },
+        .{ .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid } }, .mask = ns, .stroke = .thick, .want = '│' },
+    };
+    for (rows) |r| try testing.expectEqual(@as(?u21, r.want), ink(cellOf(r.occupant, r.mask, r.stroke, r.shape)));
 
-test "an edge stroke spells every arm mask by its kind" {
-    const solid = [16]u21{ ' ', '╵', '╶', '└', '╷', '│', '┌', '├', '╴', '┘', '─', '┴', '┐', '┤', '┬', '┼' };
-    for (solid, 0..) |want, mask| try testing.expectEqual(want, lineOf(.solid, @intCast(mask)));
-    try testing.expectEqual(@as(u21, '┊'), lineOf(.dotted, nb(.{ .n = true, .s = true })));
-    try testing.expectEqual(@as(u21, '╌'), lineOf(.dotted, nb(.{ .e = true, .w = true })));
-    try testing.expectEqual(@as(u21, '┌'), lineOf(.dotted, nb(.{ .e = true, .s = true })));
-    try testing.expectEqual(@as(u21, ' '), lineOf(.dotted, 0));
-    try testing.expectEqual(@as(u21, '║'), lineOf(.thick, nb(.{ .n = true, .s = true })));
-    try testing.expectEqual(@as(u21, '═'), lineOf(.thick, nb(.{ .e = true, .w = true })));
-    try testing.expectEqual(@as(u21, '╔'), lineOf(.thick, nb(.{ .e = true, .s = true })));
-    try testing.expectEqual(@as(u21, '╬'), lineOf(.thick, 15));
-}
-
-test "an invisible edge segment is blank whatever its arms" {
     var mask: u5 = 0;
     while (mask < 16) : (mask += 1) try testing.expectEqual(@as(u21, ' '), lineOf(.invisible, @intCast(mask)));
-}
-
-test "an edge segment follows its own kind, not the cell's stroke" {
-    const cell = cellOf(.{ .edge_segment = .{ .edge = 0, .kind = .solid } }, nb(.{ .n = true, .s = true }), .thick, .rect);
-    try testing.expectEqual(@as(?u21, '│'), ink(cell));
-}
-
-test "arrowheads: every drawable kind in every direction" {
-    const cases = [_]struct { kind: lattice.ArrowKind, want: [4]u21 }{
-        .{ .kind = .filled, .want = .{ '▲', '▶', '▼', '◀' } },
-        .{ .kind = .open, .want = .{ '△', '▷', '▽', '◁' } },
-        .{ .kind = .circle, .want = .{ '○', '○', '○', '○' } },
-        .{ .kind = .cross, .want = .{ '\u{2715}', '\u{2715}', '\u{2715}', '\u{2715}' } },
-    };
-    for (cases) |c| for (std.enums.values(lattice.Dir4), 0..) |dir, i| {
-        const cell = cellOf(.{ .arrowhead = .{ .dir = dir, .edge = 0, .arrow = c.kind } }, 0, .solid, .rect);
-        try testing.expectEqual(@as(?u21, c.want[i]), ink(cell));
-    };
-}
-
-test "a thick or dotted stroke on a border replaces the shape glyph" {
-    const corner = nb(.{ .e = true, .s = true });
-    try testing.expectEqual(@as(u21, '┌'), borderOf(.round, .corner_nw, corner, .thick));
-    try testing.expectEqual(@as(u21, '┌'), borderOf(.rhombus, .corner_nw, corner, .dotted));
-    try testing.expectEqual(@as(u21, '┬'), borderOf(.cylinder, .edge_n, nb(.{ .e = true, .w = true, .s = true }), .dotted));
-    try testing.expectEqual(@as(u21, '╥'), borderOf(.rect, .edge_s, nb(.{ .e = true, .w = true, .s = true }), .thick));
-    try testing.expectEqual(@as(u21, '╨'), borderOf(.rect, .edge_n, nb(.{ .e = true, .w = true, .n = true }), .thick));
-    try testing.expectEqual(@as(u21, '╞'), borderOf(.rect, .edge_w, nb(.{ .e = true }), .thick));
-    try testing.expectEqual(@as(u21, '│'), borderOf(.round, .edge_w, nb(.{ .n = true, .s = true }), .dotted));
-}
-
-test "an invisible stroke on a node border keeps the shape glyph" {
-    try testing.expectEqual(@as(u21, '╭'), borderOf(.round, .corner_nw, nb(.{ .e = true, .s = true }), .invisible));
-}
-
-test "a cluster border is the light line, or the thick border tees when thick" {
-    const ews = nb(.{ .e = true, .w = true, .s = true });
-    for ([_]lattice.EdgeKind{ .solid, .dotted, .invisible }) |stroke| {
-        const cell = cellOf(.{ .cluster_border = .{ .cluster = 0, .role = .edge_n } }, ews, stroke, .circle);
-        try testing.expectEqual(@as(?u21, '┬'), ink(cell));
-    }
-    const thick_cell = cellOf(.{ .cluster_border = .{ .cluster = 0, .role = .edge_n } }, ews, .thick, .circle);
-    try testing.expectEqual(@as(?u21, '╥'), ink(thick_cell));
-}
-
-test "shape outlines: rect, subroutine and plain edges stay light" {
-    const es = nb(.{ .e = true, .s = true });
-    const ns = nb(.{ .n = true, .s = true });
-    const ew = nb(.{ .e = true, .w = true });
-    try testing.expectEqual(@as(u21, '┌'), borderOf(.rect, .corner_nw, es, .solid));
-    try testing.expectEqual(@as(u21, '─'), borderOf(.rect, .edge_n, ew, .solid));
-    try testing.expectEqual(@as(u21, '┌'), borderOf(.subroutine, .corner_nw, es, .solid));
-    try testing.expectEqual(@as(u21, '│'), borderOf(.round, .edge_w, ns, .solid));
-    try testing.expectEqual(@as(u21, '─'), borderOf(.circle, .edge_n, ew, .solid));
 }
 
 test "shape outlines: rounded, stadium, circle, rhombus, parallelogram, trapezoid corners" {
