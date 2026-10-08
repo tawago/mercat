@@ -20,13 +20,20 @@ fn mkGraph(nodes: []sugiyama.LayerNode, layers: [][]u32, edges: []sugiyama.Layer
 
 test "reflowWideRanks: a second wide layer's base_y reflects the first wide layer's shift, and a leaf further down cascades through both" {
     var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 10 }, .{ .real = 11 }, .{ .real = 12 }, .{ .real = 13 },
-        .{ .real = 20 }, .{ .real = 21 }, .{ .real = 22 }, .{ .real = 23 },
+        .{ .real = 10 },
+        .{ .real = 11 },
+        .{ .real = 12 },
+        .{ .real = 13 },
+        .{ .real = 20 },
+        .{ .real = 21 },
+        .{ .real = 22 },
+        .{ .real = 23 },
         .{ .real = 30 },
+        .{ .virtual = .{ .edge = 50, .index = 0 } },
     };
     var layer0 = [_]u32{ 0, 1, 2, 3 };
     var layer1 = [_]u32{ 4, 5, 6, 7 };
-    var layer2 = [_]u32{8};
+    var layer2 = [_]u32{ 8, 9 };
     var layers = [_][]u32{ &layer0, &layer1, &layer2 };
     var edges = [_]sugiyama.LayerEdge{
         .{ .from = 0, .to = 4, .edge = 100, .reversed = false },
@@ -50,6 +57,7 @@ test "reflowWideRanks: a second wide layer's base_y reflects the first wide laye
         .{ .x = 40, .y = 100, .w = 8, .h = 3, .layer = 1 },
         .{ .x = 60, .y = 100, .w = 8, .h = 3, .layer = 1 },
         .{ .x = 0, .y = 200, .w = 6, .h = 3, .layer = 2 },
+        .{ .x = 20, .y = 200, .w = 0, .h = 0, .layer = 2 },
     };
 
     rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
@@ -57,6 +65,8 @@ test "reflowWideRanks: a second wide layer's base_y reflects the first wide laye
     try testing.expectEqual(@as(i32, 106), geom[4].y);
 
     try testing.expectEqual(@as(i32, 212), geom[8].y);
+    // A long edge's virtual node further down moves with the real nodes.
+    try testing.expectEqual(@as(i32, 212), geom[9].y);
 }
 
 test "reflowWideRanks: a same-layer virtual node's (oversized) width never enters the column/packing math and its position is untouched" {
@@ -301,60 +311,6 @@ test "reflowWideRanks: a rank fed from above that ALSO converges to one child is
     rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
 
     try testing.expect(geom[2].y != geom[3].y);
-}
-
-test "rank-grid pushes only strictly-below nodes by added_h; same-layer and above nodes are untouched" {
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 10 },
-        .{ .real = 1 },
-        .{ .real = 2 },
-        .{ .real = 3 },
-        .{ .real = 4 },
-        .{ .real = 5 },
-        .{ .virtual = .{ .edge = 50, .index = 0 } },
-        .{ .real = 11 },
-        .{ .virtual = .{ .edge = 51, .index = 0 } },
-    };
-    var layer0 = [_]u32{0};
-    var layer1 = [_]u32{ 1, 2, 3, 4, 5, 6 };
-    var layer2 = [_]u32{ 7, 8 };
-    var layers = [_][]u32{ &layer0, &layer1, &layer2 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 1, .edge = 100, .reversed = false },
-        .{ .from = 0, .to = 2, .edge = 101, .reversed = false },
-        .{ .from = 0, .to = 3, .edge = 102, .reversed = false },
-        .{ .from = 0, .to = 4, .edge = 103, .reversed = false },
-        .{ .from = 0, .to = 5, .edge = 104, .reversed = false },
-        .{ .from = 1, .to = 7, .edge = 200, .reversed = false },
-        .{ .from = 2, .to = 7, .edge = 201, .reversed = false },
-        .{ .from = 3, .to = 7, .edge = 202, .reversed = false },
-        .{ .from = 4, .to = 7, .edge = 203, .reversed = false },
-        .{ .from = 5, .to = 7, .edge = 204, .reversed = false },
-    };
-    const lg = mkGraph(&nodes, &layers, &edges);
-
-    var geom = [_]NodeGeom{
-        .{ .x = 0, .y = 0, .w = 6, .h = 3, .layer = 0 },
-        .{ .x = 0, .y = 100, .w = 8, .h = 3, .layer = 1 },
-        .{ .x = 20, .y = 100, .w = 8, .h = 3, .layer = 1 },
-        .{ .x = 40, .y = 100, .w = 8, .h = 3, .layer = 1 },
-        .{ .x = 60, .y = 100, .w = 8, .h = 3, .layer = 1 },
-        .{ .x = 80, .y = 100, .w = 8, .h = 3, .layer = 1 },
-        .{ .x = 0, .y = 100, .w = 0, .h = 0, .layer = 1 },
-        .{ .x = 0, .y = 150, .w = 6, .h = 3, .layer = 2 },
-        .{ .x = 0, .y = 150, .w = 0, .h = 0, .layer = 2 },
-    };
-
-    const base_y = geom[1].y;
-    rank_grid.reflowWideRanks(lg, &geom, 20, 2, 1);
-
-    const added_h = geom[7].y - 150;
-    try testing.expect(added_h > 0);
-
-    try testing.expectEqual(@as(i32, 0), geom[0].y);
-    try testing.expectEqual(base_y, geom[6].y);
-    try testing.expectEqual(@as(i32, 150) + added_h, geom[7].y);
-    try testing.expectEqual(@as(i32, 150) + added_h, geom[8].y);
 }
 
 test "rank-grid leaves a wrapped fan-OUT layer as one row but still grids an over-wide multi-pivot sibling layer" {

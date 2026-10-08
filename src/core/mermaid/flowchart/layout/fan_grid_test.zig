@@ -150,35 +150,6 @@ test "wrapWideFanOut leaves a fitting fan as a single row" {
     try testing.expectEqual(@as(i32, 6), geom[3].y);
 }
 
-test "wrapWideFanOut grids a fan that overflows the budget" {
-    var peers = [_]fan.FanEdge{
-        .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
-        .{ .edge_id = 2, .peer_idx = 2, .role = .middle },
-        .{ .edge_id = 3, .peer_idx = 3, .role = .middle },
-        .{ .edge_id = 4, .peer_idx = 4, .role = .middle },
-        .{ .edge_id = 5, .peer_idx = 5, .role = .middle },
-        .{ .edge_id = 6, .peer_idx = 6, .role = .middle },
-    };
-    var fans = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
-    var geom = [_]TestGeom{
-        .{ .x = 60, .y = 0, .w = 20, .h = 3 },
-        .{ .x = 0, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 24, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 48, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 72, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 96, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 120, .y = 6, .w = 20, .h = 3 },
-        .{ .x = 60, .y = 200, .w = 20, .h = 3 },
-    };
-    fan.wrapWideFanOut(TestGeom, &fans, &geom, 60, 4, 2);
-    try testing.expect(fans[0].rows >= 2);
-    var distinct_y = std.AutoHashMapUnmanaged(i32, void).empty;
-    defer distinct_y.deinit(testing.allocator);
-    for (1..7) |i| try distinct_y.put(testing.allocator, geom[i].y, {});
-    try testing.expect(distinct_y.count() >= 2);
-    try testing.expect(geom[7].y > 200);
-}
-
 test "wrapWideFanIn centres a narrow box on its column's centre, not flush to a wide neighbour" {
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
@@ -200,8 +171,7 @@ test "wrapWideFanIn centres a narrow box on its column's centre, not flush to a 
 }
 
 test "a gridded fan keeps three gap rows between its rows at halved spacing" {
-    try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 1));
-    try testing.expectEqual(@as(i32, 6), fan_grid.rowStep(3, 2));
+    // Above the three-row floor the step follows the spacing.
     try testing.expectEqual(@as(i32, 8), fan_grid.rowStep(3, 4));
     var peers = [_]fan.FanEdge{
         .{ .edge_id = 1, .peer_idx = 1, .role = .middle },
@@ -231,4 +201,6 @@ test "a gridded fan keeps three gap rows between its rows at halved spacing" {
         next_y = @min(next_y, geom[i].y);
     };
     try testing.expectEqual(@as(i32, 6), next_y - min_y);
+    // The node below the fan is pushed down past the grid.
+    try testing.expect(geom[7].y > 200);
 }

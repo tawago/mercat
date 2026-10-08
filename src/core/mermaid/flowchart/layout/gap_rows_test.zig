@@ -42,58 +42,52 @@ test "spans separated by one blank cell share a row; abutting spans do not" {
     try testing.expect(rowOf(l2, 7) != rowOf(l2, 15));
 }
 
-test "an arrival rail stacks nearer the target than the departure rail it conflicts with" {
+test "pack row precedence: arrivals sit nearer the target, stems wait for foreign taps, cycles fall back to left-endpoint order" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const bases = [_]u32{2};
-    const claims = [_]Claim{ claim(0, 0, 20, .fan_out), claim(0, 5, 25, .fan_in) };
-    const l = try pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 0), rowOf(l, 5));
-    try testing.expectEqual(@as(i32, 1), rowOf(l, 0));
-    try testing.expectEqual(@as(u32, 2), l.extraRows(0));
-}
-
-test "a rail whose stem column is a foreign tap's column sits where that tap ends before the junction" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const bases = [_]u32{2};
-    var x_stem = [_]i32{10};
-    var x_taps = [_]i32{ 0, 10 };
-    var y_stem = [_]i32{30};
-    var y_taps = [_]i32{ 10, 30 };
-    const arrivals = [_]Claim{
-        .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
-        .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
+    const At = struct { lo: i32, row: i32 };
+    const Row = struct { claims: []const Claim, rows: []const At = &.{}, rows_used: ?u32 = null, extra: ?u32 = null };
+    const rows = [_]Row{
+        // An arrival rail stacks nearer the target than the departure rail it conflicts with.
+        .{ .claims = &.{ claim(0, 0, 20, .fan_out), claim(0, 5, 25, .fan_in) }, .rows = &.{ .{ .lo = 5, .row = 0 }, .{ .lo = 0, .row = 1 } }, .extra = 2 },
+        // A rail whose stem column is a foreign tap's column sits where that tap ends before the junction.
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_in, .stems = &.{10}, .taps = &.{ 0, 10 } },
+            .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_in, .stems = &.{30}, .taps = &.{ 10, 30 } },
+        }, .rows = &.{ .{ .lo = 0, .row = 0 }, .{ .lo = 10, .row = 1 } } },
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_out, .stems = &.{10}, .taps = &.{ 0, 10 } },
+            .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_out, .stems = &.{30}, .taps = &.{ 10, 30 } },
+        }, .rows = &.{ .{ .lo = 0, .row = 1 }, .{ .lo = 10, .row = 0 } } },
+        // A precedence cycle falls back to left-endpoint order.
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &.{0}, .taps = &.{ 0, 20 } },
+            .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &.{20}, .taps = &.{ 0, 20 } },
+        }, .rows_used = 2 },
+        // A run arriving down a column another run departs from sits nearer the target.
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 30, .hi = 59, .kind = .corridor_entry, .end = .entry, .stems = &.{51}, .taps = &.{59} },
+            .{ .gap = 0, .lo = 51, .hi = 71, .kind = .fan_out, .stems = &.{71}, .taps = &.{51} },
+        }, .rows = &.{ .{ .lo = 51, .row = 0 }, .{ .lo = 30, .row = 1 } } },
+        // A fan-OUT run whose span holds another fan-OUT's taps sits nearer the source.
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 8, .hi = 46, .kind = .fan_out, .stems = &.{46}, .taps = &.{8} },
+            .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_out, .stems = &.{ 50, 50 }, .taps = &.{ 28, 70 } },
+            .{ .gap = 0, .lo = 52, .hi = 92, .kind = .fan_out, .stems = &.{52}, .taps = &.{92} },
+        }, .rows = &.{ .{ .lo = 28, .row = 0 }, .{ .lo = 8, .row = 1 }, .{ .lo = 52, .row = 1 } }, .extra = 2 },
+        .{ .claims = &.{
+            .{ .gap = 0, .lo = 8, .hi = 92, .kind = .fan_in, .stems = &.{50}, .taps = &.{ 8, 92 } },
+            .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_in, .stems = &.{40}, .taps = &.{ 28, 70 } },
+        }, .rows = &.{ .{ .lo = 8, .row = 0 }, .{ .lo = 28, .row = 1 } } },
     };
-    const li = try pack(a, &arrivals, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 0), rowOf(li, 0));
-    try testing.expectEqual(@as(i32, 1), rowOf(li, 10));
-    const departures = [_]Claim{
-        .{ .gap = 0, .lo = 0, .hi = 10, .kind = .fan_out, .stems = &x_stem, .taps = &x_taps },
-        .{ .gap = 0, .lo = 10, .hi = 30, .kind = .fan_out, .stems = &y_stem, .taps = &y_taps },
-    };
-    const lo = try pack(a, &departures, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 1), rowOf(lo, 0));
-    try testing.expectEqual(@as(i32, 0), rowOf(lo, 10));
-}
-
-test "a precedence cycle falls back to left-endpoint order" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const bases = [_]u32{2};
-    var x_stem = [_]i32{0};
-    var x_taps = [_]i32{ 0, 20 };
-    var y_stem = [_]i32{20};
-    var y_taps = [_]i32{ 0, 20 };
-    const claims = [_]Claim{
-        .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &x_stem, .taps = &x_taps },
-        .{ .gap = 0, .lo = 0, .hi = 20, .kind = .fan_in, .stems = &y_stem, .taps = &y_taps },
-    };
-    const l = try pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(u32, 2), l.gaps[0].rows_used);
+    for (rows) |row| {
+        const ledger = try pack(a, row.claims, &.{}, &bases);
+        for (row.rows) |at| try testing.expectEqual(at.row, rowOf(ledger, at.lo));
+        if (row.rows_used) |n| try testing.expectEqual(n, ledger.gaps[0].rows_used);
+        if (row.extra) |n| try testing.expectEqual(n, ledger.extraRows(0));
+    }
 }
 
 test "a run with no decorated end keeps the base row only when no claim or post shares a column with it" {
@@ -301,39 +295,7 @@ test "an offset decorated terminal claims one row; a column-aligned or undecorat
     _ = &bare;
 }
 
-test "a labeled fan claims its rail row and one label band; an unlabeled fan claims one row" {
-    const a = testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 } };
-    var row0 = [_]u32{0};
-    var row1 = [_]u32{ 1, 2 };
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 1, .reversed = false, .edge = 0 },
-        .{ .from = 0, .to = 2, .reversed = false, .edge = 1 },
-    };
-    var reversed = [_]sg.EdgeId{};
-    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Geom{ .{ .x = 10, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 20, .w = 3 } };
-    const graph = try flt.mkGraph(aa, &edges);
-    const bases = [_]u32{2};
-    var peers = [_]fan.FanEdge{
-        .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost },
-        .{ .edge_id = 1, .peer_idx = 2, .role = .rightmost },
-    };
-    const unlabeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
-    const lu = try flt.buildPiece(aa, graph, lg, &geom, &unlabeled, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(@as(u32, 1), lu.gaps[0].rows_used);
-
-    peers[0].label_width = 3;
-    const labeled = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const ll = try flt.buildPiece(aa, graph, lg, &geom, &labeled, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, ll.gaps[0].rows_used);
-}
-
-test "a fan-OUT with three labeled members claims the same rows as one with a single labeled member" {
+test "a labeled fan claims its rail row and one label band however many members carry labels; an unlabeled fan claims one row" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -352,20 +314,18 @@ test "a fan-OUT with three labeled members claims the same rows as one with a si
     const geom = [_]Geom{ .{ .x = 10, .w = 3 }, .{ .x = 0, .w = 3 }, .{ .x = 10, .w = 3 }, .{ .x = 20, .w = 3 } };
     const graph = try flt.mkGraph(aa, &edges);
     const bases = [_]u32{2};
-    var peers = [_]fan.FanEdge{
-        .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost, .label_width = 3 },
-        .{ .edge_id = 1, .peer_idx = 2, .role = .center },
-        .{ .edge_id = 2, .peer_idx = 3, .role = .rightmost },
-    };
-    const one = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const l_one = try flt.buildPiece(aa, graph, lg, &geom, &one, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(fan.LABEL_RUN_EXTRA_ROWS, l_one.gaps[0].rows_used);
-
-    peers[1].label_width = 3;
-    peers[2].label_width = 3;
-    const three = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = true }};
-    const l_three = try flt.buildPiece(aa, graph, lg, &geom, &three, .{}, .{}, &bases, &.{}, &.{});
-    try testing.expectEqual(l_one.gaps[0].rows_used, l_three.gaps[0].rows_used);
+    // No labels, one labeled member, then all three labeled.
+    for ([_][3]u32{ .{ 0, 0, 0 }, .{ 3, 0, 0 }, .{ 3, 3, 3 } }) |widths| {
+        var peers = [_]fan.FanEdge{
+            .{ .edge_id = 0, .peer_idx = 1, .role = .leftmost, .label_width = widths[0] },
+            .{ .edge_id = 1, .peer_idx = 2, .role = .center, .label_width = widths[1] },
+            .{ .edge_id = 2, .peer_idx = 3, .role = .rightmost, .label_width = widths[2] },
+        };
+        const labeled = widths[0] != 0;
+        const fans = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers, .labeled = labeled }};
+        const ledger = try flt.buildPiece(aa, graph, lg, &geom, &fans, .{}, .{}, &bases, &.{}, &.{});
+        try testing.expectEqual(if (labeled) fan.LABEL_RUN_EXTRA_ROWS else 1, ledger.gaps[0].rows_used);
+    }
 }
 
 test "two unlabeled duplicate arrows claim the detour bands and the gap reaches twice the deeper detour's depth" {
@@ -547,24 +507,6 @@ test "a sub-gap grows by the rows its packed claims need beyond the grid's" {
     try testing.expectEqual(@as(u32, 1), l.extraRows(1));
 }
 
-test "a run arriving down a column another run departs from sits nearer the target" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const bases = [_]u32{2};
-    var x_stem = [_]i32{51};
-    var x_tap = [_]i32{59};
-    var y_stem = [_]i32{71};
-    var y_tap = [_]i32{51};
-    const claims = [_]Claim{
-        .{ .gap = 0, .lo = 30, .hi = 59, .kind = .corridor_entry, .end = .entry, .stems = &x_stem, .taps = &x_tap },
-        .{ .gap = 0, .lo = 51, .hi = 71, .kind = .fan_out, .stems = &y_stem, .taps = &y_tap },
-    };
-    const l = try pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 0), rowOf(l, 51));
-    try testing.expectEqual(@as(i32, 1), rowOf(l, 30));
-}
-
 test "a skip edge into a plain node joins the bridge band that ends on its port" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{
@@ -643,38 +585,4 @@ test "a placement edge that stands for two crossings into a plain node claims th
         try testing.expectEqual(@as(i32, 15), band.hi);
         try testing.expect(ledger.gaps[0].base_used);
     }
-}
-
-test "a fan-OUT run whose span holds another fan-OUT's taps sits nearer the source" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const bases = [_]u32{2};
-    var left_stem = [_]i32{46};
-    var left_tap = [_]i32{8};
-    var right_stem = [_]i32{52};
-    var right_tap = [_]i32{92};
-    var dotted_stems = [_]i32{ 50, 50 };
-    var dotted_taps = [_]i32{ 28, 70 };
-    const claims = [_]Claim{
-        .{ .gap = 0, .lo = 8, .hi = 46, .kind = .fan_out, .stems = &left_stem, .taps = &left_tap },
-        .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_out, .stems = &dotted_stems, .taps = &dotted_taps },
-        .{ .gap = 0, .lo = 52, .hi = 92, .kind = .fan_out, .stems = &right_stem, .taps = &right_tap },
-    };
-    const ledger = try pack(a, &claims, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 0), rowOf(ledger, 28));
-    try testing.expectEqual(@as(i32, 1), rowOf(ledger, 8));
-    try testing.expectEqual(@as(i32, 1), rowOf(ledger, 52));
-    try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
-    var outer_stem = [_]i32{50};
-    var outer_taps = [_]i32{ 8, 92 };
-    var inner_stem = [_]i32{40};
-    var inner_taps = [_]i32{ 28, 70 };
-    const arrivals = [_]Claim{
-        .{ .gap = 0, .lo = 8, .hi = 92, .kind = .fan_in, .stems = &outer_stem, .taps = &outer_taps },
-        .{ .gap = 0, .lo = 28, .hi = 70, .kind = .fan_in, .stems = &inner_stem, .taps = &inner_taps },
-    };
-    const li = try pack(a, &arrivals, &.{}, &bases);
-    try testing.expectEqual(@as(i32, 0), rowOf(li, 8));
-    try testing.expectEqual(@as(i32, 1), rowOf(li, 28));
 }

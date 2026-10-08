@@ -20,6 +20,12 @@ test "self-loop detour offsets match OFF_H=4 (east overshoot) / OFF_V=3 (vertica
         const east_x = node.rect.right() - 1;
         try testing.expectEqual(@as(i32, 4), sl.polyline[1].x - east_x);
         try testing.expectEqual(@as(i32, 3), node.rect.y - sl.polyline[2].y);
+        if (dir == .TD) {
+            // Unobstructed TD keeps the classic over-the-top shape: out east, back in north.
+            try testing.expectEqual(sketch.Dir4.east, sl.port_from.side);
+            try testing.expectEqual(sketch.Dir4.north, sl.port_to.side);
+            try testing.expectEqual(node.rect.y, sl.polyline[sl.polyline.len - 1].y);
+        }
     }
 
     for ([_]sg.Direction{ .LR, .RL }) |dir| {
@@ -143,4 +149,13 @@ test "belowEastLoop lands the east re-entry with a straight base cell (◀─┐
     const east_x = node.rect.right() - 1;
     try testing.expect(sl.polyline[3].x - east_x >= 3);
     try testing.expectEqual(sl.polyline[4].x, east_x);
+    try testing.expectEqual(sl.polyline[4].y, sl.polyline[3].y);
+    // The loop below never touches the box stacked above.
+    for (sl.polyline[0 .. sl.polyline.len - 1], sl.polyline[1..]) |p0, p1| {
+        if (p0.x == p1.x) {
+            try testing.expect(!sketch_clearance.lineTouchesRect(false, p0.x, @min(p0.y, p1.y), @max(p0.y, p1.y), above.rect));
+        } else {
+            try testing.expect(!sketch_clearance.lineTouchesRect(true, p0.y, @min(p0.x, p1.x), @max(p0.x, p1.x), above.rect));
+        }
+    }
 }

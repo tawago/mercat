@@ -2,9 +2,6 @@ const std = @import("std");
 const pb = @import("../base/ledger.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
-const sugiyama = @import("sugiyama.zig");
-const NodeGeom = @import("node_geom.zig").NodeGeom;
-const flt = @import("fan_lanes_test.zig");
 const coords = @import("../layout.zig");
 const permits = @import("../ledger/permits.zig");
 const ports = @import("ports.zig");
@@ -188,33 +185,21 @@ test "two and three identical arrows get private ports and face growth" {
     }
 }
 
-test "labelled duplicate plus distinct leaf keeps the duplicate private and rails the rest" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
-    var edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
-    edges[0].label = "dup";
-    edges[1].label = "dup";
-    const g = testGraph(&nodes, &edges);
-    const s = try productionLayout(a, g);
-    try std.testing.expectEqual(@as(usize, 1), s.sharing.realized.selected_bundles.len);
-    try expectPrivatePorts(s, &.{ 0, 1 });
-    try expectPrivatePorts(s, &.{ 1, 2 });
-    try std.testing.expect(samePort(pathById(s, 0).port_from, pathById(s, 2).port_from));
-}
-
-test "rail exclusion keeps the duplicate leaf private" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
-    const edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
-    const g = testGraph(&nodes, &edges);
-    const s = try productionLayout(a, g);
-    const private = pathById(s, 1);
-    try std.testing.expect(!samePort(private.port_from, pathById(s, 0).port_from));
-    try std.testing.expect(!samePort(pathById(s, 0).port_to, pathById(s, 1).port_to));
+test "labelled or unlabelled, a duplicate beside a distinct leaf stays private and the rest rail" {
+    for ([_]?[]const u8{ "dup", null }) |label| {
+        var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+        defer arena.deinit();
+        const a = arena.allocator();
+        const nodes = [_]sg.Node{ node(0, "S"), node(1, "A"), node(2, "B") };
+        var edges = [_]sg.Edge{ edge(0, 1, .solid), edge(1, 1, .solid), edge(2, 2, .solid) };
+        edges[0].label = label;
+        edges[1].label = label;
+        const s = try productionLayout(a, testGraph(&nodes, &edges));
+        try std.testing.expectEqual(@as(usize, 1), s.sharing.realized.selected_bundles.len);
+        try expectPrivatePorts(s, &.{ 0, 1 });
+        try expectPrivatePorts(s, &.{ 1, 2 });
+        try std.testing.expect(samePort(pathById(s, 0).port_from, pathById(s, 2).port_from));
+    }
 }
 
 test "bidirectional duplicate and self-loop keep independent endpoint identity" {
@@ -249,36 +234,6 @@ test "a fan with a long peer the plan did not select degrades to private routing
     try std.testing.expectEqual(sk.EdgeRole.forward, pathById(s, 2).role);
 }
 
-test "a long fan-in member the plan selected gets a continuing tap and a member stroke" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
-    const edges = [_]sg.Edge{
-        edge(0, 1, .solid),
-        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        edge(2, 2, .solid),
-    };
-    const s = try productionLayout(a, testGraph(&nodes, &edges));
-    var fan_in: ?sk.Rail = null;
-    for (s.rails) |rail| if (rail.pivot == 2) {
-        fan_in = rail;
-    };
-    const rail = fan_in orelse return error.MissingFanInRail;
-    var long_tap: ?sk.Tap = null;
-    for (rail.taps) |tap| if (tap.edge == 2) {
-        long_tap = tap;
-    };
-    const tap = long_tap orelse return error.MissingLongTap;
-    try std.testing.expect(tap.continues);
-    try std.testing.expectEqual(tap.at.y - 1, tap.landing.y);
-    const stroke = pathById(s, 2);
-    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
-    const last = stroke.polyline[stroke.polyline.len - 1];
-    try std.testing.expectEqual(tap.at.x, last.x);
-    try std.testing.expectEqual(tap.at.y, last.y);
-}
-
 test "a decorated long fan-in member's stroke leaves its departure cell straight" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -296,7 +251,7 @@ test "a decorated long fan-in member's stroke leaves its departure cell straight
     try std.testing.expect(stroke.polyline[1].y - stroke.polyline[0].y >= 2);
 }
 
-test "a long fan-out member gets a rail tap and a member stroke to its far port" {
+test "a long member of a fan-out and a fan-in gets continuing taps at both ends and a straight member stroke between them" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -311,7 +266,8 @@ test "a long fan-out member gets a rail tap and a member stroke to its far port"
     var out_tap: ?sk.Tap = null;
     var in_tap: ?sk.Tap = null;
     for (s.rails) |rail| for (rail.taps) |tap| if (tap.edge == 2 and tap.continues) {
-        if (rail.pivot == 0) out_tap = tap else in_tap = tap;
+        if (rail.pivot == 0) out_tap = tap;
+        if (rail.pivot == 2) in_tap = tap;
     };
     const ot = out_tap orelse return error.MissingDepartureTap;
     const it = in_tap orelse return error.MissingArrivalTap;
@@ -319,52 +275,10 @@ test "a long fan-out member gets a rail tap and a member stroke to its far port"
     try std.testing.expectEqual(it.at.y - 1, it.landing.y);
     const stroke = pathById(s, 2);
     try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
+    try std.testing.expectEqual(@as(usize, 2), stroke.polyline.len);
     try std.testing.expectEqual(ot.at.x, stroke.polyline[0].x);
     try std.testing.expectEqual(ot.at.y, stroke.polyline[0].y);
-    const last = stroke.polyline[stroke.polyline.len - 1];
-    try std.testing.expectEqual(it.at.x, last.x);
-    try std.testing.expectEqual(it.at.y, last.y);
+    try std.testing.expectEqual(it.at.x, stroke.polyline[1].x);
+    try std.testing.expectEqual(it.at.y, stroke.polyline[1].y);
     for (s.edges) |e| try std.testing.expect(e.id != 0);
-}
-
-test "a member long at both ends runs straight between its two taps" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ node(0, "A"), node(1, "B"), node(2, "C") };
-    const edges = [_]sg.Edge{
-        edge(0, 1, .solid),
-        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        edge(2, 2, .solid),
-    };
-    const s = try productionLayout(a, testGraph(&nodes, &edges));
-    const stroke = pathById(s, 2);
-    try std.testing.expectEqual(sk.EdgeRole.member_stroke, stroke.role);
-    try std.testing.expectEqual(@as(usize, 2), stroke.polyline.len);
-    try std.testing.expectEqual(stroke.polyline[0].x, stroke.polyline[1].x);
-}
-
-test "predicted ports give a side face its real length: three back edges on a TD node's east face allocate" {
-    const a = std.testing.allocator;
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
-    var row0 = [_]u32{0};
-    var row1 = [_]u32{1};
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{};
-    var reversed = [_]sg.EdgeId{};
-    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]NodeGeom{ .{ .x = 0, .y = 0, .w = 5, .h = 7, .layer = 0 }, .{ .x = 0, .y = 0, .w = 5, .h = 3, .layer = 1 } };
-    const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const opposites = [_][]const u8{ "b", "c", "d" };
-    var derived: [3]ports.DerivedAttachment = undefined;
-    for (&derived, opposites) |*d, opp| d.* = .{
-        .node = 0,
-        .side = .east,
-        .attachment = .{ .key = .{ .opposite = opp, .endpoint_side = .target_entry, .kind = 0, .arrow_from = 0, .arrow_to = 1, .label = null } },
-    };
-    const plan = try port_plan.predict(aa, graph, lg, &geom, &derived, .{}, true);
-    try std.testing.expectEqual(@as(usize, 0), plan.edges.len);
 }

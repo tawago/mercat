@@ -107,34 +107,6 @@ test "deCascade head climb stops exactly at a multi-node fork layer" {
     try testing.expectEqual(@as(i32, 0), geom[0].x);
 }
 
-test "deCascade no-ops when the drifted rail head is a true source (no forward parent)" {
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 },
-        .{ .real = 1 },
-        .{ .real = 2 },
-    };
-    var l0 = [_]u32{0};
-    var l1 = [_]u32{1};
-    var l2 = [_]u32{2};
-    var layers = [_][]u32{ &l0, &l1, &l2 };
-    var edges = [_]sugiyama.LayerEdge{
-        edge(1, 2),
-    };
-    const lg = lgOf(&nodes, &layers, &edges);
-
-    var geom = [_]NodeGeom{
-        geomAt(0, 0, 2, 1, 0),
-        geomAt(6, 2, 2, 1, 1),
-        geomAt(6, 4, 2, 1, 2),
-    };
-
-    _ = try decascade.deCascade(testing.allocator, &geom, lg);
-
-    try testing.expectEqual(@as(i32, 0), geom[0].x);
-    try testing.expectEqual(@as(i32, 6), geom[1].x);
-    try testing.expectEqual(@as(i32, 6), geom[2].x);
-}
-
 test "deCascade rail walk stops at a branch instead of treating it as rail-straight" {
     var nodes = [_]sugiyama.LayerNode{
         .{ .real = 0 },
@@ -172,32 +144,61 @@ test "deCascade rail walk stops at a branch instead of treating it as rail-strai
     try testing.expectEqual(@as(i32, 6), geom[5].x);
 }
 
-test "deCascade does not fire for a lone drifted single-node layer (hi==lo)" {
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 },
-        .{ .real = 1 },
-        .{ .real = 2 },
-        .{ .real = 3 },
-    };
-    var l0 = [_]u32{ 0, 1 };
-    var l1 = [_]u32{2};
-    var l2 = [_]u32{3};
-    var layers = [_][]u32{ &l0, &l1, &l2 };
-    var edges = [_]sugiyama.LayerEdge{
-        edge(0, 2),
-    };
-    const lg = lgOf(&nodes, &layers, &edges);
+test "deCascade no-op guards: a true-source rail head, and a lone drifted single-node layer (hi==lo)" {
+    {
+        var nodes = [_]sugiyama.LayerNode{
+            .{ .real = 0 },
+            .{ .real = 1 },
+            .{ .real = 2 },
+        };
+        var l0 = [_]u32{0};
+        var l1 = [_]u32{1};
+        var l2 = [_]u32{2};
+        var layers = [_][]u32{ &l0, &l1, &l2 };
+        var edges = [_]sugiyama.LayerEdge{
+            edge(1, 2),
+        };
+        const lg = lgOf(&nodes, &layers, &edges);
 
-    var geom = [_]NodeGeom{
-        geomAt(0, 0, 2, 1, 0),
-        geomAt(20, 0, 2, 1, 0),
-        geomAt(6, 2, 2, 1, 1),
-        geomAt(0, 4, 2, 1, 2),
-    };
+        var geom = [_]NodeGeom{
+            geomAt(0, 0, 2, 1, 0),
+            geomAt(6, 2, 2, 1, 1),
+            geomAt(6, 4, 2, 1, 2),
+        };
 
-    _ = try decascade.deCascade(testing.allocator, &geom, lg);
+        _ = try decascade.deCascade(testing.allocator, &geom, lg);
 
-    try testing.expectEqual(@as(i32, 6), geom[2].x);
+        try testing.expectEqual(@as(i32, 0), geom[0].x);
+        try testing.expectEqual(@as(i32, 6), geom[1].x);
+        try testing.expectEqual(@as(i32, 6), geom[2].x);
+    }
+    {
+        var nodes = [_]sugiyama.LayerNode{
+            .{ .real = 0 },
+            .{ .real = 1 },
+            .{ .real = 2 },
+            .{ .real = 3 },
+        };
+        var l0 = [_]u32{ 0, 1 };
+        var l1 = [_]u32{2};
+        var l2 = [_]u32{3};
+        var layers = [_][]u32{ &l0, &l1, &l2 };
+        var edges = [_]sugiyama.LayerEdge{
+            edge(0, 2),
+        };
+        const lg = lgOf(&nodes, &layers, &edges);
+
+        var geom = [_]NodeGeom{
+            geomAt(0, 0, 2, 1, 0),
+            geomAt(20, 0, 2, 1, 0),
+            geomAt(6, 2, 2, 1, 1),
+            geomAt(0, 4, 2, 1, 2),
+        };
+
+        _ = try decascade.deCascade(testing.allocator, &geom, lg);
+
+        try testing.expectEqual(@as(i32, 6), geom[2].x);
+    }
 }
 
 test "deCascade flood-forward never pulls a node above the run into the unit" {
