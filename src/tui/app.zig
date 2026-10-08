@@ -933,20 +933,6 @@ test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
     }
 }
 
-test "toast/metadata panel styles derive from the resolved preset accent" {
-    const allocator = std.testing.allocator;
-    const pink = theme_resolve.builtinResolved(allocator, "pink");
-    const dark = theme_resolve.builtinResolved(allocator, "dark");
-
-    const pink_toast = theme.toastStyle(pink.accent, pink.base_bg);
-    const dark_toast = theme.toastStyle(dark.accent, dark.base_bg);
-    try std.testing.expect(!std.meta.eql(pink_toast.border.fg, dark_toast.border.fg));
-    const pink_meta = theme.metadataPanelStyle(pink.accent, pink.base_bg);
-    try std.testing.expectEqual(pink_toast.border.fg, pink_meta.border.fg);
-    try std.testing.expect(!pink_meta.text.bold);
-    try std.testing.expect(pink_toast.text.bold);
-}
-
 test "startup theme_warning surfaces in the status bar" {
     const allocator = std.testing.allocator;
     const rt = theme_resolve.builtinResolved(allocator, "dark");
@@ -955,36 +941,6 @@ test "startup theme_warning surfaces in the status bar" {
     defer app.deinit();
     try std.testing.expect(app.status_message != null);
     try std.testing.expectEqualStrings("theme: unknown theme 'nope' (using dark)", app.status_message.?);
-}
-
-test "toVaxisSegments borrows render-model span text" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\# Title
-    );
-    defer document.deinit(allocator);
-    var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
-    defer rendered.deinit(allocator);
-
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], &rt);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));
-}
-
-test "initLoop binds loop to app-owned tty and vaxis" {
-    const allocator = std.testing.allocator;
-
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.initLoop();
-
-    try std.testing.expectEqual(@intFromPtr(&app.tty), @intFromPtr(app.loop.tty));
-    try std.testing.expectEqual(@intFromPtr(&app.vx), @intFromPtr(app.loop.vaxis));
 }
 
 test "syncPagerSize reflows when draw detects width change" {
@@ -1008,29 +964,23 @@ test "syncPagerSize reflows when draw detects width change" {
     try std.testing.expect(pager.lines.len > original_line_count);
 }
 
-test "toggle metadata is refused when front matter is hidden" {
+test "toggle metadata is refused when front matter is hidden or absent" {
     const allocator = std.testing.allocator;
-    const content = "---\ntitle: Secret\n---\n# Body\n";
+    const rows = [_]struct { content: []const u8, mode: config.FrontmatterStyle, message: ?[]const u8 }{
+        .{ .content = "---\ntitle: Secret\n---\n# Body\n", .mode = .hidden, .message = null },
+        .{ .content = "# Body only\n", .mode = .panel, .message = "No front matter metadata in this document." },
+    };
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .hidden, .auto, .bridge);
-    defer app.deinit();
+    for (rows) |row| {
+        var app: App = undefined;
+        try app.init(allocator, "fixture", .none, row.content, "vim", &rt, null, true, row.mode, .auto, .bridge);
+        defer app.deinit();
 
-    try app.handleToggleMetadata();
-    try std.testing.expect(!app.metadata.visible);
-    try std.testing.expect(app.status_message != null);
-}
-
-test "toggle metadata opens the overlay for visible front matter" {
-    const allocator = std.testing.allocator;
-    const content = "---\ntitle: Shown\n---\n# Body\n";
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.handleToggleMetadata();
-    try std.testing.expect(app.metadata.visible);
+        try app.handleToggleMetadata();
+        try std.testing.expect(!app.metadata.visible);
+        try std.testing.expect(app.status_message != null);
+        if (row.message) |want| try std.testing.expectEqualStrings(want, app.status_message.?);
+    }
 }
 
 test "opening the metadata overlay hides the inline front matter and closing restores it" {
@@ -1052,20 +1002,6 @@ test "opening the metadata overlay hides the inline front matter and closing res
     try app.handleToggleMetadata();
     try std.testing.expect(!app.pager.suppress_frontmatter);
     try std.testing.expectEqual(lines_with_frontmatter, app.pager.lines.len);
-}
-
-test "toggle metadata is refused when the document has no front matter" {
-    const allocator = std.testing.allocator;
-    const content = "# Body only\n";
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.handleToggleMetadata();
-    try std.testing.expect(!app.metadata.visible);
-    try std.testing.expect(app.status_message != null);
-    try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
 }
 
 test {

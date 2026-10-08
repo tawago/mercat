@@ -67,19 +67,15 @@ pub const Viewport = struct {
     }
 };
 
-test "lineForRow maps visible rows to document lines" {
-    const view = Viewport{ .top = 3, .height = 5, .total = 20 };
-    try std.testing.expectEqual(@as(usize, 3), view.lineForRow(0));
-    try std.testing.expectEqual(@as(usize, 7), view.lineForRow(4));
-    try std.testing.expectEqual(@as(usize, 7), view.lineForRow(100));
-}
-
-test "lineForRow clamps to content bounds" {
-    const bottom = Viewport{ .top = 18, .height = 5, .total = 20 };
-    try std.testing.expectEqual(@as(usize, 19), bottom.lineForRow(4));
-
-    const empty = Viewport{};
-    try std.testing.expectEqual(@as(usize, 0), empty.lineForRow(3));
+test "lineForRow maps visible rows to document lines, clamped to content" {
+    const cases = [_]struct { view: Viewport, row: usize, line: usize }{
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 0, .line = 3 },
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 4, .line = 7 },
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 100, .line = 7 },
+        .{ .view = .{ .top = 18, .height = 5, .total = 20 }, .row = 4, .line = 19 },
+        .{ .view = .{}, .row = 3, .line = 0 },
+    };
+    for (cases) |c| try std.testing.expectEqual(c.line, c.view.lineForRow(c.row));
 }
 
 test "clamps scrolling to content bounds" {

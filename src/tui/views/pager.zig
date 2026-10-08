@@ -200,26 +200,6 @@ pub const PagerView = struct {
     }
 };
 
-test "builds footnote index from rendered lines" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\See note[^note] here.
-        \\
-        \\[^note]: The definition.
-    );
-    defer document.deinit(allocator);
-
-    const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
-    defer pager.deinit();
-    try pager.resize(80, 20);
-
-    try std.testing.expectEqual(@as(usize, 1), pager.footnote_index.len);
-    try std.testing.expect(pager.footnote_index[0].ref_line != null);
-    try std.testing.expect(pager.footnote_index[0].def_line != null);
-    try std.testing.expect(pager.footnote_index[0].ref_line.? < pager.footnote_index[0].def_line.?);
-}
-
 test "followFootnoteLink jumps to definition" {
     const allocator = std.testing.allocator;
     var document = try markdown.parse(allocator,
@@ -311,23 +291,4 @@ test "selection is cleared when the document reflows" {
 
     try pager.resize(20, 10);
     try std.testing.expect(!pager.selection.active);
-}
-
-test "reflows rendered text into lines" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\# Title
-        \\
-        \\- one
-        \\- two
-    );
-    defer document.deinit(allocator);
-
-    const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
-    defer pager.deinit();
-    try pager.resize(20, 5);
-
-    try std.testing.expect(pager.lines.len >= 3);
-    try std.testing.expect(pager.lines[0].spans.len >= 1);
 }

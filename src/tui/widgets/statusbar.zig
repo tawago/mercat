@@ -120,7 +120,7 @@ fn clipRight(text: []const u8, width: usize) []const u8 {
 
 /// The longest suffix of `text` that fits in `width` display columns,
 /// starting at a grapheme boundary.
-pub fn tailToWidth(text: []const u8, width: usize) []const u8 {
+fn tailToWidth(text: []const u8, width: usize) []const u8 {
     const total = unicode.displayWidth(text);
     if (total <= width) return text;
     var cursor = unicode.LegacyCursor.init(text);

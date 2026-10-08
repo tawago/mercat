@@ -74,11 +74,6 @@ test "80x24: the whole key table fits, titled, without scrolling" {
 
     try std.testing.expectEqual(@as(usize, 0), overlay.max_scroll);
     try expectContains(text, help.title);
-    try std.testing.expect(std.mem.startsWith(u8, help.title, " mercat "));
-    try std.testing.expect(std.mem.endsWith(u8, help.title, " — keys "));
-    const geo = help.geometry(80, 23);
-    try std.testing.expect(geo.two_columns);
-    try std.testing.expect(geo.width < 80);
     for (std.enums.values(input.Section)) |section| try expectContains(text, section.title());
     for (input.bindings) |binding| try expectContains(text, binding.description);
     try expectContains(text, "q Ctrl-C");

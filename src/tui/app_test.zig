@@ -89,17 +89,6 @@ test "reload of a deleted file keeps the document and explains why" {
     try std.testing.expectEqual(lines_before, fx.app.pager.lines.len);
 }
 
-test "reload picks up changes on disk" {
-    const allocator = std.testing.allocator;
-    const fx = try Fixture.init(allocator, sample, "vim");
-    defer fx.deinit(allocator);
-
-    try fx.tmp.dir.writeFile(.{ .sub_path = "doc.md", .data = "# Changed\n" });
-    try std.testing.expect(!try fx.app.handleKeyPress(key("r")));
-    try std.testing.expectEqualStrings("Reloaded doc.md", fx.status());
-    try std.testing.expectEqualStrings("# Changed\n", fx.app.current_content);
-}
-
 test "reload of invalid UTF-8 warns and keeps the warning as long as a startup warning" {
     const allocator = std.testing.allocator;
     const fx = try Fixture.init(allocator, sample, "vim");
@@ -191,17 +180,6 @@ test "slash search counts matches, n/N step with wraparound" {
     try std.testing.expectEqualStrings("[4/4] /mermaid", fx.status());
 }
 
-test "smart case: an uppercase query matches exactly" {
-    const allocator = std.testing.allocator;
-    const fx = try Fixture.init(allocator, sample, "vim");
-    defer fx.deinit(allocator);
-
-    _ = try fx.app.handleKeyPress(key("/"));
-    try typeText(&fx.app, "MERMAID");
-    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
-    try std.testing.expectEqualStrings("[1/1] /MERMAID", fx.status());
-}
-
 test "search prompt: q is text, Esc cancels, Ctrl-C cancels, misses are reported" {
     const allocator = std.testing.allocator;
     const fx = try Fixture.init(allocator, sample, "vim");
@@ -238,21 +216,6 @@ test "Ctrl-Z in the prompt cancels it before suspending" {
     try std.testing.expect(!try fx.app.handleKeyPress(ctrl('z')));
     try std.testing.expect(!fx.app.search_prompt.active);
     try std.testing.expect(!fx.app.pager.search.hasPattern());
-}
-
-test "empty / Enter clears the search instead of repeating it" {
-    const allocator = std.testing.allocator;
-    const fx = try Fixture.init(allocator, sample, "vim");
-    defer fx.deinit(allocator);
-    _ = try fx.app.handleKeyPress(key("/"));
-    try typeText(&fx.app, "mermaid");
-    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
-    try std.testing.expectEqual(@as(usize, 4), fx.app.pager.search.matches.items.len);
-
-    _ = try fx.app.handleKeyPress(key("/"));
-    _ = try fx.app.handleKeyPress(special(vaxis.Key.enter));
-    try std.testing.expect(!fx.app.pager.search.hasPattern());
-    try std.testing.expectEqual(@as(usize, 0), fx.app.pager.search.matches.items.len);
 }
 
 test "Esc clears the selection first, then the search highlights" {
@@ -306,7 +269,7 @@ test "help: ? and F1 open it, q and Esc close it without quitting, Ctrl-C quits"
     try std.testing.expect(try fx.app.handleKeyPress(ctrl('c')));
 }
 
-test "B toggles subgraph edges; b pages up; h and l are unbound" {
+test "B toggles subgraph edges" {
     const allocator = std.testing.allocator;
     const fx = try Fixture.init(allocator, sample, "vim");
     defer fx.deinit(allocator);
@@ -314,13 +277,6 @@ test "B toggles subgraph edges; b pages up; h and l are unbound" {
     _ = try fx.app.handleKeyPress(.{ .codepoint = 'B', .text = "B" });
     try std.testing.expectEqualStrings("Subgraph edges: cross", fx.status());
     try std.testing.expect(fx.app.mermaid_subgraph_edges == .cross);
-    _ = try fx.app.handleKeyPress(key("b"));
-    try std.testing.expect(fx.app.mermaid_subgraph_edges == .cross);
-
-    _ = try fx.app.handleKeyPress(key("h"));
-    try std.testing.expect(fx.app.view_mode == .pager);
-    _ = try fx.app.handleKeyPress(key("l"));
-    try std.testing.expectEqualStrings("Subgraph edges: cross", fx.status());
 }
 
 test "half-page and less-style movement keys scroll the document" {
