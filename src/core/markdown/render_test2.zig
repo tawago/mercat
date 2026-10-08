@@ -104,3 +104,24 @@ fn markerColumn(line: Line) usize {
     };
     return column;
 }
+
+test "footnote ref inside a link keeps its jump url and leaks nothing (issue #88)" {
+    const allocator = std.testing.allocator;
+    const sources = [_][]const u8{
+        "[^1]: d\n\n[see[^1]](http://u)\n",
+        "[^1]: d\n\n<div><a href=v>[^1]</a></div>\n",
+    };
+    for (sources) |source| {
+        var document = try markdown.parse(allocator, source);
+        defer document.deinit(allocator);
+        var rendered = try renderDocument(allocator, document, .{ .width = 60 });
+        defer rendered.deinit(allocator);
+        var saw_fn_url = false;
+        for (rendered.lines) |line| for (line.spans) |span| {
+            if (span.url) |url| {
+                if (std.mem.eql(u8, url, "#fn:1")) saw_fn_url = true;
+            }
+        };
+        try std.testing.expect(saw_fn_url);
+    }
+}
