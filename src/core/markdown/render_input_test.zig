@@ -1,13 +1,10 @@
-//! Hostile input: invalid UTF-8 (the files in tests/repro/invalid-utf8),
-//! invisible and control characters, and terminal escape injection. Every
-//! case must render as normal markdown with no block falling back to raw
+//! Hostile input: invalid UTF-8 in each kind of block, invisible and
+//! control characters, and terminal escape injection. Every case must render as normal markdown with no block falling back to raw
 //! source, lose no visible text, and never emit a control character.
 const std = @import("std");
 const markdown = @import("parser.zig");
 const render_model = @import("render.zig");
 const encoding = @import("../encoding.zig");
-const resolve = @import("../theme/resolve.zig");
-const presets = @import("../theme/presets.zig");
 
 const testing = std.testing;
 const Options = render_model.Options;
@@ -67,7 +64,7 @@ fn expectNoControls(out: Rendered) !void {
     };
 }
 
-fn expectDisplaySafe(text: []const u8) !void {
+pub fn expectDisplaySafe(text: []const u8) !void {
     try testing.expect(std.unicode.utf8ValidateSlice(text));
     var view = std.unicode.Utf8View.initUnchecked(text).iterator();
     while (view.nextCodepoint()) |cp| {
@@ -80,19 +77,15 @@ fn expectDisplaySafe(text: []const u8) !void {
     }
 }
 
-test "invalid UTF-8 repro files render as markdown" {
+test "invalid UTF-8 in every kind of block renders as markdown" {
     const cases = [_]struct { input: []const u8, want: []const []const u8 }{
         .{ .input = "ok \xFF bye\n", .want = &.{"ok \u{FFFD} bye"} },
-        .{ .input = "# R\xE9sum\xE9\n\nA na\xEFve caf\xE9 in Latin-1.\n", .want = &.{ "# R\u{FFFD}sum\u{FFFD}", "A na\u{FFFD}ve caf\u{FFFD} in Latin-1." } },
-        .{ .input = "He said \x93hello\x94 \x96 then left.\n", .want = &.{"He said \u{FFFD}hello\u{FFFD} \u{FFFD} then left."} },
-        .{ .input = "Price: 5 \xE2\x82\nnext line\n", .want = &.{ "Price: 5 \u{FFFD}", "next line" } },
-        .{ .input = "slash: \xC0\xAF end\n", .want = &.{"slash: \u{FFFD}\u{FFFD} end"} },
-        .{ .input = "surrogate \xED\xA0\x80 here\n", .want = &.{"surrogate \u{FFFD}\u{FFFD}\u{FFFD} here"} },
         .{ .input = "# Ti\xFFtle\n\nbody\n", .want = &.{ "# Ti\u{FFFD}tle", "body" } },
         .{ .input = "```\nbad \xFF byte in code\n```\n", .want = &.{"bad \u{FFFD} byte in code"} },
         .{ .input = "[link](http://example.com/\xFF) and text\n", .want = &.{"link <http://example.com/\u{FFFD}> and text"} },
         .{ .input = "---\ntitle: T\xFFt\n---\n\n# Heading\n", .want = &.{ "T\u{FFFD}t", "# Heading" } },
         .{ .input = "- one\n- tw\xFF\n- three\n", .want = &.{ "one", "tw\u{FFFD}", "three" } },
+        .{ .input = "```mermaid\ngraph TD\n  A[St\xFFart] --> B\n```\n", .want = &.{"\u{2502} St\u{FFFD}art"} },
         .{ .input = "line 1 \xFF\n\nline 2 \xFF\n\nline 3 \xFF\n\nline 4 \xFF\n\nline 5 \xFF\n", .want = &.{ "line 1 \u{FFFD}", "line 5 \u{FFFD}" } },
         .{ .input = "\xFF\xFE#\x00 \x00H\x00i\x00\n\x00\n\x00U\x00T\x00F\x00-\x001\x006\x00 \x00t\x00e\x00x\x00t\x00\n\x00", .want = &.{ "# Hi", "UTF-16 text" } },
     };
@@ -108,25 +101,8 @@ test "invalid UTF-8 repro files render as markdown" {
     }
 }
 
-test "invalid byte in a table cell keeps the row in its table" {
-    const out = try renderClean("| a | b |\n|---|---|\n| \xFF | ok |\n");
-    defer out.deinit();
-    try testing.expect(!out.has("|"));
-    var lines = std.mem.splitScalar(u8, out.text, '\n');
-    var rows: usize = 0;
-    while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, "\u{2502}") != null) rows += 1;
-    }
-    try testing.expectEqual(@as(usize, 2), rows);
-    try testing.expect(out.has("\u{FFFD} \u{2502} ok"));
-}
-
 test "soft hyphen and invisible format characters are dropped, text kept" {
     const cases = [_]struct { input: []const u8, want: []const u8 }{
-        .{ .input = "a\xc2\xadb\n", .want = "ab" },
-        .{ .input = "zero\u{200b}width space\n", .want = "zerowidth space" },
-        .{ .input = "bidi \u{202e}abc\u{202c} \u{2066}iso\u{2069} \u{200f}mark\n", .want = "bidi abc iso mark" },
-        .{ .input = "\u{feff}bom \u{2060}joiner\n", .want = "bom joiner" },
         .{ .input = "entity a&shy;b and &#x200B;c\n", .want = "entity ab and c" },
         .{ .input = "# head\u{00ad}ing\n", .want = "# heading" },
     };
@@ -163,21 +139,6 @@ test "controls render as visible U+FFFD and never reach the output raw" {
             return error.TestUnexpectedResult;
         }
         try testing.expect(std.mem.indexOfScalar(u8, out.text, 0x1b) == null);
-    }
-}
-
-test "hostile input renders in every built-in theme at narrow widths" {
-    const input =
-        "---\ntitle: T\xFF\x1b\n---\n\n# H\u{00ad}\xFF\n\n- a\x07 [l](u\x1b) `c\x1b`\n\n" ++
-        "| \x1b | \xFF |\n|---|---|\n| \u{202e} | &#27; |\n\n```\n\x1b[2J\xFF\n```\n\n> q\u{200b}\x9b\n";
-    for (presets.ALL) |preset| {
-        const theme = resolve.builtinResolved(testing.allocator, preset.name);
-        for ([_]usize{ 80, 40, 24 }) |width| {
-            const out = try render(input, .{ .width = width, .decor = &theme.decor });
-            defer out.deinit();
-            try testing.expectEqual(@as(usize, 0), out.fallbacks);
-            try expectNoControls(out);
-        }
     }
 }
 

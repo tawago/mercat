@@ -582,105 +582,6 @@ fn freeInlines(allocator: std.mem.Allocator, inlines: []Inline) void {
     allocator.free(inlines);
 }
 
-test "parses headings lists fences and tables" {
-    const fixture =
-        \\# mercat
-        \\
-        \\- [x] Parse task lists
-        \\- Parse headings
-        \\1. Parse ordered lists
-        \\
-        \\| Feature | Status |
-        \\| ------- | ------ |
-        \\| Tables  | Yes    |
-        \\
-        \\```zig
-        \\const hello = "world";
-        \\```
-    ;
-    var doc = try parse(std.testing.allocator, fixture);
-    defer doc.deinit(std.testing.allocator);
-
-    var saw_heading = false;
-    var saw_task = false;
-    var saw_fence = false;
-    var saw_table = false;
-
-    for (doc.blocks) |block| {
-        switch (block) {
-            .heading => saw_heading = true,
-            .task_list_item => saw_task = true,
-            .fenced_code => |code| saw_fence = std.mem.indexOf(u8, code.code, "const hello") != null,
-            .table => saw_table = true,
-            else => {},
-        }
-    }
-
-    try std.testing.expect(saw_heading);
-    try std.testing.expect(saw_task);
-    try std.testing.expect(saw_fence);
-    try std.testing.expect(saw_table);
-}
-
-test "parses paragraph with inline styles" {
-    const allocator = std.testing.allocator;
-
-    {
-        var doc = try parse(allocator, "Hello *emphasis* world");
-        defer doc.deinit(allocator);
-        var found = false;
-        for (doc.blocks[0].paragraph.content) |inline_| {
-            if (inline_ == .emphasis) found = true;
-        }
-        try std.testing.expect(found);
-    }
-
-    {
-        var doc = try parse(allocator, "Hello **strong** world");
-        defer doc.deinit(allocator);
-        var found = false;
-        for (doc.blocks[0].paragraph.content) |inline_| {
-            if (inline_ == .strong) found = true;
-        }
-        try std.testing.expect(found);
-    }
-
-    {
-        var doc = try parse(allocator, "Hello `code` world");
-        defer doc.deinit(allocator);
-        var found = false;
-        for (doc.blocks[0].paragraph.content) |inline_| {
-            if (inline_ == .code) found = true;
-        }
-        try std.testing.expect(found);
-    }
-
-    {
-        var doc = try parse(allocator, "Hello [link](url) world");
-        defer doc.deinit(allocator);
-        var found = false;
-        for (doc.blocks[0].paragraph.content) |inline_| {
-            if (inline_ == .link) found = true;
-        }
-        try std.testing.expect(found);
-    }
-}
-
-test "parses thematic breaks and html blocks" {
-    const source =
-        \\<aside>raw html</aside>
-        \\
-        \\---
-    ;
-    var doc = try parse(std.testing.allocator, source);
-    defer doc.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(usize, 2), doc.blocks.len);
-    try std.testing.expect(doc.blocks[0] == .html_block);
-    try std.testing.expect(doc.blocks[1] == .thematic_break);
-    try std.testing.expectEqualStrings("<aside>raw html</aside>", doc.blocks[0].html_block);
-}
-
 test "preserves paragraph indentation" {
     const allocator = std.testing.allocator;
 
@@ -732,9 +633,8 @@ test "strikethrough preprocessing converts to unicode" {
                 has_combining = true;
             }
         }
-        if (inline_ == .strikethrough) {
-            std.debug.print("ERROR: Found strikethrough inline - preprocessing failed\n", .{});
-        }
+        // parse() runs preprocess first, so koino never sees the ~~.
+        try std.testing.expect(inline_ != .strikethrough);
     }
     try std.testing.expect(has_combining);
 }

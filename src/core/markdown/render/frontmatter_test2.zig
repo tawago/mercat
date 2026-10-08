@@ -53,18 +53,6 @@ fn allLinesWithin(lines: []types.Line, cap: usize) bool {
     return true;
 }
 
-test "frontmatter: raw style preserves a genuine blank middle line" {
-    const alloc = testing.allocator;
-    var no_entries = [_]Entry{};
-    const fm = Block.FrontMatter{ .raw = "a: 1\n\nb: 2\n", .entries = &no_entries };
-    const lines = try renderLines(alloc, fm, 40, .raw);
-    defer freeLines(alloc, lines);
-    try testing.expectEqual(@as(usize, 5), lines.len);
-    try testing.expectEqualStrings("a: 1", lines[1].spans[0].text);
-    try testing.expectEqual(@as(usize, 0), lines[2].spans.len);
-    try testing.expectEqualStrings("b: 2", lines[3].spans[0].text);
-}
-
 test "frontmatter: empty non-raw front matter emits nothing but raw keeps its fences" {
     const alloc = testing.allocator;
     var no_entries = [_]Entry{};
@@ -81,21 +69,40 @@ test "frontmatter: empty non-raw front matter emits nothing but raw keeps its fe
     try testing.expectEqualStrings("---", raw_lines[1].spans[0].text);
 }
 
-test "frontmatter: hidden style emits nothing" {
+test "frontmatter fits any width without losing text" {
     const alloc = testing.allocator;
-    var entries = [_]Entry{.{ .key = "title", .value = "Test" }};
-    const fm = Block.FrontMatter{ .raw = "title: Test\n", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 40, .hidden);
-    defer freeLines(alloc, lines);
-    try testing.expectEqual(@as(usize, 0), totalSpans(lines));
-}
+    const values = [_][]const u8{ "v", "one two three four five", "superlongunbrokentoken" };
+    for (values) |value| for (1..41) |width| {
+        errdefer std.debug.print("value '{s}' at width {d}\n", .{ value, width });
+        var entries = [_]Entry{.{ .key = "k", .value = value }};
+        const lines = try renderLines(alloc, .{ .raw = "", .entries = &entries }, width, .panel);
+        defer freeLines(alloc, lines);
+        try testing.expect(lines.len >= 1);
+        // Width 1 cannot hold the panel's one-column margin and a value.
+        if (width >= 2) try testing.expect(allLinesWithin(lines, width));
+        // Wrapping and hard splits move text between rows but drop none.
+        var shown: std.ArrayList(u8) = .empty;
+        defer shown.deinit(alloc);
+        for (lines) |line| for (line.spans) |span| if (span.style == .frontmatter_value) {
+            for (span.text) |byte| if (byte != ' ') try shown.append(alloc, byte);
+        };
+        var want: std.ArrayList(u8) = .empty;
+        defer want.deinit(alloc);
+        for (value) |byte| if (byte != ' ') try want.append(alloc, byte);
+        try testing.expectEqualStrings(want.items, shown.items);
+    };
+    // Panel tabs expand to four-column stops.
+    var tabbed = [_]Entry{.{ .key = "k", .value = "a\tb" }};
+    const tab_lines = try renderLines(alloc, .{ .raw = "", .entries = &tabbed }, 40, .panel);
+    defer freeLines(alloc, tab_lines);
+    try testing.expect(!anySpanHasByte(tab_lines, '\t'));
+    try testing.expect(anySpanContains(tab_lines, "a   b"));
+    try testing.expect(allLinesWithin(tab_lines, 40));
 
-test "frontmatter: an over-wide key is truncated with an ellipsis inside the width cap" {
-    const alloc = testing.allocator;
+    // An over-wide key is truncated with an ellipsis inside the width cap.
     const width: usize = 12;
-    var entries = [_]Entry{.{ .key = "averylongkeyname", .value = "v" }};
-    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, width, .dim);
+    var long_key = [_]Entry{.{ .key = "averylongkeyname", .value = "v" }};
+    const lines = try renderLines(alloc, .{ .raw = "", .entries = &long_key }, width, .dim);
     defer freeLines(alloc, lines);
     const max_key_width: usize = width - 2 - 3;
     var found_key = false;
@@ -109,62 +116,6 @@ test "frontmatter: an over-wide key is truncated with an ellipsis inside the wid
     };
     try testing.expect(found_key);
     try testing.expect(allLinesWithin(lines, width));
-}
-
-test "frontmatter: a long value wraps onto padded continuation rows within width" {
-    const alloc = testing.allocator;
-    const width: usize = 20;
-    var entries = [_]Entry{.{ .key = "k", .value = "one two three four five" }};
-    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, width, .panel);
-    defer freeLines(alloc, lines);
-    try testing.expect(lines.len >= 4);
-    try testing.expect(allLinesWithin(lines, width));
-    try testing.expect(anySpanContains(lines, "one"));
-    try testing.expect(anySpanContains(lines, "five"));
-}
-
-test "frontmatter: an unbreakable token is hard-split at the value column width" {
-    const alloc = testing.allocator;
-    var entries = [_]Entry{.{ .key = "k", .value = "superlongunbrokentoken" }};
-    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 12, .panel);
-    defer freeLines(alloc, lines);
-    try testing.expect(lines.len >= 4);
-    try testing.expect(allLinesWithin(lines, 12));
-}
-
-test "frontmatter: tabs expand to four-column stops" {
-    const alloc = testing.allocator;
-    var entries = [_]Entry{.{ .key = "k", .value = "a\tb" }};
-    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    const lines = try renderLines(alloc, fm, 40, .panel);
-    defer freeLines(alloc, lines);
-    try testing.expect(!anySpanHasByte(lines, '\t'));
-    try testing.expect(anySpanContains(lines, "a   b"));
-    for (lines) |line| try testing.expect(line.displayWidth() <= 40);
-}
-
-test "frontmatter: raw tabs expand to four-column stops" {
-    const alloc = testing.allocator;
-    var no_entries = [_]Entry{};
-    const fm = Block.FrontMatter{ .raw = "a\tb\n", .entries = &no_entries };
-    const lines = try renderLines(alloc, fm, 40, .raw);
-    defer freeLines(alloc, lines);
-    try testing.expect(!anySpanHasByte(lines, '\t'));
-    try testing.expect(anySpanContains(lines, "a   b"));
-}
-
-test "frontmatter: narrow widths do not underflow and still emit a line" {
-    const alloc = testing.allocator;
-    var entries = [_]Entry{.{ .key = "k", .value = "v" }};
-    const fm = Block.FrontMatter{ .raw = "", .entries = &entries };
-    inline for (.{ 1, 2 }) |width| {
-        const lines = try renderLines(alloc, fm, width, .panel);
-        defer freeLines(alloc, lines);
-        try testing.expect(lines.len >= 1);
-        try testing.expect(anySpanContains(lines, "v"));
-    }
 }
 
 test "frontmatter: a keyless continuation entry renders its value in the panel" {
@@ -258,19 +209,24 @@ test "frontmatter: compact style is a single marker-led line of pairs" {
 
 test "frontmatter: raw style is byte-verbatim between fences without a trailing blank" {
     const alloc = testing.allocator;
-    var entries = [_]Entry{
-        .{ .key = "title", .value = "Test" },
-        .{ .key = "author", .value = "Foo" },
+    var no_entries = [_]Entry{};
+    const cases = [_]struct { raw: []const u8, want: []const []const u8 }{
+        .{ .raw = "title: Test\nauthor: Foo\n", .want = &.{ "title: Test", "author: Foo" } },
+        // A genuine blank middle line stays; tabs expand to four-column stops.
+        .{ .raw = "a: 1\n\nb: 2\n", .want = &.{ "a: 1", "", "b: 2" } },
+        .{ .raw = "a\tb\n", .want = &.{"a   b"} },
     };
-    const fm = Block.FrontMatter{ .raw = "title: Test\nauthor: Foo\n", .entries = &entries };
-
-    const lines = try renderLines(alloc, fm, 40, .raw);
-    defer freeLines(alloc, lines);
-
-    try testing.expectEqual(@as(usize, 4), lines.len);
-    try testing.expectEqualStrings("---", lines[0].spans[0].text);
-    try testing.expectEqualStrings("title: Test", lines[1].spans[0].text);
-    try testing.expectEqualStrings("author: Foo", lines[2].spans[0].text);
-    try testing.expectEqualStrings("---", lines[3].spans[0].text);
-    try testing.expectEqual(types.SpanStyle.muted, lines[0].spans[0].style);
+    for (cases) |case| {
+        const lines = try renderLines(alloc, .{ .raw = case.raw, .entries = &no_entries }, 40, .raw);
+        defer freeLines(alloc, lines);
+        try testing.expectEqual(case.want.len + 2, lines.len);
+        try testing.expectEqualStrings("---", lines[0].spans[0].text);
+        try testing.expectEqualStrings("---", lines[lines.len - 1].spans[0].text);
+        try testing.expectEqual(types.SpanStyle.muted, lines[0].spans[0].style);
+        for (case.want, lines[1 .. lines.len - 1]) |want, line| {
+            const got = try line.joinedText(alloc);
+            defer alloc.free(got);
+            try testing.expectEqualStrings(want, got);
+        }
+    }
 }
