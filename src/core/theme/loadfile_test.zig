@@ -1,49 +1,41 @@
 const std = @import("std");
 const loadfile = @import("loadfile.zig");
 
-const RawThemeBuilder = loadfile.RawThemeBuilder;
 const parseThemeTables = loadfile.parseThemeTables;
-const splitSection = loadfile.splitSection;
-const stripInlineComment = loadfile.stripInlineComment;
 const parseInlineArray = loadfile.parseInlineArray;
 const readThemeFile = loadfile.readThemeFile;
 const resolveThemeDir = loadfile.resolveThemeDir;
 
-test "parseThemeTables collects slot KVs (read through the borrowed view)" {
+test "parseThemeTables lands [theme] keys in .top and keeps every slot table, known or not" {
     const text =
+        \\[display]
+        \\theme = "light"
+        \\[theme]
+        \\extends = "dark"
+        \\palette = "truecolor"
         \\[theme.heading1]
         \\fg = "#ff0000"
         \\bold = true
         \\prefix = "> "
+        \\[theme.not_a_real_slot]
+        \\fg = "#abcdef"
     ;
     var tables = try parseThemeTables(std.testing.allocator, text);
     defer tables.deinit(std.testing.allocator);
 
     const v = tables.view();
-    try std.testing.expectEqual(@as(usize, 1), v.slots.len);
+    try std.testing.expectEqual(@as(usize, 2), v.top.len);
+    try std.testing.expectEqualStrings("extends", v.top[0].key);
+    try std.testing.expectEqualStrings("dark", v.top[0].value);
+    try std.testing.expectEqual(@as(usize, 2), v.slots.len);
     try std.testing.expectEqualStrings("heading1", v.slots[0].name);
-    try std.testing.expectEqual(@as(usize, 3), v.slots[0].kvs.items.len);
-    try std.testing.expectEqualStrings("fg", v.slots[0].kvs.items[0].key);
-    try std.testing.expectEqualStrings("#ff0000", v.slots[0].kvs.items[0].value);
-    try std.testing.expectEqualStrings("> ", v.slots[0].kvs.items[2].value);
-}
-
-test "parseThemeTables lands top-level [theme] keys in .top" {
-    const text =
-        \\[theme]
-        \\extends = "dark"
-        \\palette = "truecolor"
-        \\[theme.link]
-        \\fg = "#00ff00"
-    ;
-    var tables = try parseThemeTables(std.testing.allocator, text);
-    defer tables.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(usize, 2), tables.top.items.len);
-    try std.testing.expectEqualStrings("extends", tables.top.items[0].key);
-    try std.testing.expectEqualStrings("dark", tables.top.items[0].value);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
-    try std.testing.expectEqualStrings("link", tables.slots.items[0].name);
+    const kvs = v.slots[0].kvs.items;
+    try std.testing.expectEqual(@as(usize, 3), kvs.len);
+    try std.testing.expectEqualStrings("fg", kvs[0].key);
+    try std.testing.expectEqualStrings("#ff0000", kvs[0].value);
+    try std.testing.expectEqualStrings("bold", kvs[1].key);
+    try std.testing.expectEqualStrings("> ", kvs[2].value);
+    try std.testing.expectEqualStrings("not_a_real_slot", v.slots[1].name);
 }
 
 test "document-root keys before any header land in top-level [theme]" {
@@ -94,43 +86,6 @@ test "repeated [theme.link] blocks merge last-wins per key" {
     try std.testing.expectEqualStrings("underline", kvs[1].key);
 }
 
-test "unknown slot name is retained raw, not dropped" {
-    const text =
-        \\[theme.not_a_real_slot]
-        \\fg = "#abcdef"
-    ;
-    var tables = try parseThemeTables(std.testing.allocator, text);
-    defer tables.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
-    try std.testing.expectEqualStrings("not_a_real_slot", tables.slots.items[0].name);
-}
-
-test "non-theme sections are ignored by parseThemeTables" {
-    const text =
-        \\[display]
-        \\theme = "dark"
-        \\[theme.strong]
-        \\bold = true
-    ;
-    var tables = try parseThemeTables(std.testing.allocator, text);
-    defer tables.deinit(std.testing.allocator);
-
-    try std.testing.expectEqual(@as(usize, 0), tables.top.items.len);
-    try std.testing.expectEqual(@as(usize, 1), tables.slots.items.len);
-    try std.testing.expectEqualStrings("strong", tables.slots.items[0].name);
-}
-
-test "splitSection splits on first dot; undotted yields empty subtable" {
-    const a = splitSection("theme.heading1");
-    try std.testing.expectEqualStrings("theme", a.table);
-    try std.testing.expectEqualStrings("heading1", a.subtable);
-
-    const b = splitSection("display");
-    try std.testing.expectEqualStrings("display", b.table);
-    try std.testing.expectEqualStrings("", b.subtable);
-}
-
 test "readThemeFile round-trips a temp theme file; missing returns null" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -153,20 +108,6 @@ test "readThemeFile round-trips a temp theme file; missing returns null" {
 
     const missing = try readThemeFile(std.testing.allocator, dir_path, "nonexistent");
     try std.testing.expect(missing == null);
-}
-
-test "RawThemeBuilder.set merges last-wins and top vs slot separate" {
-    var b = RawThemeBuilder{};
-    defer b.deinit(std.testing.allocator);
-
-    try b.set(std.testing.allocator, null, "extends", "dark");
-    try b.set(std.testing.allocator, "heading1", "fg", "#111");
-    try b.set(std.testing.allocator, "heading1", "fg", "#222");
-
-    try std.testing.expectEqual(@as(usize, 1), b.top.items.len);
-    try std.testing.expectEqual(@as(usize, 1), b.slots.items.len);
-    try std.testing.expectEqual(@as(usize, 1), b.slots.items[0].kvs.items.len);
-    try std.testing.expectEqualStrings("#222", b.slots.items[0].kvs.items[0].value);
 }
 
 test "theme-file values drop inline comments but keep a quoted `#`" {
@@ -232,10 +173,4 @@ test "an array value survives the scanner, including a quoted `#` element" {
     }
     try std.testing.expectEqual(@as(usize, 2), items.len);
     try std.testing.expectEqualStrings("#", items[0]);
-}
-
-test "stripInlineComment is escape-aware" {
-    try std.testing.expectEqualStrings("80", stripInlineComment("80 # columns"));
-    try std.testing.expectEqualStrings("\"a\\\"#b\"", stripInlineComment("\"a\\\"#b\" # c"));
-    try std.testing.expectEqualStrings("", stripInlineComment("# whole line"));
 }

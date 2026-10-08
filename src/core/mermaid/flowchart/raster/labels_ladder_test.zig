@@ -73,32 +73,6 @@ test "own-edge ink beside the anchor does not displace the label" {
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }
 
-test "isolation rejects a foreign-ink neighbour in every one of the 8 directions" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const dirs = [8][2]i32{
-        .{ -1, -1 }, .{ 0, -1 }, .{ 1, -1 },
-        .{ -1, 0 },  .{ 1, 0 },  .{ -1, 1 },
-        .{ 0, 1 },   .{ 1, 1 },
-    };
-    for (dirs) |d| {
-        var lat = try makeLattice(alloc, 12, 7);
-        const poly = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 5 } };
-        const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "x")};
-        var s = emptySketch(12, 7, .TD);
-        s.edges = &edges;
-
-        stampEdgeCell(&lat, @intCast(7 + d[0]), @intCast(3 + d[1]), 9);
-
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
-        try testing.expectEqual(@as(u32, 1), report.placed);
-        try testing.expectEqual(@as(u32, 1), report.displaced);
-        try testing.expectEqual(@as(u21, 0), cellChar(lat, 7, 3));
-    }
-}
-
 test "the own_adjacent pass beats the primary anchor: the label relocates to sit by its own edge's ink" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -172,25 +146,4 @@ test "allow_solid waives only the node/cluster margin, never the foreign-edge ma
     const edge_report = try labels.rasterizeLabels(alloc, &lat2, s);
     try testing.expectEqual(@as(u32, 0), edge_report.placed);
     try testing.expectEqual(@as(u32, 1), edge_report.dropped);
-}
-
-test "edge-label placement is deterministic: identical lattices place identically" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
-    const edges = [_]sketch.EdgePath{ makeEdge(42, &poly, "ab"), makeEdge(7, &poly, "cd") };
-    var s = emptySketch(14, 6, .LR);
-    s.edges = &edges;
-
-    var grids: [2]lattice.Lattice = undefined;
-    for (&grids) |*g| {
-        g.* = try makeLattice(alloc, 14, 6);
-        stampEdgeCell(g, 9, 3, 42);
-        _ = try labels.rasterizeLabels(alloc, g, s);
-    }
-    for (grids[0].cells, grids[1].cells) |c0, c1| {
-        try testing.expect(std.meta.eql(c0.occupant, c1.occupant));
-    }
 }

@@ -62,6 +62,20 @@ pub const Diagnostics = struct {
         };
     }
 
+    /// Removes every diagnostic of `kind` (one the caller reports itself).
+    pub fn drop(self: *Diagnostics, kind: DiagKind) void {
+        var kept: usize = 0;
+        for (self.list.items) |d| {
+            if (d.kind == kind) {
+                self.alloc.free(d.detail);
+            } else {
+                self.list.items[kept] = d;
+                kept += 1;
+            }
+        }
+        self.list.shrinkRetainingCapacity(kept);
+    }
+
     pub fn count(self: *const Diagnostics) usize {
         return self.list.items.len;
     }
@@ -92,6 +106,8 @@ pub const Registry = struct {
     user: std.ArrayList(*const ThemeSpec) = .empty,
     dir: ?[]const u8 = null,
     cache: std.StringHashMapUnmanaged(?*const ThemeSpec) = .empty,
+    /// Why the last theme file that exists could not be read, if it could not.
+    last_read_error: ?anyerror = null,
     arena: std.heap.ArenaAllocator,
     alloc: std.mem.Allocator,
 
@@ -129,7 +145,8 @@ pub const Registry = struct {
             return null;
         };
 
-        const raw = loadfile.readThemeFile(arena, dir, name) catch {
+        const raw = loadfile.readThemeFile(arena, dir, name) catch |err| {
+            self.last_read_error = err;
             diag.warnFmt(.unreadable_file, "cannot read theme file '{s}.toml'", .{name});
             self.cache.put(self.alloc, key, null) catch {};
             return null;

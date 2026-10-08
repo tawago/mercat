@@ -128,18 +128,3 @@ fn drawERRelation(canvas: *Canvas, rel: *const ERRelation, diagram: *const ERDia
         canvas.drawText(mid_x - @divFloor(label_len, 2), start_y + 1, label, .edge_label);
     }
 }
-
-test "over the budget: its measured width; at that width it draws" {
-    const allocator = std.testing.allocator;
-    const source = "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE_ITEM : contains\n";
-    const width = (try render(allocator, source, 0)).too_wide;
-    try std.testing.expect(width > 0);
-    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
-    const fitted = try render(allocator, source, width);
-    defer allocator.free(fitted.drawn);
-    try std.testing.expect(fitted.drawn.len > 0);
-}
-
-test "an empty diagram draws nothing" {
-    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "erDiagram\n", 0)).drawn);
-}

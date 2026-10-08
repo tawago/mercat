@@ -11,6 +11,8 @@ const Slot = spec.Slot;
 const Diagnostics = resolve.Diagnostics;
 const RawThemeTables = loadfile.RawThemeTables;
 
+/// `alloc` must be an arena (the Registry passes its own): bullets arrays and
+/// PUA-substituted glyphs are allocated from it and never freed one by one.
 pub fn specFromRaw(alloc: std.mem.Allocator, raw: RawThemeTables, diag: *Diagnostics) ThemeSpec {
     var out = ThemeSpec{ .name = "" };
 
@@ -232,44 +234,6 @@ test "isPua/containsPua flag the three private-use ranges only" {
     try testing.expect(!containsPua("plain text →"));
 }
 
-test "specFromRaw parses the re-added structural slots (S2)" {
-    const alloc = testing.allocator;
-    var tables = try loadfile.parseThemeTables(alloc, "[theme.hr]\nfg = \"202\"\n" ++
-        "[theme.table_border]\nfg = \"45\"\n" ++
-        "[theme.table_header]\nfg = \"213\"\nbold = true\n" ++
-        "[theme.code_fence_banner]\nfg = \"99\"\n");
-    defer tables.deinit(alloc);
-    var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-
-    const s = specFromRaw(alloc, tables.view(), &diag);
-    try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expect(std.meta.eql(s.slots.get(.hr).?.fg.?, Color{ .index = 202 }));
-    try testing.expect(std.meta.eql(s.slots.get(.table_border).?.fg.?, Color{ .index = 45 }));
-    try testing.expect(std.meta.eql(s.slots.get(.table_header).?.fg.?, Color{ .index = 213 }));
-    try testing.expectEqual(true, s.slots.get(.table_header).?.bold.?);
-    try testing.expect(std.meta.eql(s.slots.get(.code_fence_banner).?.fg.?, Color{ .index = 99 }));
-}
-
-test "specFromRaw parses a user bullets array (documented [theme.glyphs] key)" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    const tables = try loadfile.parseThemeTables(alloc,
-        \\[theme.glyphs]
-        \\bullets = ["#", "◦", "‣"] # a quoted hash stays a glyph
-    );
-    var diag = resolve.Diagnostics.init(alloc);
-    const s = specFromRaw(alloc, tables.view(), &diag);
-    try testing.expectEqual(@as(usize, 0), diag.count());
-    const bs = s.glyphs.bullets.?;
-    try testing.expectEqual(@as(usize, 3), bs.len);
-    try testing.expectEqualStrings("#", bs[0]);
-    try testing.expectEqualStrings("\u{25E6}", bs[1]);
-    try testing.expectEqualStrings("\u{2023}", bs[2]);
-}
-
 test "a scalar or empty bullets value is reported, not silently accepted" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -284,29 +248,21 @@ test "a scalar or empty bullets value is reported, not silently accepted" {
     }
 }
 
-test "specFromRaw parses the widened table_style weights and reports invalid ones" {
+test "specFromRaw parses table_style and reports an invalid weight" {
     const alloc = testing.allocator;
-    inline for (.{
-        .{ .name = "grid", .want = spec.TableStyle.grid },
-        .{ .name = "heavy", .want = spec.TableStyle.heavy },
-        .{ .name = "double", .want = spec.TableStyle.double },
-        .{ .name = "ascii", .want = spec.TableStyle.ascii },
-        .{ .name = "rounded", .want = spec.TableStyle.rounded },
-    }) |c| {
-        var tables = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\ntable_style = \"" ++ c.name ++ "\"\n");
+    const rows = [_]struct { value: []const u8, want: ?spec.TableStyle }{
+        .{ .value = "heavy", .want = .heavy },
+        .{ .value = "triple", .want = null },
+    };
+    for (rows) |row| {
+        const text = try std.fmt.allocPrint(alloc, "[theme.glyphs]\ntable_style = \"{s}\"\n", .{row.value});
+        defer alloc.free(text);
+        var tables = try loadfile.parseThemeTables(alloc, text);
         defer tables.deinit(alloc);
         var diag = resolve.Diagnostics.init(alloc);
         defer diag.deinit();
         const s = specFromRaw(alloc, tables.view(), &diag);
-        try testing.expectEqual(@as(usize, 0), diag.count());
-        try testing.expectEqual(c.want, s.glyphs.table_style.?);
+        try testing.expectEqual(row.want, s.glyphs.table_style);
+        try testing.expectEqual(row.want == null, diag.has(.unknown_key));
     }
-
-    var bad = try loadfile.parseThemeTables(alloc, "[theme.glyphs]\ntable_style = \"triple\"\n");
-    defer bad.deinit(alloc);
-    var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-    const s = specFromRaw(alloc, bad.view(), &diag);
-    try testing.expect(diag.has(.unknown_key));
-    try testing.expect(s.glyphs.table_style == null);
 }

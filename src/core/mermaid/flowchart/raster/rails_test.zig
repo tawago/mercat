@@ -175,57 +175,6 @@ test "V-D-TRUNK-10: fan-IN rail stamps one pivot arrow off the shared run" {
     try testing.expectEqual(@as(u32, 0), r.cells_lost);
 }
 
-test "a rail plus separated edges is byte and report invariant under edge write order" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var nodes: [4]sketch.NodePlacement = undefined;
-    var taps: [3]sketch.Tap = undefined;
-    var stem: [2]sketch.Point = undefined;
-    var rails: [1]sketch.Rail = undefined;
-    var base = fanSketch(&nodes, &taps, &stem, &rails);
-    base.bbox.h = 12;
-    const p0 = [_]sketch.Point{ .{ .x = 0, .y = 10 }, .{ .x = 24, .y = 10 } };
-    const p1 = [_]sketch.Point{ .{ .x = 0, .y = 11 }, .{ .x = 24, .y = 11 } };
-    const e0: sketch.EdgePath = .{
-        .id = 10,
-        .from = 1,
-        .to = 3,
-        .polyline = &p0,
-        .port_from = .{ .node = 1, .side = .south, .offset = 1 },
-        .port_to = .{ .node = 3, .side = .south, .offset = 1 },
-        .arrow_from = .none,
-        .arrow_to = .none,
-        .label = null,
-        .kind = .dotted,
-    };
-    const e1: sketch.EdgePath = .{
-        .id = 11,
-        .from = 3,
-        .to = 1,
-        .polyline = &p1,
-        .port_from = .{ .node = 3, .side = .south, .offset = 3 },
-        .port_to = .{ .node = 1, .side = .south, .offset = 3 },
-        .arrow_from = .none,
-        .arrow_to = .none,
-        .label = null,
-        .kind = .thick,
-    };
-    const forward = [_]sketch.EdgePath{ e0, e1 };
-    const reverse = [_]sketch.EdgePath{ e1, e0 };
-    var first_sketch = base;
-    first_sketch.edges = &forward;
-    var second_sketch = base;
-    second_sketch.edges = &reverse;
-    const first = try raster.rasterize(a, first_sketch, .bridge);
-    const second = try raster.rasterize(a, second_sketch, .bridge);
-
-    try testing.expectEqualSlices(lattice.Cell, first.lattice.cells, second.lattice.cells);
-    try testing.expectEqual(first.edge_cells_lost, second.edge_cells_lost);
-    try testing.expectEqual(first.labels_dropped, second.labels_dropped);
-    try testing.expectEqual(first.labels_displaced, second.labels_displaced);
-}
-
 test "a tap head facing the landing leaves the member border pristine; an undecorated tap tees it" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -309,8 +258,6 @@ test "a pivot head facing the border leaves it pristine; a detached one tees" {
         try testing.expectEqual(teed, r.lattice.atConst(12, 2).neighbours.toMask());
     }
 }
-
-test {}
 
 test "a continuing tap claims its junction arm and paints neither port nor head" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);

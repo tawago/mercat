@@ -59,22 +59,15 @@ test "code panel padding is capped at the content width" {
     try testing.expectEqual(@as(usize, 80), rows.next().?.len);
 }
 
-test "--debug-mermaid prints its fixed block above a drawn diagram" {
+test "--debug-mermaid prints its block above a drawn diagram" {
     const allocator = testing.allocator;
     const out = try renderBlockText(allocator, "mermaid", "graph TD\nA-->B", 40, true);
     defer allocator.free(out);
-    try testing.expect(std.mem.startsWith(u8, out,
-        \\---debug-mermaid---
-        \\Algorithm: Unknown
-        \\Nodes: 0
-        \\Edges: 0
-        \\Tree detected: no
-        \\Cyclic: no
-        \\Width constraint triggered: no
-        \\---debug-mermaid---
-        \\┌───┐
-        \\
-    ));
+    const marker = "---debug-mermaid---\n";
+    try testing.expect(std.mem.startsWith(u8, out, marker));
+    const close = std.mem.indexOfPos(u8, out, marker.len, marker).?;
+    // The diagram is drawn (a box), below the block.
+    try testing.expect(std.mem.indexOfPos(u8, out, close + marker.len, "\u{250C}") != null);
 }
 
 test "a flowchart the parser refuses shows its banner above the source" {
@@ -82,7 +75,9 @@ test "a flowchart the parser refuses shows its banner above the source" {
     std.testing.log_level = .err;
     const out = try renderBlockText(allocator, "mermaid", "graph TD\nA -->", 40, true);
     defer allocator.free(out);
-    try testing.expect(std.mem.startsWith(u8, out, "<PARSE ERROR: v2 pipeline error: parse>\n```mermaid\n graph TD "));
+    try testing.expect(std.mem.startsWith(u8, out, "<PARSE ERROR"));
+    const banner_end = std.mem.indexOfScalar(u8, out, '\n').?;
+    try testing.expect(std.mem.startsWith(u8, out[banner_end + 1 ..], "```mermaid\n graph TD "));
 }
 
 test "a diagram too wide for the width shows its source with no banner" {

@@ -1,8 +1,6 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
-const sketch = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
-const routing = @import("routing.zig");
 
 const assignLayers = sugiyama.assignLayers;
 const testing = std.testing;
@@ -28,29 +26,6 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
         .arrow_to = .filled,
         .label = null,
     };
-}
-
-test "linear chain assigns sequential layers" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
-    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2) };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(usize, 3), lg.layers.len);
-    try testing.expectEqual(@as(usize, 1), lg.layers[0].len);
-    try testing.expectEqual(@as(usize, 1), lg.layers[1].len);
-    try testing.expectEqual(@as(usize, 1), lg.layers[2].len);
-    try testing.expectEqual(@as(usize, 3), lg.nodes.len);
-    for (lg.nodes) |n| try testing.expect(n == .real);
-    try testing.expectEqual(@as(usize, 0), lg.reversed_edges.len);
 }
 
 test "diamond" {
@@ -100,81 +75,51 @@ test "cycle removed" {
     for (lg.nodes) |n| try testing.expect(n == .real);
 }
 
-test "long edge inserts virtuals" {
+test "a long edge inserts one virtual per skipped layer, so every layered edge spans one layer" {
     const nodes = [_]sg.Node{
         mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C"), mkNode(3, "D"),
     };
-    const edges = [_]sg.Edge{
-        mkEdge(0, 0, 1),
-        mkEdge(1, 0, 2),
-        mkEdge(2, 2, 3),
-        mkEdge(3, 0, 3),
+    // A->D skips one layer in the first graph and two in the second.
+    const graphs = [_][4]sg.Edge{
+        .{ mkEdge(0, 0, 1), mkEdge(1, 0, 2), mkEdge(2, 2, 3), mkEdge(3, 0, 3) },
+        .{ mkEdge(0, 0, 1), mkEdge(1, 1, 2), mkEdge(2, 2, 3), mkEdge(3, 0, 3) },
     };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
+    for (graphs, [_]usize{ 1, 2 }) |edges, want_virtuals| {
+        const g = sg.SemGraph{
+            .direction = .TD,
+            .nodes = &nodes,
+            .edges = &edges,
+            .clusters = &.{},
+            .classes = &.{},
+            .arena = null,
+        };
+        var lg = try assignLayers(testing.allocator, g);
+        defer lg.deinit(testing.allocator);
 
-    try testing.expectEqual(@as(usize, 3), lg.layers.len);
-    var virtuals: usize = 0;
-    for (lg.nodes) |n| switch (n) {
-        .virtual => virtuals += 1,
-        .real => {},
-    };
-    try testing.expectEqual(@as(usize, 1), virtuals);
-    try testing.expectEqual(@as(usize, 5), lg.nodes.len);
-    for (lg.edges) |e| {
-        var lf: usize = std.math.maxInt(usize);
-        var lt: usize = std.math.maxInt(usize);
-        for (lg.layers, 0..) |row, li| {
-            for (row) |idx| {
-                if (idx == e.from) lf = li;
-                if (idx == e.to) lt = li;
+        try testing.expectEqual(want_virtuals + 2, lg.layers.len);
+        var virtuals: usize = 0;
+        for (lg.nodes) |n| switch (n) {
+            .virtual => virtuals += 1,
+            .real => {},
+        };
+        try testing.expectEqual(want_virtuals, virtuals);
+        try testing.expectEqual(4 + want_virtuals, lg.nodes.len);
+        for (lg.edges) |e| {
+            var lf: usize = std.math.maxInt(usize);
+            var lt: usize = std.math.maxInt(usize);
+            for (lg.layers, 0..) |row, li| {
+                for (row) |idx| {
+                    if (idx == e.from) lf = li;
+                    if (idx == e.to) lt = li;
+                }
             }
+            try testing.expect(lf != std.math.maxInt(usize));
+            try testing.expect(lt == lf + 1);
         }
-        try testing.expect(lf != std.math.maxInt(usize));
-        try testing.expect(lt != std.math.maxInt(usize));
-        try testing.expect(lt == lf + 1);
     }
 }
 
-test "long edge inserts two virtuals" {
-    const nodes = [_]sg.Node{
-        mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C"), mkNode(3, "D"),
-    };
-    const edges = [_]sg.Edge{
-        mkEdge(0, 0, 1),
-        mkEdge(1, 1, 2),
-        mkEdge(2, 2, 3),
-        mkEdge(3, 0, 3),
-    };
-    const g = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    var lg = try assignLayers(testing.allocator, g);
-    defer lg.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(usize, 4), lg.layers.len);
-    var virtuals: usize = 0;
-    for (lg.nodes) |n| switch (n) {
-        .virtual => virtuals += 1,
-        .real => {},
-    };
-    try testing.expectEqual(@as(usize, 2), virtuals);
-}
-
-test "self-loop excluded from LayeredGraph but still drawn by routing.zig from graph.edges" {
+test "a self-loop is excluded from the LayeredGraph" {
     const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B") };
     const edges = [_]sg.Edge{
         mkEdge(0, 0, 0),
@@ -194,36 +139,6 @@ test "self-loop excluded from LayeredGraph but still drawn by routing.zig from g
     try testing.expectEqual(@as(usize, 1), lg.edges.len);
     try testing.expectEqual(@as(sg.EdgeId, 1), lg.edges[0].edge);
     try testing.expectEqual(@as(usize, 2), lg.layers.len);
-
-    var still_has_self_loop = false;
-    for (g.edges) |e| {
-        if (e.from == e.to) still_has_self_loop = true;
-    }
-    try testing.expect(still_has_self_loop);
-
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    const placements = [_]sketch.NodePlacement{
-        .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
-        .{ .id = 1, .rect = .{ .x = 0, .y = 6, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
-    };
-    const geom = [_]routing.NodeGeom{
-        .{ .x = 0, .y = 0, .w = 7, .h = 3, .layer = 0 },
-        .{ .x = 0, .y = 6, .w = 7, .h = 3, .layer = 1 },
-    };
-    const result = try routing.buildEdges(aa, g, lg, &geom, &placements, &.{}, .{});
-
-    var saw_self_loop = false;
-    for (result.edges) |e| {
-        if (e.id == 0) {
-            try testing.expectEqual(sketch.EdgeRole.self_loop, e.role);
-            try testing.expectEqual(@as(sketch.NodeId, 0), e.from);
-            try testing.expectEqual(@as(sketch.NodeId, 0), e.to);
-            saw_self_loop = true;
-        }
-    }
-    try testing.expect(saw_self_loop);
 }
 
 test "iterative cycle-removal DFS handles a very deep chain without stack overflow" {
@@ -248,6 +163,9 @@ test "iterative cycle-removal DFS handles a very deep chain without stack overfl
 
     try testing.expectEqual(n, lg.layers.len);
     for (lg.layers) |row| try testing.expectEqual(@as(usize, 1), row.len);
+    try testing.expectEqual(n, lg.nodes.len);
+    for (lg.nodes) |node| try testing.expect(node == .real);
+    try testing.expectEqual(@as(usize, 0), lg.reversed_edges.len);
 }
 
 test "empty graph errors" {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const markdown = @import("../core/markdown/parser.zig");
+const encoding = @import("../core/encoding.zig");
 const cli_input = @import("../cli/input.zig");
 const config = @import("../core/config.zig");
 const render_model = @import("../core/markdown/render.zig");
@@ -10,7 +11,7 @@ const ResolvedTheme = theme_resolve.ResolvedTheme;
 const SubgraphEdges = @import("../core/mermaid/mermaid.zig").SubgraphEdges;
 const editor = @import("../platform/editor.zig");
 const PagerView = @import("views/pager.zig").PagerView;
-const HelpView = @import("views/help.zig").HelpView;
+const HelpOverlay = @import("views/help.zig").HelpOverlay;
 const MetadataOverlay = @import("views/metadata.zig").MetadataOverlay;
 const input = @import("input.zig");
 const statusbar = @import("widgets/statusbar.zig");
@@ -18,8 +19,16 @@ const args = @import("../cli/args.zig");
 const clipboard = @import("../platform/clipboard.zig");
 const unicode = @import("unicode");
 const selection_mod = @import("selection.zig");
+const search_mod = @import("search.zig");
+const term_guard = @import("term_guard.zig");
+const event_loop = @import("event_loop.zig");
+const ctlseqs = vaxis.ctlseqs;
 
 const toast_duration_ms: i64 = 1400;
+/// How long a status-line message stays before the bar shows just the file.
+pub const message_duration_ms: i64 = 2000;
+/// Startup warnings and copy failures stay longer so they are not missed.
+const warning_duration_ms: i64 = 5000;
 
 const ViewMode = enum {
     pager,
@@ -31,25 +40,37 @@ const Event = union(enum) {
     winsize: vaxis.Winsize,
     focus_in,
     mouse: vaxis.Mouse,
+    /// Posted by the terminal guard after the process continues from SIGTSTP.
+    resumed,
 };
 
+/// The size to resize to when the TUI comes back (Ctrl-Z, SIGTSTP, editor):
+/// the queried terminal size when it is known, non-empty and different from
+/// what is on screen; null to keep the current layout.
+pub fn resizeOnResume(cols: u16, rows: u16, queried: ?vaxis.Winsize) ?vaxis.Winsize {
+    const ws = queried orelse return null;
+    if (ws.cols == 0 or ws.rows == 0) return null;
+    if (ws.cols == cols and ws.rows == rows) return null;
+    return ws;
+}
+
+/// Enters the alternate screen, then applies `ws`. Vaxis's resize clears the
+/// screen that is showing, so resizing first would wipe the shell's primary
+/// screen that the user returns to on quit.
+pub fn enterAltScreenResized(vx: *vaxis.Vaxis, allocator: std.mem.Allocator, writer: *std.Io.Writer, ws: ?vaxis.Winsize) !void {
+    try vx.enterAltScreen(writer);
+    if (ws) |size| try vx.resize(allocator, writer, size);
+}
+
 fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source: args.Input) !markdown.Document {
-    if (cli_input.isMermaidSource(input_source.filePath(), content)) {
-        const language = try allocator.dupe(u8, "mermaid");
-        errdefer allocator.free(language);
-        const code = try allocator.dupe(u8, content);
-        errdefer allocator.free(code);
-        const blocks = try allocator.alloc(markdown.Block, 1);
-        blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
-        return .{ .blocks = blocks };
-    }
+    if (cli_input.isMermaidSource(input_source.filePath(), content)) return markdown.parseMermaid(allocator, content);
     return markdown.parse(allocator, content);
 }
 
 pub const App = struct {
     allocator: std.mem.Allocator,
     vx: vaxis.Vaxis,
-    loop: vaxis.Loop(Event),
+    loop: event_loop.Loop(Event),
     tty: vaxis.Tty,
     tty_buffer: [4096]u8,
 
@@ -62,8 +83,11 @@ pub const App = struct {
     pager: PagerView,
     view_mode: ViewMode,
     status_message: ?[]const u8,
+    status_deadline_ms: i64,
     needs_redraw: bool,
 
+    /// `--layout` from the command line, kept for reflows; the TUI has no
+    /// layout key until layouts differ (#83).
     mermaid_layout: args.ForceLayout,
 
     mermaid_subgraph_edges: SubgraphEdges,
@@ -72,6 +96,9 @@ pub const App = struct {
     toast_deadline_ms: i64,
 
     metadata: MetadataOverlay,
+    help: HelpOverlay,
+
+    search_prompt: search_mod.Prompt,
 
     pub fn init(
         self: *App,
@@ -114,21 +141,26 @@ pub const App = struct {
 
         self.view_mode = .pager;
         self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
+        self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
         self.metadata = .{};
+        self.help = .{};
+        self.search_prompt = search_mod.Prompt.init(allocator);
     }
 
     pub fn deinit(self: *App) void {
         self.clearStatusMessage();
         self.clearToast();
+        self.search_prompt.deinit();
         self.pager.deinit();
         self.current_document.deinit(self.allocator);
         self.allocator.free(self.current_content);
         self.loop.stop();
         const writer = self.tty.writer();
         self.vx.deinit(self.allocator, writer);
+        term_guard.uninstall();
         self.tty.deinit();
     }
 
@@ -147,6 +179,9 @@ pub const App = struct {
 
         try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
         try self.vx.setMouseMode(writer, true);
+        if (cookedTermios(&self.tty)) |cooked| {
+            try term_guard.install(self.tty.fd, cooked, .{ .context = self, .on_resume = onResume });
+        }
 
         try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
 
@@ -157,7 +192,7 @@ pub const App = struct {
             }
 
             const event = self.waitEvent() orelse {
-                self.clearToast();
+                self.expireTransient(std.time.milliTimestamp());
                 self.needs_redraw = true;
                 continue;
             };
@@ -171,6 +206,7 @@ pub const App = struct {
                     self.needs_redraw = true;
                 },
                 .mouse => |mouse| try self.handleMouse(mouse),
+                .resumed => try self.reenterScreen(),
             }
         }
 
@@ -183,59 +219,130 @@ pub const App = struct {
         try self.loop.init();
     }
 
+    /// The next event, or null once a toast or status message is due to
+    /// expire.
     fn waitEvent(self: *App) ?Event {
-        if (self.toast_message == null) return self.loop.nextEvent();
+        const deadline = self.nextDeadline() orelse return self.loop.nextEvent();
         while (true) {
             if (self.loop.tryEvent()) |event| return event;
-            if (std.time.milliTimestamp() >= self.toast_deadline_ms) return null;
+            if (std.time.milliTimestamp() >= deadline) return null;
             std.Thread.sleep(30 * std.time.ns_per_ms);
         }
     }
 
-    fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
-        switch (input.mapKey(key)) {
+    fn nextDeadline(self: *const App) ?i64 {
+        var deadline: ?i64 = null;
+        if (self.toast_message != null) deadline = self.toast_deadline_ms;
+        if (self.status_message != null) {
+            deadline = if (deadline) |d| @min(d, self.status_deadline_ms) else self.status_deadline_ms;
+        }
+        return deadline;
+    }
+
+    /// Drops the toast and status message whose time is up at `now_ms`.
+    pub fn expireTransient(self: *App, now_ms: i64) void {
+        if (self.toast_message != null and now_ms >= self.toast_deadline_ms) self.clearToast();
+        if (self.status_message != null and now_ms >= self.status_deadline_ms) self.clearStatusMessage();
+    }
+
+    pub fn handleKeyPress(self: *App, key: vaxis.Key) !bool {
+        if (self.search_prompt.active) return self.handlePromptKey(key);
+        if (self.view_mode == .help) return self.handleHelpKey(key);
+        const action = input.mapKey(key);
+        switch (action) {
+            .none => return false,
             .quit => return true,
+            .search_start => {
+                try self.search_prompt.begin(&self.pager.search, self.pager.viewport);
+                self.clearStatusMessage();
+            },
+            .search_next => try self.stepSearch(.forward),
+            .search_prev => try self.stepSearch(.backward),
+            .suspend_app => try self.suspendApp(),
             .toggle_help => {
-                self.view_mode = if (self.view_mode == .help) .pager else .help;
-                if (self.view_mode == .help) try self.setMetadataVisible(false);
+                self.view_mode = .help;
+                self.help.reset();
+                try self.setMetadataVisible(false);
             },
-            .edit => {
-                try self.handleEdit();
-                return false;
-            },
-            .reload => {
-                try self.handleReload();
-                return false;
-            },
-            .cycle_layout => {
-                self.mermaid_layout = self.mermaid_layout.next();
-                try self.handleLayoutChange();
-                return false;
-            },
-            .toggle_metadata => {
-                try self.handleToggleMetadata();
-                return false;
-            },
+            .edit => try self.handleEdit(),
+            .reload => try self.handleReload(),
+            .toggle_metadata => try self.handleToggleMetadata(),
             .toggle_subgraph_edges => {
                 self.mermaid_subgraph_edges = self.mermaid_subgraph_edges.next();
                 try self.handleSubgraphEdgesChange();
-                return false;
             },
-            .line_up => if (self.metadata.visible) self.metadata.scrollBy(-1) else self.pager.lineUp(),
-            .line_down => if (self.metadata.visible) self.metadata.scrollBy(1) else self.pager.lineDown(),
-            .page_up => if (self.metadata.visible) self.metadata.scrollBy(-@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageUp(),
-            .page_down => if (self.metadata.visible) self.metadata.scrollBy(@as(isize, @intCast(self.metadata.visible_rows))) else self.pager.pageDown(),
-            .top => if (self.metadata.visible) self.metadata.scrollTo(0) else self.pager.toTop(),
-            .bottom => if (self.metadata.visible) self.metadata.scrollTo(std.math.maxInt(usize)) else self.pager.toBottom(),
-            .follow_link => {
-                _ = self.pager.followFootnoteLink();
-            },
-            .clear_selection => self.pager.clearSelection(),
-            .none => return false,
+            .follow_link => _ = self.pager.followFootnoteLink(),
+            .escape => self.handleEscape(),
+            .line_up, .line_down, .page_up, .page_down, .half_page_up, .half_page_down, .top, .bottom => self.move(action),
         }
-        self.clearStatusMessage();
         self.needs_redraw = true;
         return false;
+    }
+
+    /// Scrolls the metadata panel when it is open, else the document.
+    fn move(self: *App, action: input.Action) void {
+        if (self.metadata.visible) {
+            const page: isize = @intCast(self.metadata.visible_rows);
+            switch (action) {
+                .line_up => self.metadata.scrollBy(-1),
+                .line_down => self.metadata.scrollBy(1),
+                .page_up => self.metadata.scrollBy(-page),
+                .page_down => self.metadata.scrollBy(page),
+                .half_page_up => self.metadata.scrollBy(-@divTrunc(page, 2) - 1),
+                .half_page_down => self.metadata.scrollBy(@divTrunc(page, 2) + 1),
+                .top => self.metadata.scrollTo(0),
+                .bottom => self.metadata.scrollTo(std.math.maxInt(usize)),
+                else => {},
+            }
+            return;
+        }
+        switch (action) {
+            .line_up => self.pager.lineUp(),
+            .line_down => self.pager.lineDown(),
+            .page_up => self.pager.pageUp(),
+            .page_down => self.pager.pageDown(),
+            .half_page_up => self.pager.halfPageUp(),
+            .half_page_down => self.pager.halfPageDown(),
+            .top => self.pager.toTop(),
+            .bottom => self.pager.toBottom(),
+            else => {},
+        }
+    }
+
+    /// Esc clears the selection first, then the search highlights.
+    fn handleEscape(self: *App) void {
+        if (self.pager.selection.active) {
+            self.pager.clearSelection();
+        } else if (self.pager.search.hasPattern()) {
+            self.pager.search.clear();
+        }
+    }
+
+    /// Keys while the help overlay is open: movement scrolls it; Esc, q, ?
+    /// and F1 close it; Ctrl-C still quits.
+    fn handleHelpKey(self: *App, key: vaxis.Key) !bool {
+        if (input.isCtrlC(key)) return true;
+        const page: isize = @intCast(self.help.page_rows);
+        switch (input.mapKey(key)) {
+            .toggle_help, .quit, .escape => self.view_mode = .pager,
+            .line_down => self.help.scrollBy(1),
+            .line_up => self.help.scrollBy(-1),
+            .page_down => self.help.scrollBy(page),
+            .page_up => self.help.scrollBy(-page),
+            .half_page_down => self.help.scrollBy(@divTrunc(page, 2) + 1),
+            .half_page_up => self.help.scrollBy(-@divTrunc(page, 2) - 1),
+            .top => self.help.scrollTo(0),
+            .bottom => self.help.scrollTo(std.math.maxInt(usize)),
+            .suspend_app => try self.suspendApp(),
+            else => return false,
+        }
+        self.needs_redraw = true;
+        return false;
+    }
+
+    fn suspendApp(self: *App) !void {
+        term_guard.suspendSelf();
+        try self.reenterScreen();
     }
 
     fn handleMouse(self: *App, mouse: vaxis.Mouse) !void {
@@ -251,6 +358,16 @@ pub const App = struct {
                 },
                 else => {},
             }
+            return;
+        }
+
+        if (self.view_mode == .help) {
+            switch (mouse.button) {
+                .wheel_up => self.help.scrollBy(-1),
+                .wheel_down => self.help.scrollBy(1),
+                else => return,
+            }
+            self.needs_redraw = true;
             return;
         }
 
@@ -319,6 +436,34 @@ pub const App = struct {
         }
     }
 
+    /// Marks search matches on a drawn row: every match reversed, the current
+    /// one in the theme accent so it stands out.
+    fn highlightMatches(self: *App, root: vaxis.Window, row: usize) void {
+        const search = &self.pager.search;
+        if (!search.hasPattern()) return;
+        const line_idx = self.pager.viewport.top + row;
+        const current_style = searchCurrentStyle(self.pager.resolved);
+        for (search.matchesOnLine(line_idx)) |match| {
+            const is_current = search.isCurrent(match);
+            var col = match.col_start;
+            while (col < match.col_end and col < root.width) : (col += 1) {
+                const cx: u16 = @intCast(col);
+                const cy: u16 = @intCast(row);
+                var cell = root.readCell(cx, cy) orelse continue;
+                if (is_current) {
+                    cell.style.fg = current_style.fg;
+                    cell.style.bg = current_style.bg;
+                    cell.style.bold = true;
+                    cell.style.reverse = current_style.reverse;
+                    cell.style.ul_style = .single;
+                } else {
+                    cell.style.reverse = true;
+                }
+                root.writeCell(cx, cy, cell);
+            }
+        }
+    }
+
     fn copySelection(self: *App) !void {
         const text = self.pager.selectedText(self.allocator) catch |err| switch (err) {
             error.InvalidUtf8, error.DisallowedControl, error.Overflow => |e| {
@@ -330,12 +475,29 @@ pub const App = struct {
         defer self.allocator.free(text);
         if (text.len == 0) return;
 
+        const env = clipboard.Env.fromProcess();
+        const native = clipboard.writeNative(self.allocator, text);
         const writer = self.tty.writer();
-        clipboard.writeOsc52(writer, self.allocator, text) catch {};
-        clipboard.writeNative(self.allocator, text);
-        writer.flush() catch {};
+        var osc52 = try clipboard.writeOsc52(writer, self.allocator, text, if (env.screen and !env.tmux) .screen else .none);
+        writer.flush() catch {
+            if (osc52 == .sent) osc52 = .write_failed;
+        };
+        // Only ask tmux about set-clipboard when OSC 52 is the only way out.
+        const mux: clipboard.Mux = if (native == .copied or osc52 != .sent) .none else clipboard.detectMux(env, clipboard.tmuxClipboardOn);
+        try self.reportCopy(text, clipboard.decide(osc52, native, mux));
+    }
 
-        try self.showCopyToast(text);
+    /// "Copied …" as a toast only when the copy happened; otherwise the
+    /// reason and a hint in the status line.
+    pub fn reportCopy(self: *App, text: []const u8, outcome: clipboard.Outcome) !void {
+        switch (outcome) {
+            .copied => try self.showCopyToast(text),
+            .failed => |failure| {
+                self.clearToast();
+                try self.setStatusMessage(clipboard.failureMessage(failure), false);
+                self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+            },
+        }
     }
 
     fn showCopyToast(self: *App, text: []const u8) !void {
@@ -430,48 +592,143 @@ pub const App = struct {
     }
 
     fn handleEdit(self: *App) !void {
-        switch (self.input_source) {
-            .file => |path| {
-                self.clearStatusMessage();
-                const writer = self.tty.writer();
-                self.loop.stop();
-                try self.vx.setMouseMode(writer, false);
-                try self.vx.exitAltScreen(writer);
-                try editor.openFile(self.allocator, self.editor_command, path);
-                try self.loop.start();
-                try self.vx.enterAltScreen(writer);
-                try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
-                try self.vx.setMouseMode(writer, true);
-
-                try self.reloadDocument(path);
-                try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
-                self.needs_redraw = true;
-            },
-            else => {
-                try self.setStatusMessage("Edit mode is only available for file inputs.", false);
-                self.needs_redraw = true;
-            },
+        self.needs_redraw = true;
+        const path = switch (self.input_source) {
+            .file => |file_path| file_path,
+            else => return self.setStatusMessage("Edit mode is only available for file inputs.", false),
+        };
+        const resolved = try editor.resolve(self.allocator, self.editor_command, editor.Env.fromProcess()) orelse
+            return self.setStatusMessage("No editor found — set $EDITOR or [general] editor", false);
+        defer resolved.deinit(self.allocator);
+        const program = try editor.programName(self.allocator, resolved.command);
+        defer self.allocator.free(program);
+        if (!editor.programExists(std.posix.getenv("PATH"), program)) {
+            return self.setStatusMessage(try editorNotFoundMessage(self.allocator, program), true);
         }
+
+        const loop_was_running = try self.suspendForChild();
+        term_guard.setChildRunning(true);
+        const result = editor.openFileNotify(self.allocator, resolved.command, path, term_guard.setChildPid);
+        term_guard.setChildRunning(false);
+        try self.resumeFromChild(loop_was_running);
+        result catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.EditorNotFound => return self.setStatusMessage(try editorNotFoundMessage(self.allocator, program), true),
+            error.InvalidEditorCommand => return self.setStatusMessage(
+                try std.fmt.allocPrint(self.allocator, "Invalid editor command: {s}", .{resolved.command}),
+                true,
+            ),
+            error.EditorFailed => {
+                if (!try self.reloadOrReport(path)) return;
+                return self.setStatusMessage(
+                    try std.fmt.allocPrint(self.allocator, "Editor '{s}' exited with an error; reloaded {s}", .{ program, std.fs.path.basename(path) }),
+                    true,
+                );
+            },
+        };
+        _ = try self.reloadOrReport(path);
     }
 
     fn handleReload(self: *App) !void {
+        self.needs_redraw = true;
         switch (self.input_source) {
-            .file => |path| {
-                try self.reloadDocument(path);
-                try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
-                self.needs_redraw = true;
-            },
-            else => {
-                try self.setStatusMessage("Reload is only available for file inputs.", false);
-                self.needs_redraw = true;
-            },
+            .file => |path| _ = try self.reloadOrReport(path),
+            else => try self.setStatusMessage("Reload is only available for file inputs.", false),
         }
     }
 
-    fn handleLayoutChange(self: *App) !void {
-        try self.pager.reload();
-        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Layout: {s}", .{self.mermaid_layout.displayName()}), true);
+    /// Reloads `path`; on failure keeps the current document and explains why
+    /// in the status line instead of exiting. Returns whether it reloaded.
+    fn reloadOrReport(self: *App, path: []const u8) !bool {
+        const warning = self.reloadDocument(path) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => {
+                try self.setStatusMessage(try reloadFailureMessage(self.allocator, path, err), true);
+                return false;
+            },
+        };
+        if (warning) |message| {
+            try self.setStatusMessage(message, true);
+            self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+            return true;
+        }
+        try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
+        return true;
+    }
+
+    /// Leaves the TUI so a child (the editor) owns the terminal. Returns
+    /// whether the input loop was running (and so must be restarted).
+    fn suspendForChild(self: *App) !bool {
+        const writer = self.tty.writer();
+        const loop_was_running = self.loop.thread != null;
+        self.loop.stop();
+        try self.vx.resetState(writer);
+        try writer.flush();
+        term_guard.enterCookedMode();
+        return loop_was_running;
+    }
+
+    fn resumeFromChild(self: *App, restart_loop: bool) !void {
+        term_guard.reenterRawMode();
+        if (restart_loop) try self.loop.start();
+        try self.reenterScreen();
+    }
+
+    /// Re-enables the alt screen, input modes and mouse after the terminal was
+    /// reset (editor, Ctrl-Z, SIGTSTP) and forces a full repaint.
+    fn reenterScreen(self: *App) !void {
+        const writer = self.tty.writer();
+        // A resize while stopped or in the editor went to someone else's
+        // SIGWINCH; pick up the current size before repainting.
+        const queried = vaxis.Tty.getWinsize(self.tty.fd) catch null;
+        const ws = resizeOnResume(self.vx.screen.width, self.vx.screen.height, queried);
+        try enterAltScreenResized(&self.vx, self.allocator, writer, ws);
+        if (ws != null) try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
+        self.vx.state.kitty_keyboard = false;
+        try self.vx.enableDetectedFeatures(writer);
+        if (self.vx.state.in_band_resize) try writer.writeAll(ctlseqs.in_band_resize_set);
+        try self.vx.setMouseMode(writer, true);
+        self.vx.queueRefresh();
         self.needs_redraw = true;
+    }
+
+    fn onResume(context: *anyopaque) void {
+        const self: *App = @ptrCast(@alignCast(context));
+        _ = self.loop.tryPostEvent(.resumed);
+    }
+
+    fn handlePromptKey(self: *App, key: vaxis.Key) !bool {
+        const prompt = &self.search_prompt;
+        const search = &self.pager.search;
+        const view = &self.pager.viewport;
+        const lines = self.pager.lines;
+        self.needs_redraw = true;
+        switch (input.mapPromptKey(key)) {
+            .cancel => try prompt.cancel(search, view, lines),
+            .suspend_app => {
+                try prompt.cancel(search, view, lines);
+                try self.suspendApp();
+            },
+            .commit => {
+                try prompt.commit(search, view, lines);
+                if (search.hasPattern()) try self.setStatusMessage(try search.statusText(self.allocator), true);
+            },
+            .backspace => _ = try prompt.backspace(search, view, lines),
+            .clear => try prompt.clearQuery(search, view, lines),
+            .insert => |text| try prompt.insert(text, search, view, lines),
+            .ignore => self.needs_redraw = false,
+        }
+        return false;
+    }
+
+    fn stepSearch(self: *App, direction: search_mod.Direction) !void {
+        self.needs_redraw = true;
+        const search = &self.pager.search;
+        if (!search.hasPattern()) return self.setStatusMessage("No previous search — press / to search", false);
+        if (search.step(direction, self.pager.viewport)) |match| {
+            search_mod.reveal(&self.pager.viewport, match.line);
+        }
+        try self.setStatusMessage(try search.statusText(self.allocator), true);
     }
 
     fn handleSubgraphEdgesChange(self: *App) !void {
@@ -481,16 +738,28 @@ pub const App = struct {
         self.needs_redraw = true;
     }
 
-    fn reloadDocument(self: *App, path: []const u8) !void {
-        const reloaded = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+    /// Reloads `path`. Returns the warning for invalid input (owned), if any.
+    fn reloadDocument(self: *App, path: []const u8) !?[]u8 {
+        const raw = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+        defer self.allocator.free(raw);
+        const decoded = try encoding.decode(self.allocator, raw);
+        const reloaded = if (decoded.owned) @constCast(decoded.text) else try self.allocator.dupe(u8, decoded.text);
+        // Parse before swapping so a failure keeps the current document.
+        const document = parseContent(self.allocator, reloaded, self.input_source) catch |err| {
+            self.allocator.free(reloaded);
+            return err;
+        };
         self.allocator.free(self.current_content);
         self.current_content = reloaded;
         self.current_document.deinit(self.allocator);
-        self.current_document = try parseContent(self.allocator, self.current_content, self.input_source);
+        self.current_document = document;
         self.pager.document = &self.current_document;
         self.pager.width = self.vx.window().width;
         self.pager.viewport.setMetrics(self.vx.window().height -| 1, self.pager.viewport.total);
         try self.pager.reload();
+        const issue = decoded.issue orelse return null;
+        var buf: [512]u8 = undefined;
+        return try self.allocator.dupe(u8, encoding.describeIssue(&buf, path, decoded.encoding, issue));
     }
 
     fn clearStatusMessage(self: *App) void {
@@ -500,9 +769,11 @@ pub const App = struct {
         }
     }
 
+    /// Shows a transient message for `message_duration_ms`.
     fn setStatusMessage(self: *App, message: []const u8, owned: bool) !void {
         self.clearStatusMessage();
         self.status_message = if (owned) message else try self.allocator.dupe(u8, message);
+        self.status_deadline_ms = std.time.milliTimestamp() + message_duration_ms;
     }
 
     fn reportMeasureError(self: *App, action: []const u8, err: unicode.MeasureError) !void {
@@ -526,7 +797,7 @@ pub const App = struct {
             root.fill(.{ .style = .{ .bg = theme.toVaxisColor(bg) } });
         }
 
-        if (self.view_mode == .pager) {
+        {
             var row: usize = 0;
             while (row < content_height and self.pager.viewport.top + row < self.pager.lines.len) : (row += 1) {
                 const segments = try toVaxisSegments(self.allocator, self.pager.lines[self.pager.viewport.top + row], self.pager.resolved);
@@ -536,21 +807,34 @@ pub const App = struct {
                     .col_offset = 0,
                     .wrap = .none,
                 });
+                self.highlightMatches(root, row);
                 try self.highlightRow(root, row);
             }
         }
 
-        const status_text = try statusbar.format(self.allocator, self.pager.title, root.width, self.pager.viewport, self.view_mode == .help, self.status_message, self.mermaid_layout);
-        defer self.allocator.free(status_text);
-        const status_style: vaxis.Style = .{ .reverse = true };
-        _ = root.print(&.{.{ .text = status_text, .style = status_style }}, .{
-            .row_offset = root.height -| 1,
+        if (self.view_mode == .help) {
+            self.help.draw(root, @intCast(content_height), theme.metadataPanelStyle(self.pager.resolved.accent, self.pager.resolved.base_bg));
+        }
+
+        const bar = try statusbar.render(self.allocator, .{
+            .title = self.pager.title,
+            .width = root.width,
+            .view = self.pager.viewport,
+            .message = self.status_message,
+            .prompt = if (self.search_prompt.active) self.search_prompt.query.items else null,
+        });
+        defer bar.deinit(self.allocator);
+        const status_row: u16 = root.height -| 1;
+        root.child(.{ .y_off = status_row, .height = 1 }).fill(.{ .style = .{ .reverse = true } });
+        _ = root.print(&.{.{ .text = bar.text, .style = .{ .reverse = true } }}, .{
+            .row_offset = status_row,
             .col_offset = 0,
             .wrap = .none,
         });
-
-        if (self.view_mode == .help) {
-            drawHelp(root);
+        if (bar.cursor_col) |col| {
+            root.showCursor(@intCast(col), status_row);
+        } else {
+            root.hideCursor();
         }
 
         var frame_arena = std.heap.ArenaAllocator.init(self.allocator);
@@ -595,33 +879,37 @@ fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolv
     return segments;
 }
 
+/// The current search match: accent background with the canvas (or black)
+/// foreground; falls back to reverse video when the accent is the default.
+fn searchCurrentStyle(resolved: *const ResolvedTheme) vaxis.Style {
+    if (resolved.accent == .default) return .{ .reverse = true, .bold = true, .ul_style = .single };
+    const fg: vaxis.Color = if (resolved.base_bg == .default) .{ .index = 0 } else theme.toVaxisColor(resolved.base_bg);
+    return .{ .fg = fg, .bg = theme.toVaxisColor(resolved.accent), .bold = true, .ul_style = .single };
+}
+
+fn cookedTermios(tty: *vaxis.Tty) ?std.posix.termios {
+    if (@hasField(vaxis.Tty, "termios")) return tty.termios;
+    return null;
+}
+
+fn editorNotFoundMessage(allocator: std.mem.Allocator, program: []const u8) ![]u8 {
+    return std.fmt.allocPrint(allocator, "Editor '{s}' not found — set $EDITOR or [general] editor", .{program});
+}
+
+fn reloadFailureMessage(allocator: std.mem.Allocator, path: []const u8, err: anyerror) ![]u8 {
+    const name = std.fs.path.basename(path);
+    return switch (err) {
+        error.FileNotFound => std.fmt.allocPrint(allocator, "Reload failed: {s} no longer exists", .{name}),
+        error.AccessDenied, error.PermissionDenied => std.fmt.allocPrint(allocator, "Reload failed: permission denied reading {s}", .{name}),
+        error.IsDir => std.fmt.allocPrint(allocator, "Reload failed: {s} is a directory", .{name}),
+        else => std.fmt.allocPrint(allocator, "Reload failed: {s}: {s}", .{ name, @errorName(err) }),
+    };
+}
+
 fn syncPagerSize(pager: *PagerView, width: usize, height: usize) !bool {
     if (pager.width == width and pager.viewport.height == height) return false;
     try pager.resize(width, height);
     return true;
-}
-
-fn drawHelp(root: vaxis.Window) void {
-    const help_lines = HelpView.lines();
-    const width = @min(root.width -| 4, HelpView.width() + 4);
-    const height = @min(root.height -| 2, help_lines.len + 2);
-    const x_off = (root.width -| width) / 2;
-    const y_off = (root.height -| height) / 2;
-    const box = root.child(.{
-        .x_off = x_off,
-        .y_off = y_off,
-        .width = width,
-        .height = height,
-        .border = .{ .where = .all, .style = .{ .reverse = true } },
-    });
-    var row: usize = 0;
-    while (row < help_lines.len and row + 1 < height) : (row += 1) {
-        _ = box.print(&.{.{ .text = help_lines[row], .style = .{ .reverse = true } }}, .{
-            .row_offset = @intCast(row + 1),
-            .col_offset = 1,
-            .wrap = .none,
-        });
-    }
 }
 
 test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
@@ -645,20 +933,6 @@ test "toVaxisSegments uses the resolved preset palette (dracula, not dark)" {
     }
 }
 
-test "toast/metadata panel styles derive from the resolved preset accent" {
-    const allocator = std.testing.allocator;
-    const pink = theme_resolve.builtinResolved(allocator, "pink");
-    const dark = theme_resolve.builtinResolved(allocator, "dark");
-
-    const pink_toast = theme.toastStyle(pink.accent, pink.base_bg);
-    const dark_toast = theme.toastStyle(dark.accent, dark.base_bg);
-    try std.testing.expect(!std.meta.eql(pink_toast.border.fg, dark_toast.border.fg));
-    const pink_meta = theme.metadataPanelStyle(pink.accent, pink.base_bg);
-    try std.testing.expectEqual(pink_toast.border.fg, pink_meta.border.fg);
-    try std.testing.expect(!pink_meta.text.bold);
-    try std.testing.expect(pink_toast.text.bold);
-}
-
 test "startup theme_warning surfaces in the status bar" {
     const allocator = std.testing.allocator;
     const rt = theme_resolve.builtinResolved(allocator, "dark");
@@ -667,36 +941,6 @@ test "startup theme_warning surfaces in the status bar" {
     defer app.deinit();
     try std.testing.expect(app.status_message != null);
     try std.testing.expectEqualStrings("theme: unknown theme 'nope' (using dark)", app.status_message.?);
-}
-
-test "toVaxisSegments borrows render-model span text" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\# Title
-    );
-    defer document.deinit(allocator);
-    var rendered = try render_model.renderDocument(allocator, document, .{ .width = 20 });
-    defer rendered.deinit(allocator);
-
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    const segments = try toVaxisSegments(allocator, rendered.lines[0], &rt);
-    defer allocator.free(segments);
-
-    try std.testing.expectEqual(@intFromPtr(rendered.lines[0].spans[0].text.ptr), @intFromPtr(segments[0].text.ptr));
-}
-
-test "initLoop binds loop to app-owned tty and vaxis" {
-    const allocator = std.testing.allocator;
-
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, "# Title\n", "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.initLoop();
-
-    try std.testing.expectEqual(@intFromPtr(&app.tty), @intFromPtr(app.loop.tty));
-    try std.testing.expectEqual(@intFromPtr(&app.vx), @intFromPtr(app.loop.vaxis));
 }
 
 test "syncPagerSize reflows when draw detects width change" {
@@ -720,29 +964,23 @@ test "syncPagerSize reflows when draw detects width change" {
     try std.testing.expect(pager.lines.len > original_line_count);
 }
 
-test "toggle metadata is refused when front matter is hidden" {
+test "toggle metadata is refused when front matter is hidden or absent" {
     const allocator = std.testing.allocator;
-    const content = "---\ntitle: Secret\n---\n# Body\n";
+    const rows = [_]struct { content: []const u8, mode: config.FrontmatterStyle, message: ?[]const u8 }{
+        .{ .content = "---\ntitle: Secret\n---\n# Body\n", .mode = .hidden, .message = null },
+        .{ .content = "# Body only\n", .mode = .panel, .message = "No front matter metadata in this document." },
+    };
     const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .hidden, .auto, .bridge);
-    defer app.deinit();
+    for (rows) |row| {
+        var app: App = undefined;
+        try app.init(allocator, "fixture", .none, row.content, "vim", &rt, null, true, row.mode, .auto, .bridge);
+        defer app.deinit();
 
-    try app.handleToggleMetadata();
-    try std.testing.expect(!app.metadata.visible);
-    try std.testing.expect(app.status_message != null);
-}
-
-test "toggle metadata opens the overlay for visible front matter" {
-    const allocator = std.testing.allocator;
-    const content = "---\ntitle: Shown\n---\n# Body\n";
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.handleToggleMetadata();
-    try std.testing.expect(app.metadata.visible);
+        try app.handleToggleMetadata();
+        try std.testing.expect(!app.metadata.visible);
+        try std.testing.expect(app.status_message != null);
+        if (row.message) |want| try std.testing.expectEqualStrings(want, app.status_message.?);
+    }
 }
 
 test "opening the metadata overlay hides the inline front matter and closing restores it" {
@@ -766,16 +1004,6 @@ test "opening the metadata overlay hides the inline front matter and closing res
     try std.testing.expectEqual(lines_with_frontmatter, app.pager.lines.len);
 }
 
-test "toggle metadata is refused when the document has no front matter" {
-    const allocator = std.testing.allocator;
-    const content = "# Body only\n";
-    const rt = theme_resolve.builtinResolved(allocator, "dark");
-    var app: App = undefined;
-    try app.init(allocator, "fixture", .none, content, "vim", &rt, null, true, .panel, .auto, .bridge);
-    defer app.deinit();
-
-    try app.handleToggleMetadata();
-    try std.testing.expect(!app.metadata.visible);
-    try std.testing.expect(app.status_message != null);
-    try std.testing.expectEqualStrings("No front matter metadata in this document.", app.status_message.?);
+test {
+    _ = @import("app_test.zig");
 }

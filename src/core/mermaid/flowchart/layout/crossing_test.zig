@@ -51,64 +51,23 @@ fn crossingsOf(lg: sugiyama.LayeredGraph) !u64 {
     return order.crossings(lg.layers);
 }
 
-test "Key.less breaks barycenter ties by original position, independent of input order" {
-    var order_a = [_]Key{
-        key(10, 0, 1, 5),
-        key(11, 1, 1, 0),
-        key(12, 1, 1, 1),
-        key(13, 1, 1, 2),
-        key(14, 2, 1, 6),
+test "Key.less orders by exact barycenter fraction, then back-edge bias, then original position" {
+    const back_1: Key = .{ .v = 20, .sum = 1, .count = 1, .back = true, .prev = 0 };
+    const rows = [_]struct { Key, Key, bool }{
+        // 4/3 < 6/4, and 6/4 == 3/2 compared by cross-multiplying, so prev decides.
+        .{ key(3, 4, 3, 0), key(2, 6, 4, 3), true },
+        .{ key(2, 6, 4, 3), key(1, 3, 2, 7), true },
+        .{ key(1, 3, 2, 7), key(2, 6, 4, 3), false },
+        // A back-edge endpoint goes after an equal-barycenter sibling, even one with a later prev.
+        .{ key(21, 1, 1, 1), back_1, true },
+        .{ back_1, key(21, 1, 1, 1), false },
+        // ...but never past a real barycenter difference.
+        .{ back_1, key(30, 2, 1, 0), true },
+        // Equal barycenters fall back to original position.
+        .{ key(11, 1, 1, 0), key(12, 1, 1, 1), true },
+        .{ key(12, 1, 1, 1), key(11, 1, 1, 0), false },
     };
-    var order_b = [_]Key{
-        key(13, 1, 1, 2),
-        key(14, 2, 1, 6),
-        key(12, 1, 1, 1),
-        key(10, 0, 1, 5),
-        key(11, 1, 1, 0),
-    };
-
-    std.mem.sort(Key, &order_a, {}, Key.less);
-    std.mem.sort(Key, &order_b, {}, Key.less);
-
-    const expect_v = [_]u32{ 10, 11, 12, 13, 14 };
-    for (order_a, 0..) |k, i| try testing.expectEqual(expect_v[i], k.v);
-    for (order_b, 0..) |k, i| try testing.expectEqual(expect_v[i], k.v);
-
-    try testing.expectEqualSlices(Key, &order_a, &order_b);
-}
-
-test "Key.less compares sum over count as an exact fraction" {
-    var keys = [_]Key{ key(1, 3, 2, 7), key(2, 6, 4, 3), key(3, 4, 3, 0) };
-    std.mem.sort(Key, &keys, {}, Key.less);
-    try testing.expectEqual(@as(u32, 3), keys[0].v);
-    try testing.expectEqual(@as(u32, 2), keys[1].v);
-    try testing.expectEqual(@as(u32, 1), keys[2].v);
-}
-
-test "Key.less places back-edge endpoint after equal-barycenter sibling" {
-    var order_a = [_]Key{
-        .{ .v = 20, .sum = 1, .count = 1, .back = true, .prev = 0 },
-        .{ .v = 21, .sum = 1, .count = 1, .back = false, .prev = 1 },
-    };
-    var order_b = [_]Key{
-        .{ .v = 21, .sum = 1, .count = 1, .back = false, .prev = 1 },
-        .{ .v = 20, .sum = 1, .count = 1, .back = true, .prev = 0 },
-    };
-    std.mem.sort(Key, &order_a, {}, Key.less);
-    std.mem.sort(Key, &order_b, {}, Key.less);
-    try testing.expectEqual(@as(u32, 21), order_a[0].v);
-    try testing.expectEqual(@as(u32, 20), order_a[1].v);
-    try testing.expectEqualSlices(Key, &order_a, &order_b);
-}
-
-test "Key.less back-edge bias never overrides a real barycenter difference" {
-    var order = [_]Key{
-        .{ .v = 30, .sum = 2, .count = 1, .back = false, .prev = 0 },
-        .{ .v = 31, .sum = 1, .count = 1, .back = true, .prev = 1 },
-    };
-    std.mem.sort(Key, &order, {}, Key.less);
-    try testing.expectEqual(@as(u32, 31), order[0].v);
-    try testing.expectEqual(@as(u32, 30), order[1].v);
+    for (rows) |r| try testing.expectEqual(r[2], Key.less({}, r[0], r[1]));
 }
 
 test "reduceCrossings parks a back-edge endpoint at the last within-layer index even when crossings are minimal" {
@@ -143,38 +102,6 @@ test "reduceCrossings parks a back-edge endpoint at the last within-layer index 
         }
     }
     try testing.expect(found);
-}
-
-test "railCost is zero on a graph with no back-edges" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
-    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 0, 2) };
-    var lg = try sugiyama.assignLayers(testing.allocator, graphOf(&nodes, &edges));
-    defer lg.deinit(testing.allocator);
-
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const order = try crossing.Order.init(arena.allocator(), lg);
-    try testing.expectEqual(@as(u64, 0), order.railCost(lg.layers));
-}
-
-test "linear chain has zero crossings before and after" {
-    const nodes = [_]sg.Node{ mkNode(0, "A"), mkNode(1, "B"), mkNode(2, "C") };
-    const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 2) };
-    var lg = try sugiyama.assignLayers(testing.allocator, graphOf(&nodes, &edges));
-    defer lg.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(u64, 0), try crossingsOf(lg));
-
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const snap = try arena.allocator().alloc([]u32, lg.layers.len);
-    for (lg.layers, snap) |row, *kept| kept.* = try arena.allocator().dupe(u32, row);
-
-    try crossing.reduceCrossings(testing.allocator, &lg);
-
-    try testing.expectEqual(@as(u64, 0), try crossingsOf(lg));
-    try testing.expectEqual(snap.len, lg.layers.len);
-    for (snap, lg.layers) |s, r| try testing.expectEqualSlices(u32, s, r);
 }
 
 test "two-layer X pattern reduces from 1 to 0" {

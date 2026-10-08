@@ -34,24 +34,6 @@ fn hasMember(claim: rail_star.RailClaim, id: ledger.EdgeId) bool {
     return false;
 }
 
-test "fan provenance: first-class fan-out claim is valid metadata" {
-    const nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null), node(3, "C", null) };
-    const edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3) };
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const s = try coords.layout(a, graph(.TD, &nodes, &edges, &.{}), .{});
-
-    try testing.expectEqual(@as(usize, 1), s.rails.len);
-    try testing.expectEqual(@as(usize, 1), s.sharing.claims.len);
-    const claim = s.sharing.claims[0];
-    try testing.expectEqual(@as(rail_star.RailClaimId, 1), claim.id);
-    try testing.expectEqual(rail_star.RailPolarity.out, claim.polarity);
-    try testing.expectEqual(@as(?ledger.NodeId, 0), rail_star.check(claim).derived_pivot);
-    try testing.expectEqual(@as(usize, 3), claim.members.len);
-    try testing.expect(rail_star.check(claim).isValid());
-}
-
 test "fan provenance: realized fan-in Rail claims the pivot; feasible labeled fan-in shares and claims too" {
     const nodes = [_]sg.Node{ node(0, "A", null), node(1, "B", null), node(2, "T", null) };
     const edges = [_]sg.Edge{ edge(20, 0, 2), edge(21, 1, 2) };
@@ -167,6 +149,10 @@ test "fan provenance: stable sequential local ids and BT mirrored sites" {
     try testing.expectEqual(@as(rail_star.RailClaimId, 1), s.sharing.claims[0].id);
     try testing.expectEqual(@as(rail_star.RailClaimId, 2), s.sharing.claims[1].id);
     try expectAllValid(s.sharing.claims);
+    const out_claim = s.sharing.claims[0];
+    try testing.expectEqual(rail_star.RailPolarity.out, out_claim.polarity);
+    try testing.expectEqual(@as(?ledger.NodeId, 0), rail_star.check(out_claim).derived_pivot);
+    try testing.expectEqual(@as(usize, 3), out_claim.members.len);
 
     const bt_nodes = [_]sg.Node{ node(0, "P", null), node(1, "A", null), node(2, "B", null) };
     const bt_edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2) };

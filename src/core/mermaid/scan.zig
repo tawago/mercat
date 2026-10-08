@@ -167,15 +167,6 @@ pub const Scanner = struct {
     }
 };
 
-test "identifier and name stop at the first foreign byte" {
-    var s = Scanner.init(std.testing.allocator, "A-b_1 rest");
-    try std.testing.expectEqualStrings("A", s.identifier());
-    try std.testing.expectEqualStrings("", s.identifier());
-    try std.testing.expect(s.matchChar('-'));
-    try std.testing.expectEqualStrings("b_1", s.name());
-    try std.testing.expectEqual(@as(u8, ' '), s.current());
-}
-
 test "textUntil trims trailing blanks and leaves the stop unread" {
     var s = Scanner.init(std.testing.allocator, "go on \t\r\nnext");
     try std.testing.expectEqualStrings("go on", s.restOfLine());
@@ -183,14 +174,6 @@ test "textUntil trims trailing blanks and leaves the stop unread" {
     var t = Scanner.init(std.testing.allocator, "label {body");
     try std.testing.expectEqualStrings("label", t.textUntil("\n{"));
     try std.testing.expectEqual(@as(u8, '{'), t.current());
-}
-
-test "labelAfterColon reads a colon tail and declines without one" {
-    var s = Scanner.init(std.testing.allocator, ":  hello  \nx");
-    try std.testing.expectEqualStrings("hello", s.labelAfterColon().?);
-    try std.testing.expect(s.labelAfterColon() == null);
-    var t = Scanner.init(std.testing.allocator, ":");
-    try std.testing.expectEqualStrings("", t.labelAfterColon().?);
 }
 
 test "keywords match whole words only" {

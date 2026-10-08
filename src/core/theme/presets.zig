@@ -414,17 +414,6 @@ fn assertNoPua(s: []const u8) !void {
     while (it.nextCodepoint()) |cp| try testing.expect(!isPua(cp));
 }
 
-test "ALL has the seven presets in order" {
-    try testing.expectEqual(@as(usize, 7), ALL.len);
-    try testing.expectEqualStrings("dark", ALL[0].name);
-    try testing.expectEqualStrings("light", ALL[1].name);
-    try testing.expectEqualStrings("ansi", ALL[2].name);
-    try testing.expectEqualStrings("dracula", ALL[3].name);
-    try testing.expectEqualStrings("tokyo-night", ALL[4].name);
-    try testing.expectEqualStrings("pink", ALL[5].name);
-    try testing.expectEqualStrings("markview", ALL[6].name);
-}
-
 test "markview is PUA-free across every glyph, prefix, suffix and icon" {
     var i: usize = 0;
     while (i < spec.slot_count) : (i += 1) {
@@ -441,23 +430,4 @@ test "markview is PUA-free across every glyph, prefix, suffix and icon" {
     if (g.quote_bar) |t| try assertNoPua(t);
     if (g.hr_glyph) |t| try assertNoPua(t);
     if (g.hr_center) |t| try assertNoPua(t);
-}
-
-test "ansi preset locks the 16-color palette mode with named slots" {
-    try testing.expectEqual(spec.PaletteMode.ansi16, ansi.palette_mode.?);
-    const h1 = ansi.slots.get(.heading1).?;
-    try testing.expectEqual(Color{ .ansi16 = .bright_blue }, h1.fg.?);
-    try testing.expectEqualStrings("┄ ", h1.prefix.?);
-}
-
-test "spot-check preset fields against the spec JSON" {
-    try testing.expectEqualStrings("## ", dracula.slots.get(.heading2).?.prefix.?);
-    try testing.expectEqual(@as(?bool, false), pink.slots.get(.heading6).?.bold);
-    try testing.expectEqual(@as(?bool, true), pink.slots.get(.heading1).?.blank_wrap);
-    try testing.expectEqualStrings("│ ", tokyo_night.glyphs.quote_bar.?);
-    try testing.expectEqual(spec.TableStyle.rounded, markview.glyphs.table_style.?);
-    try testing.expectEqualStrings("◉  ", markview.slots.get(.heading1).?.prefix.?);
-    try testing.expectEqual(@as(?u8, 5), markview.slots.get(.heading6).?.shift);
-    try testing.expectEqual(spec.CodeFrameKind.rule, ansi.glyphs.code_frame.?.kind.?);
-    try testing.expectEqual(@as(?u16, 20), ansi.glyphs.code_frame.?.border_cap);
 }

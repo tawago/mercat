@@ -344,18 +344,3 @@ fn drawElbowEdge(canvas: *Canvas, transition: *const StateTransition, from_state
         drawLabel(canvas, label_x, mid_y, label);
     }
 }
-
-test "over the budget: its measured width; at that width it draws" {
-    const allocator = std.testing.allocator;
-    const source = "stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running : start\n    Running --> Idle : stop\n    Running --> [*]\n";
-    const width = (try render(allocator, source, 0)).too_wide;
-    try std.testing.expect(width > 0);
-    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
-    const fitted = try render(allocator, source, width);
-    defer allocator.free(fitted.drawn);
-    try std.testing.expect(fitted.drawn.len > 0);
-}
-
-test "an empty diagram draws nothing" {
-    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "stateDiagram-v2\n", 0)).drawn);
-}

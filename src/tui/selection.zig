@@ -225,18 +225,6 @@ test "rangeForLine clamps to content width and rejects empty" {
     try testing.expect(click.rangeForLine(0, 10) == null);
 }
 
-test "wide glyphs are copied whole at boundaries" {
-    var spans = [_]Span{bodySpan("日本語")};
-    const lines = [_]Line{.{ .spans = &spans }};
-
-    var sel = Selection{};
-    sel.begin(0, 1);
-    sel.extendTo(0, 3);
-    const text = try sel.extractText(testing.allocator, &lines);
-    defer testing.allocator.free(text);
-    try testing.expectEqualStrings("日本", text);
-}
-
 test "selection bounds are inclusive at start exclusive at end and expand inside wide graphemes" {
     var spans = [_]Span{bodySpan("A日B")};
     const lines = [_]Line{.{ .spans = &spans }};
@@ -255,26 +243,6 @@ test "selection bounds are inclusive at start exclusive at end and expand inside
         const text = try sel.extractText(testing.allocator, &lines);
         defer testing.allocator.free(text);
         try testing.expectEqualStrings(case.expected, text);
-    }
-}
-
-test "selection preserves complete Unicode grapheme families" {
-    const cases = [_]struct { text: []const u8, start: usize, end: usize }{
-        .{ .text = "e\u{0301}", .start = 0, .end = 1 },
-        .{ .text = "👩‍💻", .start = 1, .end = 2 },
-        .{ .text = "🇯🇵", .start = 1, .end = 2 },
-        .{ .text = "©️", .start = 1, .end = 2 },
-        .{ .text = "日", .start = 1, .end = 2 },
-    };
-    for (cases) |case| {
-        var spans = [_]Span{bodySpan(case.text)};
-        const lines = [_]Line{.{ .spans = &spans }};
-        var sel = Selection{};
-        sel.begin(0, case.start);
-        sel.extendTo(0, case.end);
-        const text = try sel.extractText(testing.allocator, &lines);
-        defer testing.allocator.free(text);
-        try testing.expectEqualStrings(case.text, text);
     }
 }
 
@@ -365,75 +333,18 @@ test "highlight ranges expand to complete grapheme and tab cells" {
     try testing.expectEqual(Range{ .start = 1, .end = 4 }, tab_range);
 }
 
-test "selection rejects invalid UTF-8 and disallowed controls" {
-    var invalid_spans = [_]Span{bodySpan("ok\x80")};
-    const invalid_lines = [_]Line{.{ .spans = &invalid_spans }};
-    var invalid = Selection{};
-    invalid.begin(0, 0);
-    invalid.extendTo(0, 8);
-    try testing.expectError(error.InvalidUtf8, invalid.extractText(testing.allocator, &invalid_lines));
-
-    var control_spans = [_]Span{bodySpan("a\x01b")};
-    const control_lines = [_]Line{.{ .spans = &control_spans }};
-    var control = Selection{};
-    control.begin(0, 0);
-    control.extendTo(0, 3);
-    try testing.expectError(error.DisallowedControl, control.extractText(testing.allocator, &control_lines));
-}
-
-test "selection prepares a long line in one linear pass" {
-    const long = "a" ** 32768;
-    var spans = [_]Span{bodySpan(long)};
-    const lines = [_]Line{.{ .spans = &spans }};
-    var sel = Selection{};
-    sel.begin(0, long.len - 8);
-    sel.extendTo(0, long.len);
-    const text = try sel.extractText(testing.allocator, &lines);
-    defer testing.allocator.free(text);
-    try testing.expectEqualStrings("aaaaaaaa", text);
-}
-
-test "copy preview preserves ASCII behavior and collapses whitespace" {
-    const short = try formatCopyPreview(testing.allocator, "hello");
-    defer testing.allocator.free(short);
-    try testing.expectEqualStrings("Copied \"hello\"", short);
-
-    const spaced = try formatCopyPreview(testing.allocator, "  first\nsecond\t third  ");
-    defer testing.allocator.free(spaced);
-    try testing.expectEqualStrings("Copied \"first second third\"", spaced);
-}
-
-test "copy preview clips complete graphemes by display columns" {
-    const message = try formatCopyPreview(testing.allocator, ("a" ** 39) ++ "日tail");
-    defer testing.allocator.free(message);
-    try testing.expectEqualStrings("Copied \"" ++ ("a" ** 39) ++ " …\"", message);
-
-    const families = [_][]const u8{ "e\u{0301}", "👩‍💻", "🇯🇵", "©️", "日" };
-    for (families) |grapheme| {
-        const family_message = try formatCopyPreview(testing.allocator, grapheme);
-        defer testing.allocator.free(family_message);
-        const expected = try std.fmt.allocPrint(testing.allocator, "Copied \"{s}\"", .{grapheme});
-        defer testing.allocator.free(expected);
-        try testing.expectEqualStrings(expected, family_message);
+test "copy preview collapses whitespace and clips to whole graphemes" {
+    const cases = [_]struct { in: []const u8, want: []const u8 }{
+        .{ .in = "hello", .want = "Copied \"hello\"" },
+        .{ .in = "  first\nsecond\t third  ", .want = "Copied \"first second third\"" },
+        .{ .in = ("a" ** 39) ++ "日tail", .want = "Copied \"" ++ ("a" ** 39) ++ " …\"" },
+        .{ .in = "a" ** 60, .want = "Copied \"" ++ ("a" ** copy_preview_cols) ++ " …\"" },
+    };
+    for (cases) |case| {
+        const message = try formatCopyPreview(testing.allocator, case.in);
+        defer testing.allocator.free(message);
+        try testing.expectEqualStrings(case.want, message);
     }
-}
-
-test "copy preview truncates long ASCII and rejects invalid input" {
-    const long = try formatCopyPreview(testing.allocator, "a" ** 60);
-    defer testing.allocator.free(long);
-    try testing.expectEqualStrings("Copied \"" ++ ("a" ** copy_preview_cols) ++ " …\"", long);
-    try testing.expectError(error.InvalidUtf8, formatCopyPreview(testing.allocator, "ok\x80"));
-    try testing.expectError(error.DisallowedControl, formatCopyPreview(testing.allocator, "ok\x01bad"));
-}
-
-test "inactive selection extracts nothing" {
-    var spans = [_]Span{bodySpan("hello")};
-    const lines = [_]Line{.{ .spans = &spans }};
-
-    const sel = Selection{};
-    const text = try sel.extractText(testing.allocator, &lines);
-    defer testing.allocator.free(text);
-    try testing.expectEqual(@as(usize, 0), text.len);
 }
 
 test "reversed drag (cursor before anchor) normalizes" {

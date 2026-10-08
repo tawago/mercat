@@ -4,6 +4,174 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Markdown
+
+- **Blocks inside list items render.** Code blocks, quotes, tables, extra
+  paragraphs and HTML inside a list or task item now render in order, indented
+  under the item's text. A fenced block under `1. Install:` used to fail with
+  `error: DisallowedControl` and print nothing.
+- **HTML blocks.** Comments are hidden; `<p>`, `<div>`, `<details>` and
+  `<center>` wrappers are dropped but their text is kept; `<summary>X</summary>`
+  shows as `▸ X`; `<br>` breaks the line; `<img>` and `<a href>` render like
+  markdown images and links. Multi-line HTML blocks no longer crash.
+- **One bad block no longer fails the document.** A block that cannot be
+  rendered (an unexpected internal error) is shown as dimmed raw source, cleaned
+  like all other text (bad bytes and controls become `�`, invisible format
+  characters are dropped), and mercat prints one warning and exits 0. The text
+  is never replaced by a placeholder. Previously
+  the whole run failed with `error: InvalidUtf8` or `error: DisallowedControl`.
+- **Invalid UTF-8 is decoded, not fatal.** Input is decoded before parsing:
+  each invalid sequence becomes `�` (U+FFFD, one per maximal subpart), so the
+  document renders as normal markdown (headings stay headings, table rows stay
+  in their table), with one warning such as
+  `mercat: warning: notes.md: invalid UTF-8 at line 3, column 7 (2 bytes
+  replaced with U+FFFD)`. The `pcre_exec: -10` noise is gone. Files that start
+  with a UTF-16 byte order mark are transcoded to UTF-8.
+- **Invisible and control characters no longer hide text.** A soft hyphen,
+  zero-width space, bidi control or other invisible format character is
+  dropped; C0/C1 controls such as BEL and ESC are shown as `�`. Before, a
+  paragraph containing one rendered as `[block could not be rendered]`.
+  Escape sequences in text, code, link URLs, tables, front matter or character
+  references (`&#27;`) never reach the terminal.
+- **Inline HTML across lines.** A paragraph with a tag or comment that spans
+  lines (`<span\nclass=x>`, `<!-- a\nb -->`, `<a\nhref="u">`) renders
+  normally instead of falling back to raw source: the tag is shown on one line,
+  inline comments are hidden, and an inline `<br>` breaks the line.
+- Links with an empty URL (`[text]()`, `<a href="">text</a>`) no longer show a
+  stray `<>`; an empty `<a href=""></a>` shows nothing.
+- Block quotes have one space after the bar in every theme (was three before
+  plain text), and the extra blank line after each quote is gone.
+
+### CLI
+
+- **Clear errors and exit codes.** Every message on stderr reads
+  `mercat: error|warning|note: …`, with file names and plain-language reasons
+  instead of Zig error names. Unknown options suggest the closest match
+  (`unknown option '--colr' (did you mean '--color'?)`), and invalid values list
+  the valid ones. Exit status is 0 on success, 1 on a runtime or I/O failure,
+  and 2 on a usage error (including running with no input on a terminal).
+- **Broken pipes are quiet.** `mercat big.md | head -1` exits 0 with no error.
+- **Argument syntax.** `--opt=value`, `-w80`, bundled short flags (`-pw 40`) and
+  `--` all work.
+- **`--theme`** is the main name for theme selection; `--style` remains as an
+  alias. **`--list-themes`** prints built-in and user themes, one per line.
+- **`--color auto|always|never`** and `[display] color`. Piped output has no
+  escape codes by default; `NO_COLOR`, `CLICOLOR_FORCE`, `FORCE_COLOR` and
+  `TERM=dumb` are honored. `--color=always`, `CLICOLOR_FORCE` and
+  `FORCE_COLOR` force color on stdout only: diagnostics follow stderr's own
+  terminal, `NO_COLOR` and `TERM` state, and `--color=never` or
+  `[display] color = "never"` applies to usage errors too.
+- **A bad config never stops a run.** Unknown keys and sections and invalid
+  values are reported as `config.toml:LINE: …` warnings with a suggestion, and
+  the default is kept. Invalid `MERCAT_*` environment values warn the same way.
+- `--width` accepts 0 (auto) or 20..1000.
+- `-t` checks its input before reading stdin: a piped stdin or stdout, or a
+  directory, is a usage error instead of a hang, and the message names the
+  cause (`stdin is a pipe; run without the pipe or drop -t`). Bare `-t` opens
+  `./README.md`.
+- Empty input produces empty output. A pager that cannot start is reported
+  once and the output is written directly; a pager that exits non-zero no
+  longer causes the document to be printed twice.
+- `--help` gains Environment and Exit status sections and shows the config
+  file path.
+- Did-you-mean prefers a unique prefix (`--out` suggests `--output`), and a
+  single-dash long option (`-width 80`) is reported as such with a
+  `did you mean '--width'?` note instead of a misleading `-w` error. Unknown
+  themes suggest the closest name (`drakula` → `dracula`); every enum error
+  reads `expected one of: …`.
+- Output write failures read `cannot write to stdout: …` or
+  `cannot write '<path>': …`; a closed stdout is `bad file descriptor`. An
+  empty `-o` value and `--monochrome` without `--format png` are usage errors.
+- **`-o` writes through symlinks.** `--format png` and `--format plain` with
+  `-o` write to a symlink's target (a dangling link creates it) instead of
+  replacing the link, replace a regular file atomically from its own directory
+  (keeping its permissions), and write into an existing fifo, device or socket
+  directly instead of replacing it with a file.
+- A file name with a component longer than 255 bytes is reported as
+  `<path>: file name too long` (exit 1) instead of crashing.
+- Config lines mercat cannot parse (`[section` without `]`, no `=`, an
+  unterminated string) warn `path:N: cannot parse line` and no longer shift
+  later keys into the previous section; string keys given a non-string value
+  (`pager = 5`) warn and are ignored.
+
+### TUI
+
+- **Key bindings follow less and vim.** `Ctrl-E` / `Ctrl-N` and `Ctrl-Y` /
+  `Ctrl-P` move a line; `f` / `Ctrl-F` page down and `b` page up; `d` / `u`
+  and `Ctrl-D` / `Ctrl-U` move half a page; `<` / `>` jump to the top and
+  bottom; `F1` opens help. One key table drives key handling, the help overlay
+  and the README table, so they cannot drift apart.
+- **Changed keys.** The subgraph-edge toggle moved from `b` to `B` (`b` now
+  pages up, as in less). `f` pages down; `Enter` still follows footnote links.
+  The `l` layout key is gone: it changed nothing on screen (#83). `h` no
+  longer opens help.
+- **Home / End work in tmux, GNU screen and the Linux console**, which send
+  `ESC [1~` / `ESC [4~`; these keys were ignored before.
+- **Help overlay.** A bordered card titled `mercat <version> — keys`, grouped
+  into Move, Search, File, View and Other, drawn over the dimmed document. It
+  fits at 80x24 in two columns; on smaller screens it scrolls with
+  `j`/`k`/`PgUp`/`PgDn` and shows `↓ more`. `Esc`, `q`, `?` or `F1` closes it.
+  Before, it silently cut off its last entries on a 24-row terminal.
+- **Status line.** It spans the full width: the file name and any message on
+  the left, the position on the right (`L 30-58/897 6%`, or `Top` / `Bot` /
+  `All`). Messages disappear after 2.5 seconds (5 seconds for
+  warnings such as invalid UTF-8 at startup or reload, and copy failures) and
+  never hide the position. Text is clipped by display width at character boundaries, so
+  wide (CJK) names no longer misalign the bar. A long search query shows its
+  end (`…tail`) with the cursor right after it.
+- **Search.** `/` opens an incremental, smart-case search prompt in the status
+  line (`Enter` confirms, `Esc` or `Ctrl-C` cancels); `n` / `N` step through
+  matches with wraparound. All matches are highlighted and the current one
+  uses the theme accent; the status line shows `[3/17] /mermaid` or
+  `Pattern not found: foo`. Matches are recomputed on resize and reload.
+  `Esc` clears the selection first, then the search highlights; an empty
+  search (`/` then `Enter`) clears them too. `Ctrl-C` in the prompt cancels
+  instead of quitting, and `Ctrl-Z` cancels the prompt and suspends.
+- **Honest copy messages.** `Copied "…"` appears only when the clipboard tool
+  or OSC 52 delivered the text; otherwise the status line says
+  `Copy failed: …` with the fix (selection too large for OSC 52, no
+  `wl-copy` / `xclip` / `xsel`, or `tmux set -s set-clipboard on`). Under tmux
+  mercat sends plain OSC 52 instead of a passthrough wrapper that tmux drops
+  by default; GNU screen gets a screen-style passthrough (the old wrapper was
+  tmux-only).
+- **Editor resolution.** `e` uses `[general] editor` when set, else `$VISUAL`,
+  `$EDITOR`, or the first of nvim/vim/vi/nano on `PATH`. Editor commands may
+  carry arguments (`code --wait`). The default config no longer hard-codes
+  `vim`.
+- **No more crashes on edit/reload failures.** A missing editor or a deleted
+  file used to exit with `error: FileNotFound`; the TUI now keeps the current
+  document and says what went wrong in the status line.
+- **Terminal restore.** SIGTERM, SIGHUP, SIGINT and SIGQUIT, panics and fatal
+  signals (SIGSEGV/SIGBUS/SIGILL/SIGFPE) restore the terminal (alt screen,
+  mouse, cursor, tty mode) before exiting; crashes print where to report them.
+  `Ctrl-Z` (and `kill -TSTP`) suspends cleanly and redraws on `fg`.
+- **Suspended mercat can be killed.** `kill %1` (or `kill -HUP %1`) on a
+  suspended mercat ends it instead of leaving it `Stopped (tty output)`, and
+  `bg` stops it again (`Stopped (tty input)`) without touching the terminal
+  until `fg`.
+- **Resize while suspended.** Returning with `fg`, or from the editor, re-reads
+  the terminal size, so a window resized meanwhile is redrawn at its new size
+  instead of the old width.
+
+### Diagrams
+
+- The open Mermaid issues (#57-#85, tracked in #86) each carry a minimal
+  reproduction in the GitHub issue itself.
+
+### Known issues
+
+- The TUI can hang on quit (`q`, `Ctrl-C`) or when starting the editor (`e`)
+  if the terminal never answers the startup device-status query (#87). The
+  reproduction script is in the issue.
+
+### Development
+
+- The test suite is trimmed: duplicate and restated tests are merged into
+  tables or removed, and the long fuzz runs moved to the opt-in
+  `zig build test-fuzz-long` step. `zig build test` runs much faster.
+- `tests/repro` is removed. Reproductions live in their GitHub issues, and a
+  fixed issue gets a regression test next to the code.
+
 ## [0.3.1]
 
 ### Diagrams

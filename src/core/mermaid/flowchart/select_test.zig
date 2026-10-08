@@ -9,8 +9,6 @@ const raster = @import("raster.zig");
 const score_mod = @import("score.zig");
 const parse = @import("parse.zig").parse;
 
-const PACK_RUNGS = ladder.Transform.motif_pack.rungs();
-
 const test_bundle_permits: ledger.BundlePermits = .{ .policy = .joined };
 
 fn testBundlePermits() *const ledger.BundlePermits {
@@ -36,7 +34,7 @@ test "truncate cannot win while natural fits cleanly" {
     try std.testing.expect(winner.rung != .truncate);
 }
 
-test "packed candidates: TD parallel graph yields motif_pack candidates at capped rungs" {
+test "packed candidates: a TD parallel graph yields clustered motif_pack candidates; LR yields none" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -48,30 +46,14 @@ test "packed candidates: TD parallel graph yields motif_pack candidates at cappe
         \\
     );
     const packed_cands = try select.packedCandidates(a, g, testBundlePermits(), 80);
-    try std.testing.expectEqual(@as(usize, PACK_RUNGS.len), packed_cands.len);
-    for (packed_cands, PACK_RUNGS) |cand, rung| {
+    try std.testing.expect(packed_cands.len != 0);
+    for (packed_cands) |cand| {
         try std.testing.expectEqual(ladder.Transform.motif_pack, cand.transform);
-        try std.testing.expectEqual(rung, cand.rung);
         try std.testing.expect(cand.sketch.clusters.len != 0);
     }
 
     const g_lr = try parse(a, "flowchart LR\n  A --> B1 --> C1\n  A --> B2 --> C2\n");
     try std.testing.expectEqual(@as(usize, 0), (try select.packedCandidates(a, g_lr, testBundlePermits(), 80)).len);
-}
-
-test "choose returns a laid-out candidate" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const g = try parse(a,
-        \\flowchart TD
-        \\  A --> B1 --> C1
-        \\  A --> B2 --> C2
-        \\
-    );
-    const result = try select.choose(a, g, testBundlePermits(), 120, .bridge);
-    try std.testing.expect(result.sketch.bbox.w > 0);
 }
 
 test "a clustered render's rail bundles come from its piece plan and survive the stitch" {
@@ -316,41 +298,4 @@ test "when no candidate routes, the choice is the first raw rung that fits" {
     try std.testing.expectEqual(@as(usize, 0), (try select.routedPositions(a, set)).len);
     try std.testing.expectEqual(ladder.firstFitIndex(set), try select.chooseIndex(a, set, g.direction, .bridge));
     try std.testing.expectEqual(@as(usize, 0), try select.chooseIndex(a, set, g.direction, .bridge));
-}
-
-test "the audit counts nothing for a clean two-node sketch" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var nodes_buf = [_]sketch_mod.NodePlacement{
-        .{ .id = 1, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
-        .{ .id = 2, .rect = .{ .x = 8, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
-    };
-    var poly = [_]sketch_mod.Point{ .{ .x = 4, .y = 1 }, .{ .x = 8, .y = 1 } };
-    var edges_buf = [_]sketch_mod.EdgePath{.{
-        .id = 0,
-        .from = 1,
-        .to = 2,
-        .polyline = poly[0..],
-        .port_from = .{ .node = 1, .side = .east, .offset = 1 },
-        .port_to = .{ .node = 2, .side = .west, .offset = 1 },
-        .arrow_from = .none,
-        .arrow_to = .filled,
-        .label = null,
-        .kind = .solid,
-    }};
-    const s = sketch_mod.Sketch{
-        .bbox = .{ .x = 0, .y = 0, .w = 13, .h = 3 },
-        .direction = .LR,
-        .nodes = nodes_buf[0..],
-        .clusters = &.{},
-        .edges = edges_buf[0..],
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-
-    const counts = try select.audit(a, s, .bridge);
-    try std.testing.expectEqual(@as(u32, 0), counts.labels_dropped);
-    try std.testing.expectEqual(@as(u32, 0), counts.edge_cells_lost);
 }

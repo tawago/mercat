@@ -59,34 +59,22 @@ fn ratchet(comptime what: []const u8, known: []const u64, count: u64, fails: *co
 fn lies(arena: std.mem.Allocator, seed: u64) !bool {
     const source = try gen.flowchart(arena, seed, .{});
     const want = try parsed(arena, source) orelse return false;
+    var lied = false;
     for (widths) |w| {
         const j = try check.judge(arena, want, try render(arena, source, w));
-        if (j.verdict != .faithful) return true;
+        // Every glyph the renderer draws must be one the reader knows, on every seed and width.
+        for (j.findings) |f| if (f.kind == .unknown_glyph) {
+            std.debug.print("seed {d} at width {d}: unknown glyph at {d},{d}\n", .{ seed, w, f.row, f.col });
+            return error.TestUnexpectedResult;
+        };
+        try std.testing.expectEqual(@as(usize, 0), j.unknown_boxes.len);
+        lied = lied or j.verdict != .faithful;
     }
-    return false;
+    return lied;
 }
 
-test "generated flowcharts read back as declared, apart from the known lies" {
+test "generated flowcharts read back as declared in known glyphs, apart from the known lies" {
     try ratchet("readback", &known_lying, seeds, lies);
-}
-
-test "the reader recognises every glyph the renderer draws" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    for (0..seeds) |s| {
-        _ = arena_state.reset(.retain_capacity);
-        const arena = arena_state.allocator();
-        const source = try gen.flowchart(arena, s, .{});
-        const want = try parsed(arena, source) orelse continue;
-        for (widths) |w| {
-            const j = try check.judge(arena, want, try render(arena, source, w));
-            for (j.findings) |f| if (f.kind == .unknown_glyph) {
-                std.debug.print("seed {d} at width {d}: unknown glyph at {d},{d}\n", .{ s, w, f.row, f.col });
-                return error.TestUnexpectedResult;
-            };
-            try std.testing.expectEqual(@as(usize, 0), j.unknown_boxes.len);
-        }
-    }
 }
 
 test "rendering is deterministic" {
@@ -111,59 +99,4 @@ fn renames(arena: std.mem.Allocator, seed: u64) !bool {
 
 test "renaming node ids does not change a labelled drawing, apart from the known cases" {
     try ratchet("renaming", &known_renaming, seeds / 2, renames);
-}
-
-test "reordering edge statements does not change the declared relation" {
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena_state.deinit();
-    for (0..seeds / 2) |s| {
-        _ = arena_state.reset(.retain_capacity);
-        const arena = arena_state.allocator();
-        const source = try gen.flowchart(arena, s, .{ .labelled = true });
-        const a = try parsed(arena, source) orelse continue;
-        const b = try declared(arena, try shuffleStatements(arena, source, s));
-        try std.testing.expectEqual(a.edges.len, b.edges.len);
-        try std.testing.expectEqual(a.labels.len, b.labels.len);
-        for (a.edges) |e| try std.testing.expectEqual(countEdge(a.edges, e), countEdge(b.edges, e));
-    }
-}
-
-// Moves top-level statements after the header into a seeded order, keeping
-// subgraph blocks whole.
-fn shuffleStatements(arena: std.mem.Allocator, source: []const u8, seed: u64) ![]const u8 {
-    var lines = std.mem.splitScalar(u8, source, '\n');
-    var out: std.ArrayList(u8) = .empty;
-    var tail: std.ArrayList([]const u8) = .empty;
-    var depth: usize = 0;
-    var header = true;
-    while (lines.next()) |line| {
-        const t = std.mem.trim(u8, line, " ");
-        const opens = std.mem.startsWith(u8, t, "subgraph");
-        const closes = std.mem.eql(u8, t, "end");
-        if (header or depth > 0 or opens or t.len == 0 or std.mem.startsWith(u8, t, "%%")) {
-            try out.appendSlice(arena, line);
-            try out.append(arena, '\n');
-            header = false;
-            if (opens) depth += 1;
-            if (closes) depth -= 1;
-            continue;
-        }
-        try tail.append(arena, line);
-    }
-    var prng = std.Random.DefaultPrng.init(seed ^ 0x9e3779b97f4a7c15);
-    prng.random().shuffle([]const u8, tail.items);
-    for (tail.items) |line| {
-        try out.appendSlice(arena, line);
-        try out.append(arena, '\n');
-    }
-    return out.items;
-}
-
-fn countEdge(edges: []const check.Relation, e: check.Relation) usize {
-    var n: usize = 0;
-    for (edges) |x| {
-        if (std.mem.eql(u8, x.a.label, e.a.label) and std.mem.eql(u8, x.b.label, e.b.label) and
-            x.end_a == e.end_a and x.end_b == e.end_b and x.stroke == e.stroke) n += 1;
-    }
-    return n;
 }

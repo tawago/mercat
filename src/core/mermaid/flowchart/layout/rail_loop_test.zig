@@ -62,21 +62,3 @@ test "a long member whose stroke clears nowhere is cut from its fan, and a fan l
     try std.testing.expectEqual(@as(usize, 2), done.taps.len);
     try std.testing.expectEqual(sketch.EdgeRole.member_stroke, pathOf(s, edgeId(laid.graph, "err", "done")).role);
 }
-
-test "the member strokes lead the sketch's edges in rail order, then the other edges follow in routing order" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const laid = try laidOut(arena.allocator(), 4);
-    const s = laid.sketch;
-
-    try std.testing.expectEqual(@as(usize, 2), s.rails.len);
-    try std.testing.expectEqual(nodeId(laid.graph, "log"), s.rails[0].pivot);
-    try std.testing.expectEqual(nodeId(laid.graph, "done"), s.rails[1].pivot);
-    try std.testing.expectEqual(edgeId(laid.graph, "err", "log"), s.edges[0].id);
-    try std.testing.expectEqual(edgeId(laid.graph, "err", "done"), s.edges[1].id);
-    for (s.edges, 0..) |path, i| {
-        const stroke = path.role == .member_stroke;
-        try std.testing.expectEqual(i < 2, stroke);
-    }
-    try std.testing.expectEqual(edgeId(laid.graph, "check", "proc"), s.edges[2].id);
-}

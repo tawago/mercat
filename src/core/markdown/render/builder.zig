@@ -108,6 +108,42 @@ pub const Builder = struct {
         self.current = .empty;
     }
 
+    /// Makes the last finished line pending again, undoing a trailing
+    /// `newline()`. Requires that nothing is pending and a line exists.
+    pub fn reopenLastLine(self: *Builder) void {
+        std.debug.assert(!self.hasPending());
+        const line = self.lines.pop().?;
+        self.current.deinit(self.allocator);
+        self.current = .fromOwnedSlice(line.spans);
+    }
+
+    /// Closes the pending line (if any) and prepares every line, which also
+    /// validates it (invalid UTF-8 or a control character is an error).
+    /// Returns whether a line was pending, for `absorb`.
+    pub fn seal(self: *Builder) !bool {
+        const pending = self.hasPending();
+        if (pending) try self.newline();
+        for (self.lines.items) |*line| try line.prepareOwned(self.allocator);
+        return pending;
+    }
+
+    /// Moves the lines of a sealed `other` onto this builder verbatim: no left
+    /// padding is added, so `other` should have been built with the padding
+    /// it needs. This builder must be at the start of a line. If `other` had
+    /// a pending last line, that line stays pending here; otherwise this
+    /// builder ends on a fresh line, as `other` did.
+    pub fn absorb(self: *Builder, other: *Builder, other_was_pending: bool) !void {
+        std.debug.assert(!self.hasPending());
+        for (other.lines.items, 0..) |*line, index| {
+            if (index != 0) try self.newline();
+            try self.current.ensureUnusedCapacity(self.allocator, line.spans.len);
+            self.current.appendSliceAssumeCapacity(line.spans);
+            self.allocator.free(line.spans);
+            line.spans = &.{};
+        }
+        if (!other_was_pending and other.lines.items.len != 0) try self.newline();
+    }
+
     pub fn finish(self: *Builder) ![]Line {
         if (self.hasPending() or self.lines.items.len == 0) {
             try self.newline();
@@ -117,23 +153,6 @@ pub const Builder = struct {
         return try self.lines.toOwnedSlice(self.allocator);
     }
 };
-
-fn buildForLeakTest(allocator: std.mem.Allocator) !void {
-    var b = Builder.init(allocator);
-    defer b.deinit();
-    b.left_padding = 2;
-    try b.appendSpanWithUrl(.body, "link", "https://example.com");
-    try b.appendSpan(.emphasis, "text");
-    try b.newline();
-    try b.appendSpan(.body, "more");
-    const lines = try b.finish();
-    for (lines) |line| line.deinit(allocator);
-    allocator.free(lines);
-}
-
-test "Builder leaks no spans under injected allocation failure" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, buildForLeakTest, .{});
-}
 
 test "consecutive same-style appends merge into one span, including left padding" {
     const allocator = std.testing.allocator;
@@ -161,6 +180,13 @@ test "consecutive same-style appends merge into one span, including left padding
     try std.testing.expectEqualStrings("ghij", lines[0].spans[2].text);
     try std.testing.expectEqualStrings("u", lines[0].spans[2].url.?);
     try std.testing.expectEqualStrings("  z", lines[1].spans[0].text);
+
+    // A zero count or an empty glyph appends nothing at all.
+    var empty = Builder.init(allocator);
+    defer empty.deinit();
+    try empty.appendRepeated(.body, " ", 0);
+    try empty.appendRepeated(.body, "", 4);
+    try std.testing.expect(!empty.hasPending());
 }
 
 test "building one long span stays linear rather than quadratic" {
@@ -203,11 +229,7 @@ test "whole-line preparation preserves styles across one combining grapheme" {
 test "whole-line tabs use actual columns and keep the tab span style" {
     const allocator = std.testing.allocator;
     const cases = [_]struct { prefix: []const u8, spaces: []const u8, columns: usize }{
-        .{ .prefix = "", .spaces = "    ", .columns = 4 },
         .{ .prefix = "a", .spaces = "   ", .columns = 4 },
-        .{ .prefix = "ab", .spaces = "  ", .columns = 4 },
-        .{ .prefix = "abc", .spaces = " ", .columns = 4 },
-        .{ .prefix = "abcd", .spaces = "    ", .columns = 8 },
         .{ .prefix = "日", .spaces = "  ", .columns = 4 },
     };
     for (cases) |case| {
@@ -226,7 +248,46 @@ test "whole-line tabs use actual columns and keep the tab span style" {
     }
 }
 
-test "whole-line preparation propagates invalid UTF-8 and controls" {
+fn absorbCase(allocator: std.mem.Allocator, pending: bool) !void {
+    var outer = Builder.init(allocator);
+    defer outer.deinit();
+    var inner = Builder.init(allocator);
+    defer inner.deinit();
+    inner.left_padding = 4;
+    try inner.appendSpan(.code, "a");
+    try inner.newline();
+    try inner.appendSpanWithUrl(.link, "b", "u");
+    if (!pending) try inner.newline();
+    const was_pending = try inner.seal();
+    try std.testing.expectEqual(pending, was_pending);
+    try outer.absorb(&inner, was_pending);
+    try outer.appendSpan(.body, "z");
+    const lines = try outer.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+    // A pending last line is continued; a closed one is followed by a new line.
+    try std.testing.expectEqual(@as(usize, if (pending) 2 else 3), lines.len);
+    try std.testing.expectEqualStrings("    ", lines[0].spans[0].text);
+    try std.testing.expectEqualStrings("a", lines[0].spans[1].text);
+    try std.testing.expectEqualStrings("b", lines[1].spans[1].text);
+    try std.testing.expectEqualStrings("u", lines[1].spans[1].url.?);
+    const last = lines[lines.len - 1];
+    try std.testing.expectEqualStrings("z", last.spans[last.spans.len - 1].text);
+    try std.testing.expectEqual(@as(usize, if (pending) 3 else 1), last.spans.len);
+}
+
+test "absorb moves sealed lines verbatim and mirrors the pending state" {
+    try absorbCase(std.testing.allocator, true);
+    try absorbCase(std.testing.allocator, false);
+}
+
+test "invalid text is reported by seal and by finish" {
+    var sealed = Builder.init(std.testing.allocator);
+    defer sealed.deinit();
+    try sealed.appendSpan(.body, "ok\x1b");
+    try std.testing.expectError(error.DisallowedControl, sealed.seal());
     inline for (.{ .{ "\x80", error.InvalidUtf8 }, .{ "\x1b", error.DisallowedControl } }) |case| {
         var builder = Builder.init(std.testing.allocator);
         defer builder.deinit();

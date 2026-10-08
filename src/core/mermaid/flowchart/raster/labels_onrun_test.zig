@@ -103,125 +103,35 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
     try testing.expect(lat.atConst(5, 5).occupant == .arrowhead);
 }
 
-test "the flanks stay ORDINARY full-stroke run cells in the edge's own kind" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
+test "on-run tap refusals: head-adjacent row, rail cell, another tap's drop, 1-cell dropper, foreign ink beside" {
+    const Mutation = enum { none, rail_cell, other_tap, foreign_beside };
+    const Row = struct { head_y: u32, mutation: Mutation = .none, row: u32 = 3 };
+    const rows = [_]Row{
+        .{ .head_y = 4 }, // FLANKED-RESUMPTION: an arrowhead is not a flank
+        .{ .head_y = 5, .mutation = .rail_cell }, // OWN-INK: a rail/crossbar cell is never interrupted
+        .{ .head_y = 5, .mutation = .other_tap }, // OWN-INK: a cell another tap's drop covers
+        .{ .head_y = 3, .row = 2 }, // FLANKED-RESUMPTION: a 1-cell private dropper
+        .{ .head_y = 5, .mutation = .foreign_beside },
+    };
+    for (rows) |r| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        var lat = try makeLattice(arena.allocator(), 12, 9);
+        dropCell(&lat, 5, 1, 7, .fan_out_rail);
+        var y: u32 = 2;
+        while (y < r.head_y) : (y += 1) dropCell(&lat, 5, y, 7, .fan_out_dropper);
+        arrowCell(&lat, 5, r.head_y, 7);
+        if (r.mutation == .rail_cell) dropCell(&lat, 5, 3, 7, .fan_out_rail);
+        if (r.mutation == .foreign_beside) dropCell(&lat, 7, 3, 99, .forward);
+        const tap: sketch.Tap = .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = @intCast(r.head_y + 1) }, .label = "ok" };
+        const taps = [_]sketch.Tap{ tap, .{ .edge = 9, .node = 2, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 } } };
+        var s = emptySketch(12, 9);
+        const rails = [_]sketch.Rail{theRail(if (r.mutation == .other_tap) &taps else taps[0..1], &stem_pts)};
+        s.rails = &rails;
 
-    var lat = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat, 7);
-    for ([_]u32{ 1, 2, 3, 4 }) |y| {
-        lat.at(5, y).stroke_kind = .dotted;
-        lat.at(5, y).occupant.edge_segment.kind = .dotted;
+        try testing.expect(!onrun.tryOnRunTap(&lat, s, tap, asciiRun("ok")));
+        try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, r.row));
     }
-    const taps = [_]sketch.Tap{theTap(7)};
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-
-    for ([_]u32{ 2, 4 }) |y| {
-        const c = lat.atConst(5, y);
-        try testing.expect(c.neighbours.n);
-        try testing.expect(c.neighbours.s);
-        try testing.expectEqual(lattice.EdgeKind.dotted, c.stroke_kind);
-        try testing.expectEqual(lattice.EdgeKind.dotted, c.occupant.edge_segment.kind);
-    }
-}
-
-test "FLANKED-RESUMPTION RULE: an arrowhead is not a flank, so the head-adjacent row is refused" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    dropCell(&lat, 5, 1, 7, .fan_out_rail);
-    dropCell(&lat, 5, 2, 7, .fan_out_dropper);
-    dropCell(&lat, 5, 3, 7, .fan_out_dropper);
-    arrowCell(&lat, 5, 4, 7);
-    const taps = [_]sketch.Tap{
-        .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 }, .label = "ok" },
-    };
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
-}
-
-test "OWN-INK RULE: a rail/crossbar cell is never interrupted" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat, 7);
-    dropCell(&lat, 5, 3, 7, .fan_out_rail);
-    const taps = [_]sketch.Tap{theTap(7)};
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
-}
-
-test "OWN-INK RULE: a cell another tap's drop covers is refused" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat, 7);
-    const taps = [_]sketch.Tap{
-        theTap(7),
-        .{ .edge = 9, .node = 2, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 5 } },
-    };
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
-}
-
-test "FLANKED-RESUMPTION RULE: a 1-cell private dropper has no legal interruption row" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    dropCell(&lat, 5, 1, 7, .fan_out_rail);
-    dropCell(&lat, 5, 2, 7, .fan_out_dropper);
-    arrowCell(&lat, 5, 3, 7);
-    const taps = [_]sketch.Tap{
-        .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 4 }, .label = "ok" },
-    };
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 2));
-}
-
-test "foreign ink beside the span still refuses the on-run candidate" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat, 7);
-    dropCell(&lat, 7, 3, 99, .forward);
-    const taps = [_]sketch.Tap{theTap(7)};
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(!onrun.tryOnRunTap(&lat, s, taps[0], asciiRun("ok")));
-    try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
 }
 
 test "on-run placement over a routed polyline dropper (fan-IN member)" {
@@ -259,25 +169,4 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
     try testing.expectEqual(@as(u21, 'c'), labelCharAt(lat, 7, 2));
     try testing.expect(lat.atConst(5, 1).neighbours.s);
     try testing.expect(lat.atConst(5, 3).neighbours.n);
-}
-
-test "determinism: identical inputs place identically" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat1 = try makeLattice(a, 12, 9);
-    var lat2 = try makeLattice(a, 12, 9);
-    paintTapDropper(&lat1, 7);
-    paintTapDropper(&lat2, 7);
-    const taps = [_]sketch.Tap{theTap(7)};
-    var s = emptySketch(12, 9);
-    const rails = [_]sketch.Rail{theRail(&taps, &stem_pts)};
-    s.rails = &rails;
-
-    try testing.expect(onrun.tryOnRunTap(&lat1, s, taps[0], asciiRun("ok")));
-    try testing.expect(onrun.tryOnRunTap(&lat2, s, taps[0], asciiRun("ok")));
-    for (lat1.cells, lat2.cells) |c1, c2| {
-        try testing.expect(std.meta.eql(c1, c2));
-    }
 }

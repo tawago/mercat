@@ -163,12 +163,3 @@ pub const Rendered = struct {
         allocator.free(self.lines);
     }
 };
-
-test "unprepared Line.displayWidth retains the downstream compatibility surface" {
-    var spans = [_]Span{
-        .{ .text = "ab", .style = .body },
-        .{ .text = "日", .style = .body },
-    };
-    const line = Line{ .spans = &spans };
-    try std.testing.expectEqual(@as(usize, 4), line.displayWidth());
-}

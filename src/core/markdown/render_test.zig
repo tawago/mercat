@@ -10,32 +10,6 @@ const Span = render_model.Span;
 
 const resolve = @import("../theme/resolve.zig");
 
-fn presetDecor(alloc: std.mem.Allocator, name: []const u8) !decor_mod.Decor {
-    var reg = resolve.Registry.init(alloc);
-    defer reg.deinit();
-    var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-    const r = try reg.resolve(name, .default, null, &diag);
-    return r.decor;
-}
-
-test "markview heading emits its prefix and a full-line bg fill span" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "markview");
-    var document = try markdown.parse(allocator, "# Title");
-    defer document.deinit(allocator);
-
-    var rendered = try renderDocument(allocator, document, .{ .width = 20, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-
-    const line = rendered.lines[0];
-    try std.testing.expect(std.mem.startsWith(u8, line.spans[0].text, "\u{25C9}"));
-    const last = line.spans[line.spans.len - 1];
-    try std.testing.expectEqual(SpanStyle.heading1, last.style);
-    for (last.text) |ch| try std.testing.expectEqual(@as(u8, ' '), ch);
-    try std.testing.expectEqual(@as(usize, 20), line.displayWidth());
-}
-
 test "heading underline_row: default glyph renders a full-width rule row in heading style" {
     const allocator = std.testing.allocator;
     var decor = decor_mod.Decor{};
@@ -92,193 +66,128 @@ test "heading underline_row: wrapped heading gets exactly one row below the last
     try std.testing.expect(std.mem.indexOf(u8, last.spans[0].text, "\u{2500}") != null);
 }
 
-test "heading underline_row off by default: no extra row (byte-identical to legacy)" {
+test "default (legacy) decor leaves headings unfilled and marked with #, with no extra row" {
     const allocator = std.testing.allocator;
     var document = try markdown.parse(allocator, "# Title");
     defer document.deinit(allocator);
     var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0 });
     defer rendered.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 1), rendered.lines.len);
-}
-
-test "ansi heading dotted prefix survives into the render" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "ansi");
-    var document = try markdown.parse(allocator, "## Heading");
-    defer document.deinit(allocator);
-
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-
-    try std.testing.expect(std.mem.startsWith(u8, rendered.lines[0].spans[0].text, "\u{2504}\u{2504} "));
-}
-
-test "pink heading bar prefixes and h1 blank-wrap render" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "pink");
-    var document = try markdown.parse(allocator,
-        \\# One
-        \\
-        \\## Two
-    );
-    defer document.deinit(allocator);
-
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-
-    try std.testing.expectEqual(@as(usize, 0), rendered.lines[0].spans.len);
-    var saw_bar = false;
-    for (rendered.lines) |line| {
-        for (line.spans) |span| {
-            if (std.mem.indexOf(u8, span.text, "\u{258C}") != null) saw_bar = true;
-        }
-    }
-    try std.testing.expect(saw_bar);
-}
-
-test "default (legacy) decor leaves headings unfilled and marked with #" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator, "# Title");
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0 });
-    defer rendered.deinit(allocator);
     try std.testing.expect(std.mem.startsWith(u8, rendered.lines[0].spans[0].text, "# "));
     try std.testing.expect(rendered.lines[0].displayWidth() < 40);
 }
 
-test "hr full mode fills the content width" {
+test "hr width by mode: full fills the content width, fixed is literal but clamps" {
     const allocator = std.testing.allocator;
+    const fixed = decor_mod.Decor{ .glyphs = .{ .hr_glyph = "-", .hr_mode = .fixed, .hr_count = 20 } };
+    const cases = [_]struct { decor: *const decor_mod.Decor, width: usize, want: usize }{
+        .{ .decor = &decor_mod.legacy, .width = 8, .want = 8 },
+        .{ .decor = &fixed, .width = 40, .want = 20 },
+        .{ .decor = &fixed, .width = 5, .want = 5 },
+    };
     var document = try markdown.parse(allocator, "---");
     defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 8, .left_padding = 0 });
-    defer rendered.deinit(allocator);
-    try std.testing.expectEqual(@as(usize, 8), rendered.lines[0].displayWidth());
-}
-
-test "hr fixed mode is literal but clamps to width" {
-    const allocator = std.testing.allocator;
-    const decor = decor_mod.Decor{ .glyphs = .{ .hr_glyph = "-", .hr_mode = .fixed, .hr_count = 20 } };
-    var document = try markdown.parse(allocator, "---");
-    defer document.deinit(allocator);
-
-    var wide = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer wide.deinit(allocator);
-    try std.testing.expectEqual(@as(usize, 20), wide.lines[0].displayWidth());
-
-    var narrow = try renderDocument(allocator, document, .{ .width = 5, .left_padding = 0, .decor = &decor });
-    defer narrow.deinit(allocator);
-    try std.testing.expectEqual(@as(usize, 5), narrow.lines[0].displayWidth());
-}
-
-test "markview rounded table draws rounded corners; dark stays grid" {
-    const allocator = std.testing.allocator;
-    const src =
-        \\| A | B |
-        \\| --- | --- |
-        \\| x | y |
-    ;
-    var document = try markdown.parse(allocator, src);
-    defer document.deinit(allocator);
-
-    const decor = try presetDecor(allocator, "markview");
-    var rounded = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer rounded.deinit(allocator);
-    var saw_tl = false;
-    var saw_br = false;
-    for (rounded.lines) |line| for (line.spans) |span| {
-        if (std.mem.indexOf(u8, span.text, "\u{256D}") != null) saw_tl = true;
-        if (std.mem.indexOf(u8, span.text, "\u{256F}") != null) saw_br = true;
-    };
-    try std.testing.expect(saw_tl and saw_br);
-
-    var grid = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0 });
-    defer grid.deinit(allocator);
-    for (grid.lines) |line| for (line.spans) |span| {
-        try std.testing.expect(std.mem.indexOf(u8, span.text, "\u{256D}") == null);
-    };
-}
-
-test "markview link icon and inline-code chip render" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "markview");
-    var document = try markdown.parse(allocator, "See [site](https://x) and `co`.");
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 80, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-
-    var saw_icon = false;
-    var saw_chip = false;
-    for (rendered.lines) |line| for (line.spans) |span| {
-        if (span.style == .link and std.mem.indexOf(u8, span.text, "\u{2192}") != null) saw_icon = true;
-        if (span.style == .code and std.mem.startsWith(u8, span.text, " ") and std.mem.endsWith(u8, span.text, " ")) saw_chip = true;
-    };
-    try std.testing.expect(saw_icon);
-    try std.testing.expect(saw_chip);
-}
-
-test "dracula image alt gets a trailing arrow suffix" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "dracula");
-    var document = try markdown.parse(allocator, "![cat](c.png)");
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 80, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-    var saw_suffix = false;
-    for (rendered.lines) |line| for (line.spans) |span| {
-        if (span.style == .image_alt and std.mem.indexOf(u8, span.text, " \u{2192}") != null) saw_suffix = true;
-    };
-    try std.testing.expect(saw_suffix);
-}
-
-test "ansi rule code frame brackets code with border rules, no fences" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "ansi");
-    var document = try markdown.parse(allocator,
-        \\```py
-        \\x = 1
-        \\```
-    );
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-    var saw_fence = false;
-    var rule_lines: usize = 0;
-    for (rendered.lines) |line| {
-        for (line.spans) |span| {
-            if (std.mem.indexOf(u8, span.text, "```") != null) saw_fence = true;
-        }
-        if (line.spans.len == 1 and std.mem.indexOf(u8, line.spans[0].text, "\u{2500}") != null) {
-            rule_lines += 1;
-            try std.testing.expectEqual(@as(usize, 20), line.displayWidth());
-        }
+    for (cases) |case| {
+        var rendered = try renderDocument(allocator, document, .{ .width = case.width, .left_padding = 0, .decor = case.decor });
+        defer rendered.deinit(allocator);
+        try std.testing.expectEqual(case.want, rendered.lines[0].displayWidth());
     }
-    try std.testing.expect(!saw_fence);
-    try std.testing.expectEqual(@as(usize, 2), rule_lines);
 }
 
-test "markview block code frame emits a language label chip" {
-    const allocator = std.testing.allocator;
-    const decor = try presetDecor(allocator, "markview");
-    var document = try markdown.parse(allocator,
-        \\```py
-        \\x = 1
-        \\```
-    );
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0, .decor = &decor });
-    defer rendered.deinit(allocator);
-    var saw_label = false;
-    var saw_fence = false;
+fn slotDecor(comptime slot: decor_mod.Slot, comptime value: decor_mod.SlotDecor) decor_mod.Decor {
+    var d = decor_mod.Decor{};
+    d.slots[@intFromEnum(slot)] = value;
+    return d;
+}
+
+fn findSpan(rendered: anytype, style: ?SpanStyle, needle: []const u8) bool {
     for (rendered.lines) |line| for (line.spans) |span| {
-        if (std.mem.indexOf(u8, span.text, " py ") != null) saw_label = true;
-        if (std.mem.indexOf(u8, span.text, "```") != null) saw_fence = true;
+        if (style != null and span.style != style.?) continue;
+        if (std.mem.indexOf(u8, span.text, needle) != null) return true;
     };
-    try std.testing.expect(saw_label);
-    try std.testing.expect(!saw_fence);
+    return false;
 }
 
-const theme = @import("../theme.zig");
-const cidx = @import("../theme/color.zig").idx;
+test "each decor knob reaches the rendered output" {
+    const allocator = std.testing.allocator;
+    const Rendered = render_model.Rendered;
+    const Check = *const fn (Rendered) anyerror!void;
+    const code_src = "```py\nx = 1\n```";
+    const cases = [_]struct { name: []const u8, source: []const u8, width: usize = 40, decor: decor_mod.Decor, check: Check }{
+        .{ .name = "prefix", .source = "## Heading", .decor = slotDecor(.heading2, .{ .prefix = "\u{2504}\u{2504} " }), .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(std.mem.startsWith(u8, r.lines[0].spans[0].text, "\u{2504}\u{2504} "));
+            }
+        }.f },
+        .{ .name = "blank_wrap", .source = "# One\n\n## Two", .decor = slotDecor(.heading1, .{ .blank_wrap = true }), .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expectEqual(@as(usize, 0), r.lines[0].spans.len);
+                try std.testing.expect(findSpan(r, .heading1, "One"));
+            }
+        }.f },
+        .{ .name = "full_line_bg", .source = "# Title", .width = 20, .decor = slotDecor(.heading1, .{ .prefix = "\u{25C9}  ", .full_line_bg = true }), .check = struct {
+            fn f(r: Rendered) !void {
+                const line = r.lines[0];
+                try std.testing.expect(std.mem.startsWith(u8, line.spans[0].text, "\u{25C9}"));
+                const last = line.spans[line.spans.len - 1];
+                try std.testing.expectEqual(SpanStyle.heading1, last.style);
+                for (last.text) |ch| try std.testing.expectEqual(@as(u8, ' '), ch);
+                try std.testing.expectEqual(@as(usize, 20), line.displayWidth());
+            }
+        }.f },
+        .{ .name = "image suffix", .source = "![cat](c.png)", .decor = slotDecor(.image_alt, .{ .suffix = " \u{2192}" }), .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(findSpan(r, .image_alt, " \u{2192}"));
+            }
+        }.f },
+        .{ .name = "link icon", .source = "See [site](https://x).", .decor = slotDecor(.link, .{ .icon = "\u{2192} " }), .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(findSpan(r, .link, "\u{2192}"));
+            }
+        }.f },
+        .{ .name = "inline code chip", .source = "and `co`.", .decor = slotDecor(.code, .{ .prefix = " ", .suffix = " " }), .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(findSpan(r, .code, " co "));
+            }
+        }.f },
+        .{ .name = "code frame rule", .source = code_src, .decor = .{ .glyphs = .{ .code_frame = .{ .kind = .rule, .border_glyph = "\u{2500}", .border_cap = 20 } } }, .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(!findSpan(r, null, "```"));
+                var rule_lines: usize = 0;
+                for (r.lines) |line| {
+                    if (line.spans.len != 1 or std.mem.indexOf(u8, line.spans[0].text, "\u{2500}") == null) continue;
+                    rule_lines += 1;
+                    try std.testing.expectEqual(@as(usize, 20), line.displayWidth());
+                }
+                try std.testing.expectEqual(@as(usize, 2), rule_lines);
+            }
+        }.f },
+        .{ .name = "code frame block", .source = code_src, .decor = .{ .glyphs = .{ .code_frame = .{ .kind = .block, .language_label = true, .pad = 2 } } }, .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(findSpan(r, null, " py "));
+                try std.testing.expect(!findSpan(r, null, "```"));
+            }
+        }.f },
+        .{ .name = "rounded table", .source = "| A | B |\n| --- | --- |\n| x | y |", .decor = .{ .glyphs = .{ .table_style = .rounded } }, .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(findSpan(r, null, "\u{256D}") and findSpan(r, null, "\u{256F}"));
+            }
+        }.f },
+        .{ .name = "grid table (default)", .source = "| A | B |\n| --- | --- |\n| x | y |", .decor = .{}, .check = struct {
+            fn f(r: Rendered) !void {
+                try std.testing.expect(!findSpan(r, null, "\u{256D}"));
+            }
+        }.f },
+    };
+    for (cases) |case| {
+        errdefer std.debug.print("knob: {s}\n", .{case.name});
+        var document = try markdown.parse(allocator, case.source);
+        defer document.deinit(allocator);
+        var rendered = try renderDocument(allocator, document, .{ .width = case.width, .left_padding = 0, .decor = &case.decor });
+        defer rendered.deinit(allocator);
+        try case.check(rendered);
+    }
+}
 
 fn firstMarkerSpan(line: Line) Span {
     for (line.spans) |span| {
@@ -325,30 +234,6 @@ test "list/task markers carry the marker slot style; item text is list_item" {
     try std.testing.expectEqual(@as(usize, 4), li);
 }
 
-test "default dark: markers resolve to the muted color, item text to list_item (250)" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator, "- one");
-    defer document.deinit(allocator);
-    var rendered = try renderDocument(allocator, document, .{ .width = 40, .left_padding = 0 });
-    defer rendered.deinit(allocator);
-
-    const pal = theme.neutralDark;
-    const marker = firstMarkerSpan(rendered.lines[0]);
-    const text = rendered.lines[0].spans[rendered.lines[0].spans.len - 1];
-    try std.testing.expectEqual(pal.muted.fg, theme.token(pal, marker.style).fg);
-    try std.testing.expectEqual(cidx(250), theme.token(pal, text.style).fg);
-    try std.testing.expectEqual(cidx(254), pal.body.fg);
-}
-
-test "dark list_item = 250, light = 236 (own register, one step softer than body)" {
-    const dark = theme.neutralDark;
-    const light = theme.neutralLight;
-    try std.testing.expectEqual(cidx(250), dark.list_item.fg);
-    try std.testing.expectEqual(cidx(254), dark.body.fg);
-    try std.testing.expectEqual(cidx(236), light.list_item.fg);
-    try std.testing.expectEqual(cidx(234), light.body.fg);
-}
-
 test "list_item falls back to a theme's own body when unset (dracula)" {
     const drac = resolve.builtinResolved(std.testing.allocator, "dracula");
     try std.testing.expectEqual(drac.styles.body.fg, drac.styles.list_item.fg);
@@ -356,4 +241,7 @@ test "list_item falls back to a theme's own body when unset (dracula)" {
 
 test {
     _ = @import("render_test2.zig");
+    _ = @import("render_blocks_test.zig");
+    _ = @import("render_input_test.zig");
+    _ = @import("render_fallback_test.zig");
 }

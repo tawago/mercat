@@ -51,7 +51,7 @@ zig build -Doptimize=ReleaseFast
 
 - **CLI mode**: Render markdown with syntax highlighting to stdout
 - **TUI mode**: Interactive pager with vim-style navigation
-- **Editor integration**: Press `e` to edit in $EDITOR, auto-reloads on return
+- **Editor integration**: Press `e` to edit in `$VISUAL`/`$EDITOR` (or the configured editor), auto-reloads on return
 - **Themes**: Seven built-in presets (`dark`, `light`, `ansi`, `dracula`, `tokyo-night`, `pink`, `markview`) plus user theme files with per-slot color and glyph control
 - **Pager support**: Pipe through $PAGER or `less -R`
 - **Stdin support**: `cat file.md | mercat` (implicit; `-` still works)
@@ -62,25 +62,34 @@ zig build -Doptimize=ReleaseFast
 
 ```bash
 # TUI mode
-mercat -t README.md           # View file in TUI
-mercat -t .                   # Browse directory (WIP)
+mercat -t README.md           # View a file in the TUI
+mercat -t                     # Same, opening ./README.md
 
 # CLI mode
 mercat README.md              # Render to stdout
-mercat -p README.md           # Pipe through pager
-mercat -w 80 README.md        # Fixed width
-mercat --style dracula README.md   # Pick a built-in preset or user theme
+mercat -p README.md           # Pipe through a pager ($PAGER, config pager, or less -R)
+mercat -w 80 README.md        # Fixed width (0 = terminal width, else 20..1000)
+mercat --theme dracula README.md   # Pick a built-in preset or user theme (alias: --style)
+mercat --list-themes          # Built-in and user themes, one per line
 mercat --dump-theme dark      # Print a theme as editable TOML
+mercat --format plain README.md > README.txt   # Plain text, no escapes
+mercat --format png -o doc.png README.md       # PNG image (--monochrome: black on white)
+mercat --color=always README.md | less -R      # Keep color through a pipe
 cat file.md | mercat          # Read from stdin (no `-` needed)
 cat file.md | mercat -        # Explicit stdin
+mercat -- -notes.md           # `--` ends options
 
 # Mermaid
 mercat diagram.mmd            # .mmd / .mermaid files render as one diagram
 printf 'flowchart LR\n  A-->B\n' | mercat   # bare diagram source, no fence
 ```
 
+Options that take a value accept `--opt value`, `--opt=value`, and for short
+options `-w80`. Long options take two dashes: `-width 80` is an error with a
+`did you mean '--width'?` note. Run `mercat --help` for the full list.
+
 With no file argument, mercat reads stdin whenever it is a pipe or redirect;
-when stdin is an interactive terminal it prints the usage text and exits 1.
+when stdin is an interactive terminal it prints the usage text and exits 2.
 
 Piped input is sniffed: if it carries no ```` ```mermaid ```` fence and its
 first non-blank, non-`%%` line begins at column 0 with a diagram keyword
@@ -89,43 +98,119 @@ first non-blank, non-`%%` line begins at column 0 with a diagram keyword
 input is rendered as a single Mermaid diagram. An indented first line stays
 markdown, since indentation there means "code block".
 
+**Color.** `--color auto|always|never` (default `auto`). Without the flag,
+`NO_COLOR` (non-empty) turns color off, `CLICOLOR_FORCE` / `FORCE_COLOR`
+(non-empty, not `0`) turn it on, then the `[display] color` config key
+applies, `TERM=dumb` turns it off, and otherwise color is used only when
+stdout is a terminal, so piped output is plain text. `never` keeps the layout
+but emits no escape sequences. OSC 8 hyperlinks are emitted only when color is
+on and stdout is a terminal.
+
+**Encoding.** Input is read as UTF-8. Invalid bytes are replaced with `�`
+(U+FFFD) and reported in one warning with the line and column of the first
+one; files that start with a UTF-16 byte order mark are converted. Control
+characters (such as `ESC` or `BEL`) are shown as `�` and invisible format
+characters (soft hyphen, zero-width space, bidi controls) are dropped, so a
+document cannot send escape sequences to the terminal.
+
+**TUI mode** reads keys from the terminal, so `-t` needs both stdin and stdout
+to be a terminal. It refuses to start when stdout is not a terminal, when stdin
+is a pipe or a redirect (whether or not a file is given:
+`cat a.md | mercat -t b.md` is refused too), when given `-` (the document
+cannot come from stdin), or when given a directory (directory browsing is not
+available yet). With no file, `-t` opens `./README.md`.
+
+**Diagnostics and exit status.** Errors and warnings go to stderr as
+`mercat: error: …` / `mercat: warning: …`, sometimes followed by a
+`mercat: note: …` such as a did-you-mean. Their level label is colored only
+when stderr itself is a terminal and `NO_COLOR` / `TERM=dumb` are unset;
+`--color=never` or `[display] color = "never"` turns it off, while
+`--color=always` and `CLICOLOR_FORCE` / `FORCE_COLOR` force color on stdout
+only. Exit status is `0` on success, `1`
+on a runtime failure (unreadable input, write error, export failure) and `2`
+on a usage error (unknown option, bad value, conflicting options). Writing to
+a closed pipe (`mercat big.md | head -1`) exits 0 silently.
+
 ## TUI Key Bindings
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Scroll down / up |
-| `g` / `G` | Go to top / bottom |
-| `Space` / `b` | Page down / up |
-| `e` | Open in $EDITOR |
+| `j` / `↓` / `Ctrl-E` / `Ctrl-N` | Line down |
+| `k` / `↑` / `Ctrl-Y` / `Ctrl-P` | Line up |
+| `Space` / `f` / `PgDn` / `Ctrl-F` | Page down |
+| `b` / `PgUp` / `Ctrl-B` | Page up |
+| `d` / `Ctrl-D`, `u` / `Ctrl-U` | Half page down / up |
+| `g` / `Home` / `<` | Go to top |
+| `G` / `End` / `>` | Go to bottom |
+| `Enter` | Follow footnote link |
+| `/` | Search (incremental, smart-case; `Enter` confirms, `Esc` or `Ctrl-C` cancels; an empty search clears the highlights) |
+| `n` / `N` | Next / previous match (wraps around) |
+| `Esc` | Clear the selection, then the search highlights |
+| `e` | Edit the file (`[general] editor`, else `$VISUAL`, `$EDITOR`, or the first of nvim/vim/vi/nano), then reload |
 | `r` | Reload file |
-| `?` or `h` | Toggle help |
-| `q` | Quit |
+| `m` | Toggle front-matter metadata panel |
+| `B` | Toggle subgraph edges (bridge/cross) |
+| mouse drag | Select and copy text (see below) |
+| `?` / `F1` | Toggle help (`j`/`k`/`PgUp`/`PgDn` scroll it; `Esc`, `q`, `?` or `F1` close it) |
+| `Ctrl-Z` | Suspend (`fg` to resume) |
+| `q` / `Ctrl-C` | Quit |
+
+The status line shows the file name on the left and the position on the
+right (`L 30-58/897 6%`, or `Top` / `Bot` / `All`); messages such as
+`Reloaded` or search counts appear next to the file name for 2.5 seconds,
+warnings (an invalid-UTF-8 or theme warning at startup or reload, a failed
+copy) for 5 seconds.
+
+Known issue: in a terminal that never answers the device-status query
+(`ESC [5n`), quitting or pressing `e` can hang
+([#87](https://github.com/tawago/mercat/issues/87), which has a repro
+script).
+
+**Copying.** Releasing a mouse selection copies it with the platform
+clipboard tool (`pbcopy`, or `wl-copy`, `xclip` or `xsel`) and with OSC 52
+through the terminal. `Copied "…"` appears only when one of them worked;
+otherwise the status line says why, for example when the selection is too
+large for OSC 52 and no clipboard tool is installed. Inside tmux, OSC 52
+from applications needs `set -s set-clipboard on`; mercat checks the setting
+and says so when it is off.
 
 ## Configuration
 
-Config file: `~/.config/mercat/config.toml`
+Config file: `$XDG_CONFIG_HOME/mercat/config.toml`, else
+`~/.config/mercat/config.toml` (`mercat --help` prints the resolved path).
+Every key is optional. Command-line flags win over environment variables,
+which win over the config file. String values must be quoted (`"…"`, or
+`'…'` for a literal string). A bad value, unknown key, unknown section or a
+line mercat cannot parse (a `[section` without `]`, a line without `=`, an
+unterminated string) never stops a run: mercat prints a warning with
+`path:line` (with a did-you-mean when one is close) and keeps the default.
+Keys after a malformed `[section` header are ignored up to the next valid
+header rather than applied to the previous section.
 
 ```toml
 [general]
-editor = "vim"
-pager = "less -R"
+editor = ""          # empty: $VISUAL, then $EDITOR, then nvim/vim/vi/nano;
+                     # arguments allowed, e.g. "code --wait"
+pager = "less -R"    # used by -p when $PAGER is unset
 
 [display]
 theme = "dark"       # dark, light, ansi, dracula,
                      # tokyo-night, pink, markview, or a user theme name
-width = 0            # 0 = terminal width
+width = 0            # 0 = terminal width, else 20..1000
 heading_markers = true
+color = "auto"       # auto, always, never (see Color above)
 # YAML front matter display: panel (default), dim, compact, raw, hidden
 frontmatter = "panel"
 
-[files]
-extensions = ["md", "markdown", "mdown", "mkd"]
+[mermaid]
+# How an edge crossing a subgraph border is drawn: bridge (default), cross
+subgraph_edges = "bridge"
 ```
 
 ### Theming
 
 mercat resolves colors and glyphs through a single theme system. Pick a theme
-with `theme = "<name>"` in `[display]`, the `--style <name>` flag, or the
+with `theme = "<name>"` in `[display]`, the `--theme <name>` flag, or the
 `MERCAT_THEME` environment variable. Built-in names are `dark`, `light`,
 `ansi`, `dracula`, `tokyo-night`, `pink`, and `markview`.
 
@@ -151,7 +236,7 @@ table_style = "grid"             # grid, heavy, double, ascii, rounded
 
 The full slot list (40 slots) and per-element documentation live in
 [`theme-guide.md`](theme-guide.md); open it under different styles to see each
-element change, e.g. `mercat --style dracula theme-guide.md`.
+element change, e.g. `mercat --theme dracula theme-guide.md`.
 
 **User theme files.** Drop `<name>.toml` in `~/.config/mercat/themes/`
 (or `$XDG_CONFIG_HOME/mercat/themes/`) and select it by its filename stem. A
@@ -160,17 +245,19 @@ slots it wants. Generate an editable starting point with:
 
 ```bash
 mercat --dump-theme dark > ~/.config/mercat/themes/mine.toml
-mercat --style mine README.md
+mercat --theme mine README.md
 ```
 
-Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_SYNTAX_THEME`,
-`MERCAT_FRONTMATTER`.
+Environment overrides: `MERCAT_THEME`, `MERCAT_WIDTH`, `MERCAT_FRONTMATTER`,
+`MERCAT_SUBGRAPH_EDGES` (and the deprecated `MERCAT_SYNTAX_THEME`). An invalid
+value is reported as a warning and ignored. `mercat --list-themes` shows every
+theme name mercat can find.
 
 ## Status
 
 **In Progress**: Mermaid ASCII diagram rendering.
 
-**Planned**: more TUI features, in-document search, file watching.
+**Planned**: more TUI features, file watching.
 
 ## Development
 

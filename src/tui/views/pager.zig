@@ -8,6 +8,7 @@ const theme_color = @import("../../core/theme/color.zig");
 const SubgraphEdges = @import("../../core/mermaid/mermaid.zig").SubgraphEdges;
 const Viewport = @import("../widgets/viewport.zig").Viewport;
 const selection_mod = @import("../selection.zig");
+const search_mod = @import("../search.zig");
 
 pub const FootnoteEntry = struct {
     ref_line: ?usize = null,
@@ -28,6 +29,7 @@ pub const PagerView = struct {
     lines: []render_model.Line = &.{},
     footnote_index: []FootnoteEntry = &.{},
     selection: selection_mod.Selection = .{},
+    search: search_mod.Search,
 
     pub fn init(allocator: std.mem.Allocator, title: []const u8, document: *const markdown.Document, resolved: *const ResolvedTheme, show_heading_markers: bool, subgraph_edges: SubgraphEdges) PagerView {
         return .{
@@ -37,6 +39,7 @@ pub const PagerView = struct {
             .resolved = resolved,
             .show_heading_markers = show_heading_markers,
             .mermaid_subgraph_edges = subgraph_edges,
+            .search = search_mod.Search.init(allocator),
         };
     }
 
@@ -44,6 +47,7 @@ pub const PagerView = struct {
         self.freeLines();
         self.allocator.free(self.footnote_index);
         self.footnote_index = &.{};
+        self.search.deinit();
     }
 
     pub fn resize(self: *PagerView, width: usize, height: usize) !void {
@@ -69,6 +73,14 @@ pub const PagerView = struct {
 
     pub fn pageUp(self: *PagerView) void {
         self.viewport.pageUp();
+    }
+
+    pub fn halfPageDown(self: *PagerView) void {
+        self.viewport.halfPageDown();
+    }
+
+    pub fn halfPageUp(self: *PagerView) void {
+        self.viewport.halfPageUp();
     }
 
     pub fn toTop(self: *PagerView) void {
@@ -174,6 +186,11 @@ pub const PagerView = struct {
             }
         }
         self.footnote_index = try index.toOwnedSlice(self.allocator);
+
+        // Matches are positions in the rendered lines, so every reflow (resize,
+        // reload, layout toggle) recomputes them against the new text.
+        try self.search.recompute(self.lines);
+        if (self.search.hasPattern()) _ = self.search.selectFrom(self.viewport.top, .forward);
     }
 
     fn freeLines(self: *PagerView) void {
@@ -182,26 +199,6 @@ pub const PagerView = struct {
         self.lines = &.{};
     }
 };
-
-test "builds footnote index from rendered lines" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\See note[^note] here.
-        \\
-        \\[^note]: The definition.
-    );
-    defer document.deinit(allocator);
-
-    const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
-    defer pager.deinit();
-    try pager.resize(80, 20);
-
-    try std.testing.expectEqual(@as(usize, 1), pager.footnote_index.len);
-    try std.testing.expect(pager.footnote_index[0].ref_line != null);
-    try std.testing.expect(pager.footnote_index[0].def_line != null);
-    try std.testing.expect(pager.footnote_index[0].ref_line.? < pager.footnote_index[0].def_line.?);
-}
 
 test "followFootnoteLink jumps to definition" {
     const allocator = std.testing.allocator;
@@ -294,23 +291,4 @@ test "selection is cleared when the document reflows" {
 
     try pager.resize(20, 10);
     try std.testing.expect(!pager.selection.active);
-}
-
-test "reflows rendered text into lines" {
-    const allocator = std.testing.allocator;
-    var document = try markdown.parse(allocator,
-        \\# Title
-        \\
-        \\- one
-        \\- two
-    );
-    defer document.deinit(allocator);
-
-    const rt = resolveMod.builtinResolved(allocator, "dark");
-    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
-    defer pager.deinit();
-    try pager.resize(20, 5);
-
-    try std.testing.expect(pager.lines.len >= 3);
-    try std.testing.expect(pager.lines[0].spans.len >= 1);
 }

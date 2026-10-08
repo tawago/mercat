@@ -35,82 +35,40 @@ fn expectCleanHorizontalFinalApproach(poly: []const sketch.Point, expect_right: 
     }
 }
 
-test "TD skip-corridor final descent is a clean vertical approach (guards ▼)" {
+test "the final approach is clean (guards ▼ ▶ ^ v < >) and the jog pad is never zero, near or far" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-    const to_p = mkPlacement(1, .{ .x = 0, .y = 20, .w = 8, .h = 3 });
-    const placements = [_]sketch.NodePlacement{ from_p, to_p };
-    const geom = [_]Geom{.{ .x = 2, .y = 10, .w = 0, .h = 0 }};
-    const virtuals = [_]u32{0};
-
-    const poly = try rp.routePolyline(
-        a,
-        .TD,
-        from_p,
-        to_p,
-        .{ .node = 0, .side = .south, .offset = 4 },
-        .{ .node = 1, .side = .north, .offset = 4 },
-        &virtuals,
-        &geom,
-        &placements,
-        0,
-        0,
-        .{},
-        .{},
-    );
-    try expectCleanVerticalFinalApproach(poly, true);
-}
-
-test "LR skip-corridor final approach is a clean horizontal approach (guards ▶)" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-    const to_p = mkPlacement(1, .{ .x = 20, .y = 0, .w = 8, .h = 3 });
-    const placements = [_]sketch.NodePlacement{ from_p, to_p };
-    const geom = [_]Geom{.{ .x = 10, .y = 2, .w = 0, .h = 0 }};
-    const virtuals = [_]u32{0};
-
-    const poly = try rp.routePolyline(
-        a,
-        .LR,
-        from_p,
-        to_p,
-        .{ .node = 0, .side = .east, .offset = 1 },
-        .{ .node = 1, .side = .west, .offset = 1 },
-        &virtuals,
-        &geom,
-        &placements,
-        0,
-        0,
-        .{},
-        .{},
-    );
-    try expectCleanHorizontalFinalApproach(poly, true);
-}
-
-test "west/east port jog pad is never zero, near or far (guards clean </>)" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const geom: []const Geom = &.{};
-    const virtuals: []const u32 = &.{};
-
-    {
+    const south: sketch.Port = .{ .node = 0, .side = .south, .offset = 4 };
+    const north: sketch.Port = .{ .node = 1, .side = .north, .offset = 4 };
+    const east: sketch.Port = .{ .node = 0, .side = .east, .offset = 1 };
+    const west: sketch.Port = .{ .node = 1, .side = .west, .offset = 1 };
+    const Row = struct { dir: sketch.Direction, to: sketch.Rect, virtual: ?Geom = null, pad: ?i32 = null };
+    const rows = [_]Row{
+        // Skip corridors through one virtual node.
+        .{ .dir = .TD, .to = .{ .x = 0, .y = 20, .w = 8, .h = 3 }, .virtual = .{ .x = 2, .y = 10, .w = 0, .h = 0 } },
+        .{ .dir = .LR, .to = .{ .x = 20, .y = 0, .w = 8, .h = 3 }, .virtual = .{ .x = 10, .y = 2, .w = 0, .h = 0 } },
+        // Direct routes with a far and a near target.
+        .{ .dir = .LR, .to = .{ .x = 20, .y = 10, .w = 8, .h = 3 }, .pad = 2 },
+        .{ .dir = .LR, .to = .{ .x = 8, .y = 10, .w = 8, .h = 3 }, .pad = 1 },
+        .{ .dir = .TD, .to = .{ .x = 10, .y = 20, .w = 8, .h = 3 }, .pad = 2 },
+        .{ .dir = .TD, .to = .{ .x = 10, .y = 3, .w = 8, .h = 3 }, .pad = 1 },
+    };
+    for (rows) |row| {
         const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-        const to_p = mkPlacement(1, .{ .x = 20, .y = 10, .w = 8, .h = 3 });
+        const to_p = mkPlacement(1, row.to);
         const placements = [_]sketch.NodePlacement{ from_p, to_p };
+        const vertical = row.dir == .TD;
+        const geom: []const Geom = if (row.virtual) |*v| v[0..1] else &.{};
+        const virtuals: []const u32 = if (row.virtual != null) &.{0} else &.{};
         const poly = try rp.routePolyline(
             a,
-            .LR,
+            row.dir,
             from_p,
             to_p,
-            .{ .node = 0, .side = .east, .offset = 1 },
-            .{ .node = 1, .side = .west, .offset = 1 },
+            if (vertical) south else east,
+            if (vertical) north else west,
             virtuals,
             geom,
             &placements,
@@ -119,93 +77,12 @@ test "west/east port jog pad is never zero, near or far (guards clean </>)" {
             .{},
             .{},
         );
-        try expectCleanHorizontalFinalApproach(poly, true);
-        const last = poly[poly.len - 1];
-        const prev = poly[poly.len - 2];
-        try testing.expectEqual(@as(i32, 2), last.x - prev.x);
-    }
-
-    {
-        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-        const to_p = mkPlacement(1, .{ .x = 8, .y = 10, .w = 8, .h = 3 });
-        const placements = [_]sketch.NodePlacement{ from_p, to_p };
-        const poly = try rp.routePolyline(
-            a,
-            .LR,
-            from_p,
-            to_p,
-            .{ .node = 0, .side = .east, .offset = 1 },
-            .{ .node = 1, .side = .west, .offset = 1 },
-            virtuals,
-            geom,
-            &placements,
-            0,
-            0,
-            .{},
-            .{},
-        );
-        try expectCleanHorizontalFinalApproach(poly, true);
-        const last = poly[poly.len - 1];
-        const prev = poly[poly.len - 2];
-        try testing.expectEqual(@as(i32, 1), last.x - prev.x);
-    }
-}
-
-test "north/south port jog pad is never zero, near or far (guards clean ^/v)" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const geom: []const Geom = &.{};
-    const virtuals: []const u32 = &.{};
-
-    {
-        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-        const to_p = mkPlacement(1, .{ .x = 10, .y = 20, .w = 8, .h = 3 });
-        const placements = [_]sketch.NodePlacement{ from_p, to_p };
-        const poly = try rp.routePolyline(
-            a,
-            .TD,
-            from_p,
-            to_p,
-            .{ .node = 0, .side = .south, .offset = 4 },
-            .{ .node = 1, .side = .north, .offset = 4 },
-            virtuals,
-            geom,
-            &placements,
-            0,
-            0,
-            .{},
-            .{},
-        );
-        try expectCleanVerticalFinalApproach(poly, true);
-        const last = poly[poly.len - 1];
-        const prev = poly[poly.len - 2];
-        try testing.expectEqual(@as(i32, 2), last.y - prev.y);
-    }
-
-    {
-        const from_p = mkPlacement(0, .{ .x = 0, .y = 0, .w = 8, .h = 3 });
-        const to_p = mkPlacement(1, .{ .x = 10, .y = 3, .w = 8, .h = 3 });
-        const placements = [_]sketch.NodePlacement{ from_p, to_p };
-        const poly = try rp.routePolyline(
-            a,
-            .TD,
-            from_p,
-            to_p,
-            .{ .node = 0, .side = .south, .offset = 4 },
-            .{ .node = 1, .side = .north, .offset = 4 },
-            virtuals,
-            geom,
-            &placements,
-            0,
-            0,
-            .{},
-            .{},
-        );
-        try expectCleanVerticalFinalApproach(poly, true);
-        const last = poly[poly.len - 1];
-        const prev = poly[poly.len - 2];
-        try testing.expectEqual(@as(i32, 1), last.y - prev.y);
+        if (vertical) try expectCleanVerticalFinalApproach(poly, true) else try expectCleanHorizontalFinalApproach(poly, true);
+        if (row.pad) |pad| {
+            const last = poly[poly.len - 1];
+            const prev = poly[poly.len - 2];
+            try testing.expectEqual(pad, if (vertical) last.y - prev.y else last.x - prev.x);
+        }
     }
 }
 
@@ -324,7 +201,7 @@ test "terminal reconciliation is a no-op for an agreeing or perpendicular approa
     try testing.expectEqual(sketch.Dir4.north, s_fixed.side);
 }
 
-test "ensureBaseStub shifts a turn-at-tip descent back one cell" {
+test "ensureBaseStub shifts a turn-at-tip descent back one cell, and leaves a straight or boxed-in final alone" {
     const boxes = [_]sketch.NodePlacement{
         mkPlacement(1, .{ .x = 3, .y = 8, .w = 20, .h = 3 }),
     };
@@ -335,24 +212,18 @@ test "ensureBaseStub shifts a turn-at-tip descent back one cell" {
     try testing.expectEqual(sketch.Point{ .x = 1, .y = 6 }, poly[1]);
     try testing.expectEqual(sketch.Point{ .x = 1, .y = 9 }, poly[2]);
     try testing.expectEqual(sketch.Point{ .x = 3, .y = 9 }, poly[3]);
-}
 
-test "ensureBaseStub is a no-op for a straight (already base-fed) final approach" {
-    var poly = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 9 }, .{ .x = 5, .y = 10 } };
-    try testing.expect(!rp.ensureBaseStub(&poly, &.{}, 0, 1));
-    try testing.expectEqual(sketch.Point{ .x = 5, .y = 9 }, poly[1]);
-}
+    var straight = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 9 }, .{ .x = 5, .y = 10 } };
+    try testing.expect(!rp.ensureBaseStub(&straight, &.{}, 0, 1));
+    try testing.expectEqual(sketch.Point{ .x = 5, .y = 9 }, straight[1]);
 
-test "ensureBaseStub accept-fallback: no room to shift leaves the polyline untouched" {
-    const boxes = [_]sketch.NodePlacement{
-        mkPlacement(1, .{ .x = 3, .y = 8, .w = 20, .h = 3 }),
-        mkPlacement(2, .{ .x = 0, .y = 5, .w = 3, .h = 6 }),
-    };
-    var poly = [_]sketch.Point{
+    // Accept-fallback: no room to shift leaves the polyline untouched.
+    const boxed_in = [_]sketch.NodePlacement{ boxes[0], mkPlacement(2, .{ .x = 0, .y = 5, .w = 3, .h = 6 }) };
+    var blocked = [_]sketch.Point{
         .{ .x = 70, .y = 6 }, .{ .x = 2, .y = 6 }, .{ .x = 2, .y = 9 }, .{ .x = 3, .y = 9 },
     };
-    try testing.expect(!rp.ensureBaseStub(&poly, &boxes, 0, 1));
-    try testing.expectEqual(sketch.Point{ .x = 2, .y = 6 }, poly[1]);
+    try testing.expect(!rp.ensureBaseStub(&blocked, &boxed_in, 0, 1));
+    try testing.expectEqual(sketch.Point{ .x = 2, .y = 6 }, blocked[1]);
 }
 
 test "the jog never lands inside a decorated terminal cell" {

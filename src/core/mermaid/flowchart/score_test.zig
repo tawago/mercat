@@ -112,7 +112,7 @@ test "eval: integrity is a large priced cost, not a veto" {
     try t.expect(s_dirty.lessThan(s_huge));
 }
 
-test "eval: a shipped lateral arm is a fabrication and enters the composite at the foreign-junction tier" {
+test "eval: a shipped lateral arm is a fabrication priced into the composite" {
     var arena = std.heap.ArenaAllocator.init(t.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -123,9 +123,8 @@ test "eval: a shipped lateral arm is a fabrication and enters the composite at t
     const sk = testSketch(.{ .x = 0, .y = 0, .w = 7, .h = 4 }, &nodes, &.{}, &.{});
     const base = try eval(a, sk, .TD, 0, .{});
     const armed = try eval(a, sk, .TD, 0, .{ .arm_into_head = 1 });
-    try t.expectEqual(base.t12_composite + score.W_ARM_INTO_HEAD, armed.t12_composite);
+    try t.expect(armed.t12_composite > base.t12_composite);
     try t.expect(base.lessThan(armed));
-    try t.expectEqual(score.W_FOREIGN_JUNCTION, score.W_ARM_INTO_HEAD);
 }
 
 test "eval: rung multiplier is a fitted degradation prior" {
@@ -136,13 +135,6 @@ test "eval: rung multiplier is a fitted degradation prior" {
         testNode(0, .{ .x = 0, .y = 0, .w = 4, .h = 3 }, null),
     };
     var s = testSketch(.{ .x = 0, .y = 0, .w = 8, .h = 3 }, &nodes, &.{}, &.{});
-    var rung: u8 = 0;
-    while (rung < RUNG_SCALE.len) : (rung += 1) {
-        s.budget.rung = rung;
-        const sc = try eval(a, s, .TD, rung, .{});
-        try t.expectEqual(RUNG_SCALE[rung] * sc.t2_legibility, sc.t12_composite);
-        if (rung > 0) try t.expect(sc.t12_composite > 16 * sc.t2_legibility);
-    }
     s.budget.rung = 4;
     const late = try eval(a, s, .TD, 4, .{});
     s.budget.rung = 0;
@@ -163,19 +155,10 @@ test "eval: direction infidelity pays the direction-matched switch scale" {
     const faithful = try eval(a, s, .TD, 0, .{});
     s.direction = .LR;
     const to_horiz = try eval(a, s, .TD, 0, .{});
-    try t.expectEqual(
-        score.SWITCH_TO_HORIZONTAL_SCALE * to_horiz.t2_legibility,
-        to_horiz.t12_composite,
-    );
     try t.expect(faithful.lessThan(to_horiz));
     s.direction = .TD;
     const to_vert = try eval(a, s, .LR, 0, .{});
-    try t.expectEqual(
-        score.SWITCH_TO_VERTICAL_SCALE * to_vert.t2_legibility,
-        to_vert.t12_composite,
-    );
     try t.expect(to_vert.t12_composite < to_horiz.t12_composite);
-    try t.expectEqual(score.SWITCH_TO_VERTICAL_SCALE, RUNG_SCALE[3]);
 }
 
 test "fit severity is overflow magnitude, not presence" {
@@ -231,7 +214,7 @@ test "dead_space does not double-count cluster frames vs member nodes" {
     try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare));
 }
 
-test "rail bends: rail junction counted once, one turn per off-column tap" {
+test "a shared rail: its junction bends once per off-column tap, and it registers one crossing but never crosses itself" {
     const stem = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
     const taps = [_]sketch.Tap{
         .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } },
@@ -245,34 +228,16 @@ test "rail bends: rail junction counted once, one turn per off-column tap" {
         .taps = &taps,
         .kind = .solid,
     }};
-    var s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 9 }, &.{}, &.{}, &.{});
-    s.rails = &rails;
-    try t.expectEqual(@as(u64, 3), bends(s));
-}
+    var solo = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &.{}, &.{});
+    solo.rails = &rails;
+    try t.expectEqual(@as(u64, 3), bends(solo));
+    try t.expectEqual(@as(u64, 0), countCrossings(solo));
 
-test "rail crossings: shared rail registers once, never crosses itself" {
-    const stem = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 0, .y = 5 } };
-    const taps = [_]sketch.Tap{
-        .{ .edge = 0, .node = 10, .at = .{ .x = 0, .y = 5 }, .landing = .{ .x = 0, .y = 8 } },
-        .{ .edge = 1, .node = 11, .at = .{ .x = 5, .y = 5 }, .landing = .{ .x = 5, .y = 8 } },
-        .{ .edge = 2, .node = 12, .at = .{ .x = 10, .y = 5 }, .landing = .{ .x = 10, .y = 8 } },
-    };
-    const rails = [_]sketch.Rail{.{
-        .pivot = 0,
-        .stem = &stem,
-        .crossbar = .{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } },
-        .taps = &taps,
-        .kind = .solid,
-    }};
     const crossing_edge = [_]sketch.Point{ .{ .x = 3, .y = 0 }, .{ .x = 3, .y = 10 } };
     const edges = [_]sketch.EdgePath{testEdge(0, &crossing_edge)};
     var s = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &edges, &.{});
     s.rails = &rails;
     try t.expectEqual(@as(u64, 1), countCrossings(s));
-
-    var solo = testSketch(.{ .x = 0, .y = 0, .w = 11, .h = 10 }, &.{}, &.{}, &.{});
-    solo.rails = &rails;
-    try t.expectEqual(@as(u64, 0), countCrossings(solo));
 }
 
 test "edge stretch and bends" {

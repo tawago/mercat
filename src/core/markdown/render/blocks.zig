@@ -9,6 +9,7 @@ const code_mod = @import("code.zig");
 const rules = @import("rules.zig");
 const geometry = @import("geometry.zig");
 const decor_mod = @import("decor.zig");
+const html_mod = @import("html.zig");
 
 const Decor = decor_mod.Decor;
 const Block = markdown.Block;
@@ -31,7 +32,7 @@ fn orderedMarker(allocator: std.mem.Allocator, decor: *const Decor, base: []cons
     return std.mem.concat(allocator, u8, &.{ decor.glyphs.ordered_prefix, base });
 }
 
-pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) !void {
+pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, options: Options) anyerror!void {
     const content_width = options.width -| options.left_padding;
     const decor = options.decor;
     switch (block) {
@@ -41,23 +42,23 @@ pub fn renderBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block
         .unordered_list_item => |item| {
             const marker = try bulletMarker(allocator, decor, 0);
             defer allocator.free(marker);
-            try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, decor);
+            try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, &options);
         },
         .ordered_list_item => |item| {
             const marker = try orderedMarker(allocator, decor, item.marker);
             defer allocator.free(marker);
-            try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
+            try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, &options);
         },
         .task_list_item => |item| {
             const marker = try taskMarker(allocator, decor, item.checked);
             defer allocator.free(marker);
-            try renderTaskItem(allocator, builder, item.content, content_width, marker, if (item.checked) .task_on else .task_off, decor);
+            try renderTaskItem(allocator, builder, item, content_width, marker, &options);
         },
         .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
-        .html_block => |html| try builder.appendSpan(.muted, html),
+        .html_block => |html| try html_mod.render(allocator, builder, html, content_width, decor),
         .thematic_break => try rules.renderHr(builder, content_width, decor),
         .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
-        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, decor),
+        .blockquote => |bq| try renderBlockQuote(allocator, builder, bq, content_width, options.left_padding, &options),
     }
 }
 
@@ -116,7 +117,8 @@ pub fn renderParagraph(allocator: std.mem.Allocator, builder: *Builder, inlines:
     }
 }
 
-pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, decor: *const Decor) anyerror!void {
+pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.ListItem, width: usize, display_marker: []const u8, marker_style: SpanStyle, depth: u8, options: *const Options) anyerror!void {
+    const decor = options.decor;
     const indent_count = @as(usize, depth) * 2;
     const indent = try repeatSpaces(allocator, indent_count);
     defer allocator.free(indent);
@@ -154,25 +156,53 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
     }
 
     for (item.nested) |nested| {
+        if (try rendersNothing(allocator, nested)) continue;
         try builder.newline();
         switch (nested) {
             .unordered_list_item => |n| {
                 const nested_bullet = try bulletMarker(allocator, decor, depth + 1);
                 defer allocator.free(nested_bullet);
-                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth + 1, decor);
+                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth + 1, options);
             },
             .ordered_list_item => |n| {
                 const nested_marker = try orderedMarker(allocator, decor, n.marker);
                 defer allocator.free(nested_marker);
-                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth + 1, decor);
+                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth + 1, options);
             },
-            .blockquote => |bq| try renderBlockQuoteWithPrefix(allocator, builder, bq, width -| try geometry.displayWidth(continuation), continuation, decor),
-            else => {},
+            // Sibling lists step in by depth; task items match them.
+            .task_list_item => try renderIndentedBlock(allocator, builder, nested, width, indent_count + 2, options),
+            else => try renderIndentedBlock(allocator, builder, nested, width, try geometry.displayWidth(continuation), options),
         }
     }
 }
 
-pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: []const Inline, width: usize, marker: []const u8, marker_style: SpanStyle, decor: *const Decor) !void {
+/// Renders a list item's child block (paragraph, code, quote, table, HTML,
+/// task item, ...) under the item's text column, `indent` columns in. The
+/// block is laid out in a scratch builder whose left padding reaches that
+/// column, so width and tab math see the real origin, then moved over
+/// verbatim, its last line left pending. The builder must be at the start of
+/// a line.
+fn renderIndentedBlock(allocator: std.mem.Allocator, builder: *Builder, block: Block, width: usize, indent: usize, options: *const Options) anyerror!void {
+    var scratch = Builder.init(allocator);
+    defer scratch.deinit();
+    const origin = builder.left_padding + indent;
+    scratch.left_padding = origin;
+    // Everything but the geometry (mermaid settings, front matter style,
+    // decor) carries over from the caller.
+    var nested = options.*;
+    nested.width = origin + (width -| indent);
+    nested.left_padding = origin;
+    try renderBlock(allocator, &scratch, block, nested);
+    // Keep the last line open even when the block closed it (block quotes
+    // do), so the item's next child follows without a stray blank line.
+    _ = try scratch.seal();
+    try builder.absorb(&scratch, true);
+}
+
+pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, item: Block.TaskItem, width: usize, marker: []const u8, options: *const Options) anyerror!void {
+    const decor = options.decor;
+    const content = item.content;
+    const marker_style: SpanStyle = if (item.checked) .task_on else .task_off;
     const continuation = try repeatSpaces(allocator, try geometry.displayWidth(marker));
     defer allocator.free(continuation);
 
@@ -198,9 +228,16 @@ pub fn renderTaskItem(allocator: std.mem.Allocator, builder: *Builder, content: 
     } else if (first) {
         try builder.appendSpan(marker_style, marker);
     }
+
+    for (item.nested) |nested| {
+        if (try rendersNothing(allocator, nested)) continue;
+        try builder.newline();
+        try renderIndentedBlock(allocator, builder, nested, width, continuation.len, options);
+    }
 }
 
-pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, decor: *const Decor) !void {
+pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, left_padding: usize, options: *const Options) anyerror!void {
+    const decor = options.decor;
     var prefix_buf: std.ArrayList(u8) = .empty;
     defer prefix_buf.deinit(allocator);
     try prefix_buf.appendNTimes(allocator, ' ', left_padding);
@@ -208,15 +245,17 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
     const prefix = prefix_buf.items;
 
     const content_width = width -| try geometry.displayWidth(prefix);
+    const quote_start = builder.lines.items.len;
 
     var first_block = true;
     for (bq.blocks) |block| {
+        if (try rendersNothing(allocator, block)) continue;
         if (!first_block) try builder.newline();
         first_block = false;
 
         if (block == .blockquote) {
             const nested_bq = block.blockquote;
-            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, decor);
+            try renderBlockQuote(allocator, builder, nested_bq, width, left_padding, options);
             continue;
         }
 
@@ -228,20 +267,20 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             .unordered_list_item => |item| {
                 const marker = try bulletMarker(allocator, decor, 0);
                 defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, decor);
+                try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, options);
             },
             .ordered_list_item => |item| {
                 const marker = try orderedMarker(allocator, decor, item.marker);
                 defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
+                try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, options);
             },
             .task_list_item => |item| {
                 const marker = try taskMarker(allocator, decor, item.checked);
                 defer allocator.free(marker);
-                try renderTaskItem(allocator, builder, item.content, content_width, marker, if (item.checked) .task_on else .task_off, decor);
+                try renderTaskItem(allocator, builder, item, content_width, marker, options);
             },
-            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, false, .bridge, decor),
-            .html_block => |html| try builder.appendSpan(.muted, html),
+            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, options.mermaid_debug, options.mermaid_subgraph_edges, decor),
+            .html_block => |html| try html_mod.render(allocator, builder, html, content_width, decor),
             .thematic_break => try rules.renderHr(builder, content_width, decor),
             .table => |table| try table_mod.renderTable(allocator, builder, table, content_width, decor),
             else => {},
@@ -258,25 +297,20 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             var new_spans: std.ArrayList(types.Span) = .empty;
             defer new_spans.deinit(allocator);
 
-            const is_padding_span = blk: {
-                if (line.spans.len == 0) break :blk false;
-                const first_span_text = line.spans[0].text;
-                for (first_span_text) |ch| {
-                    if (ch != ' ') break :blk false;
+            // The prefix already holds the left padding, so drop the builder's
+            // own padding from the line. That padding is a leading run of
+            // spaces in the first span when it is body-styled (it merges
+            // with body text that follows it).
+            try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
+            for (line.spans, 0..) |span, span_index| {
+                var text = span.text;
+                if (span_index == 0 and span.style == .body) {
+                    var strip: usize = 0;
+                    while (strip < builder.left_padding and strip < text.len and text[strip] == ' ') strip += 1;
+                    text = text[strip..];
+                    if (text.len == 0) continue;
                 }
-                break :blk true;
-            };
-
-            if (is_padding_span) {
-                try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
-                for (line.spans[1..]) |span| {
-                    try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
-                }
-            } else {
-                try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
-                for (line.spans) |span| {
-                    try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
-                }
+                try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
             }
 
             for (line.spans) |span| {
@@ -287,74 +321,20 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
             line.spans = try new_spans.toOwnedSlice(allocator);
         }
     }
+    // Each child closed its last line for prefixing; reopen the final one
+    // so the quote ends like any block and is not followed by a blank line.
+    // (Nested quotes keep the closed line: it separates them from the
+    // enclosing quote's next block.)
+    if (bq.depth == 1 and !builder.hasPending() and builder.lines.items.len > quote_start) builder.reopenLastLine();
 }
 
-pub fn renderBlockQuoteWithPrefix(allocator: std.mem.Allocator, builder: *Builder, bq: Block.BlockQuote, width: usize, base_prefix: []const u8, decor: *const Decor) anyerror!void {
-    var prefix_buf: std.ArrayList(u8) = .empty;
-    defer prefix_buf.deinit(allocator);
-    try prefix_buf.appendSlice(allocator, base_prefix);
-    const bar_len_start = prefix_buf.items.len;
-    try appendQuotePrefix(allocator, &prefix_buf, decor, bq.depth);
-    const prefix = prefix_buf.items;
-
-    const content_width = width -| try geometry.displayWidth(prefix_buf.items[bar_len_start..]);
-
-    var first_block = true;
-    for (bq.blocks) |block| {
-        if (!first_block) try builder.newline();
-        first_block = false;
-
-        if (block == .blockquote) {
-            const nested_bq = block.blockquote;
-            try renderBlockQuoteWithPrefix(allocator, builder, nested_bq, width, base_prefix, decor);
-            continue;
-        }
-
-        const initial_line_count = builder.lines.items.len;
-
-        switch (block) {
-            .heading => |h| try renderHeading(allocator, builder, h, content_width, true, decor),
-            .paragraph => |p| try renderParagraph(allocator, builder, p.content, content_width, .body, p.indent, decor),
-            .unordered_list_item => |item| {
-                const marker = try bulletMarker(allocator, decor, 0);
-                defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .bullet, 0, decor);
-            },
-            .ordered_list_item => |item| {
-                const marker = try orderedMarker(allocator, decor, item.marker);
-                defer allocator.free(marker);
-                try renderListItem(allocator, builder, item, content_width, marker, .ordered, 0, decor);
-            },
-            .fenced_code => |code| try code_mod.render(allocator, builder, code, content_width, false, .bridge, decor),
-            .html_block => |html| try builder.appendSpan(.muted, html),
-            .thematic_break => try rules.renderHr(builder, content_width, decor),
-            else => {},
-        }
-
-        if (builder.hasPending()) {
-            try builder.newline();
-        }
-
-        const final_line_count = builder.lines.items.len;
-        for (initial_line_count..final_line_count) |line_idx| {
-            var line = &builder.lines.items[line_idx];
-
-            var new_spans: std.ArrayList(types.Span) = .empty;
-            defer new_spans.deinit(allocator);
-
-            try new_spans.append(allocator, .{ .style = .quote, .text = try allocator.dupe(u8, prefix) });
-            for (line.spans) |span| {
-                try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, span.text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
-            }
-
-            for (line.spans) |span| {
-                allocator.free(span.text);
-                if (span.url) |url| allocator.free(url);
-            }
-            allocator.free(line.spans);
-            line.spans = try new_spans.toOwnedSlice(allocator);
-        }
-    }
+/// True for a block with nothing to show (an HTML block holding only a
+/// comment or a closing wrapper tag); containers skip it entirely.
+pub fn rendersNothing(allocator: std.mem.Allocator, block: Block) !bool {
+    return switch (block) {
+        .html_block => |html| try html_mod.isEmpty(allocator, html),
+        else => false,
+    };
 }
 
 fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {

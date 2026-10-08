@@ -93,7 +93,7 @@ test "an edge sharing two ports lands in two sets, never one fused set" {
     try std.testing.expect(!bundle_mod.bundleMembersAt(sets, 0, 2, null));
 }
 
-test "degenerate and invisible edges license nothing" {
+test "no edges, degenerate edges and invisible edges license nothing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -109,48 +109,10 @@ test "degenerate and invisible edges license nothing" {
         @as(usize, 0),
         (try sketch_ports.portShareBundles(a, &edges)).len,
     );
+    try std.testing.expectEqual(@as(usize, 0), (try sketch_ports.portShareBundles(a, &.{})).len);
 }
 
-test "appendPortShares keeps the existing sets ahead of the derived ones" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const one = [_]sketch.Point{ p(5, 3), p(5, 8) };
-    const two = [_]sketch.Point{ p(5, 3), p(9, 8) };
-    const edges = [_]sketch.EdgePath{ edge(0, &one), edge(1, &two) };
-    const existing = [_]bundle_mod.Bundle{.{ .origin = .fan_rail, .members = &.{ 7, 8 } }};
-
-    const sets = try sketch_ports.appendPortShares(a, &existing, &edges);
-    try std.testing.expectEqual(@as(usize, 2), sets.len);
-    try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
-    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
-    try std.testing.expect(bundle_mod.bundleMembersAt(sets, 7, 8, null));
-    try std.testing.expect(bundle_mod.bundleMembersAt(sets, 0, 1, null));
-}
-
-test "appendPortShares replaces stale port-share origins instead of creating first-match duplicates" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const one = [_]sketch.Point{ p(5, 3), p(5, 8) };
-    const two = [_]sketch.Point{ p(5, 3), p(9, 8) };
-    const edges = [_]sketch.EdgePath{ edge(20, &one), edge(21, &two) };
-    const stale = [_]bundle_mod.Bundle{
-        .{ .origin = .port_share, .members = &.{ 0, 1 }, .cells = &.{.{ .x = 99, .y = 99 }} },
-        .{ .origin = .fan_rail, .members = &.{ 7, 8 } },
-    };
-
-    const sets = try sketch_ports.appendPortShares(a, &stale, &edges);
-    try std.testing.expectEqual(@as(usize, 2), sets.len);
-    try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
-    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
-    try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 20, 21 }, sets[1].members);
-    try std.testing.expect(!bundle_mod.bundleMembersAt(sets, 0, 1, null));
-}
-
-test "final geometry alone defines shifted pair ids, cells, and bundle agreement" {
+test "appendPortShares keeps existing sets first and replaces a stale port share: final geometry alone defines pair ids and cells" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -158,39 +120,27 @@ test "final geometry alone defines shifted pair ids, cells, and bundle agreement
     const first = [_]sketch.Point{ p(15, 23), p(15, 26), p(11, 26) };
     const second = [_]sketch.Point{ p(15, 23), p(15, 26), p(19, 26) };
     const edges = [_]sketch.EdgePath{ edge(100, &first), edge(101, &second) };
-    const old = [_]bundle_mod.Bundle{.{
-        .origin = .port_share,
-        .members = &.{ 0, 1 },
-        .cells = &.{.{ .x = 99, .y = 99 }},
-        .pairwise = &.{.{ .a = 0, .b = 1, .cells = &.{.{ .x = 99, .y = 99 }} }},
-    }};
-
-    const raw = try sketch_ports.appendPortShares(a, &old, &edges);
-    const final: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 20, .h = 30 },
-        .direction = .TD,
-        .nodes = &.{},
-        .clusters = &.{},
-        .edges = &edges,
-        .sharing = .{ .bundles = raw },
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
+    const stale = [_]bundle_mod.Bundle{
+        .{
+            .origin = .port_share,
+            .members = &.{ 0, 1 },
+            .cells = &.{.{ .x = 99, .y = 99 }},
+            .pairwise = &.{.{ .a = 0, .b = 1, .cells = &.{.{ .x = 99, .y = 99 }} }},
+        },
+        .{ .origin = .fan_rail, .members = &.{ 7, 8 } },
     };
-    try std.testing.expectEqual(@as(usize, 1), final.sharing.bundles.len);
-    try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, final.sharing.bundles[0].members);
-    try std.testing.expectEqual(@as(sketch.EdgeId, 100), final.sharing.bundles[0].pairwise.?[0].a);
-    try std.testing.expectEqual(@as(sketch.EdgeId, 101), final.sharing.bundles[0].pairwise.?[0].b);
-    try std.testing.expect(bundle_mod.bundleMembersAt(final.sharing.bundles, 100, 101, .{ .x = 15, .y = 25 }));
-    try std.testing.expect(!bundle_mod.bundleMembersAt(final.sharing.bundles, 100, 101, .{ .x = 99, .y = 99 }));
-}
 
-test "no edges, no sets" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    try std.testing.expectEqual(
-        @as(usize, 0),
-        (try sketch_ports.portShareBundles(arena.allocator(), &.{})).len,
-    );
+    const sets = try sketch_ports.appendPortShares(a, &stale, &edges);
+    try std.testing.expectEqual(@as(usize, 2), sets.len);
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.fan_rail, sets[0].origin);
+    try std.testing.expect(bundle_mod.bundleMembersAt(sets, 7, 8, null));
+    try std.testing.expectEqual(bundle_mod.BundleOrigin.port_share, sets[1].origin);
+    try std.testing.expectEqualSlices(sketch.EdgeId, &.{ 100, 101 }, sets[1].members);
+    try std.testing.expectEqual(@as(sketch.EdgeId, 100), sets[1].pairwise.?[0].a);
+    try std.testing.expectEqual(@as(sketch.EdgeId, 101), sets[1].pairwise.?[0].b);
+    try std.testing.expect(bundle_mod.bundleMembersAt(sets, 100, 101, .{ .x = 15, .y = 25 }));
+    try std.testing.expect(!bundle_mod.bundleMembersAt(sets, 100, 101, .{ .x = 99, .y = 99 }));
+    try std.testing.expect(!bundle_mod.bundleMembersAt(sets, 0, 1, null));
 }
 
 test "a port share licenses only its shared approach" {

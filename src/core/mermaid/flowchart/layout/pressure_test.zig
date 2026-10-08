@@ -39,11 +39,6 @@ test "flushLeftRows' connector-stretch floor stops short of the margin instead o
     const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
     pressure.flushLeftRows(empty_g, &geom, lg);
 
-    try testing.expect(@min(geom[1].x, geom[2].x) > 0);
-
-    try testing.expect(geom[1].x >= 5);
-    try testing.expect(geom[2].x >= 25);
-
     try testing.expectEqual(@as(i32, 5), geom[1].x);
     try testing.expectEqual(@as(i32, 25), geom[2].x);
 }
@@ -57,65 +52,6 @@ fn bboxOf(geom: []const NodeGeom) i64 {
         if (r > max_r) max_r = r;
     }
     return @as(i64, max_r) - @as(i64, min_x);
-}
-
-test "flushLeftRows never widens the bounding box" {
-    const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
-
-    {
-        var nodes = [_]sugiyama.LayerNode{ .{ .real = 10 }, .{ .real = 11 }, .{ .real = 12 } };
-        var layer0 = [_]u32{0};
-        var layer1 = [_]u32{ 1, 2 };
-        var layers = [_][]u32{ &layer0, &layer1 };
-        var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 1, .edge = 0, .reversed = false },
-            .{ .from = 0, .to = 2, .edge = 1, .reversed = false },
-        };
-        const lg = sugiyama.LayeredGraph{
-            .nodes = &nodes,
-            .layers = &layers,
-            .edges = &edges,
-            .reversed_edges = &.{},
-            .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
-            .arena = null,
-        };
-        var geom = [_]NodeGeom{
-            .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
-            .{ .x = 30, .y = 5, .w = 10, .h = 3, .layer = 1 },
-            .{ .x = 45, .y = 5, .w = 10, .h = 3, .layer = 1 },
-        };
-        const before = bboxOf(&geom);
-        pressure.flushLeftRows(empty_g, &geom, lg);
-        const after = bboxOf(&geom);
-        try testing.expect(after <= before);
-        try testing.expect(after < before);
-    }
-
-    {
-        var nodes = [_]sugiyama.LayerNode{ .{ .real = 20 }, .{ .real = 21 } };
-        var layer0 = [_]u32{0};
-        var layer1 = [_]u32{1};
-        var layers = [_][]u32{ &layer0, &layer1 };
-        var edges = [_]sugiyama.LayerEdge{
-            .{ .from = 0, .to = 1, .edge = 0, .reversed = false },
-        };
-        const lg = sugiyama.LayeredGraph{
-            .nodes = &nodes,
-            .layers = &layers,
-            .edges = &edges,
-            .reversed_edges = &.{},
-            .real_index = std.AutoHashMapUnmanaged(sg.NodeId, u32).empty,
-            .arena = null,
-        };
-        var geom = [_]NodeGeom{
-            .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
-            .{ .x = 50, .y = 5, .w = 10, .h = 3, .layer = 1 },
-        };
-        const before = bboxOf(&geom);
-        pressure.flushLeftRows(empty_g, &geom, lg);
-        const after = bboxOf(&geom);
-        try testing.expectEqual(before, after);
-    }
 }
 
 fn chain(nodes: []sugiyama.LayerNode, layers: [][]u32, edges: []sugiyama.LayerEdge, real_index: *std.AutoHashMapUnmanaged(sg.NodeId, u32)) sugiyama.LayeredGraph {
@@ -175,4 +111,22 @@ test "run moves nodes only when the options ask for flush-left and the direction
     try testing.expectEqual(@as(i32, 5), flushed[1].x);
     try testing.expectEqual(@as(i32, 20), flushed[2].x);
     try testing.expectEqual(@as(i32, 0), flushed[0].x);
+    try testing.expect(bboxOf(&flushed) < bboxOf(&start));
+
+    // A row with a single child has nothing to flush, so it never moves.
+    var lone_nodes = [_]sugiyama.LayerNode{ .{ .real = 20 }, .{ .real = 21 } };
+    var lone0 = [_]u32{0};
+    var lone1 = [_]u32{1};
+    var lone_layers = [_][]u32{ &lone0, &lone1 };
+    var lone_edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .edge = 0, .reversed = false }};
+    var lone_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
+    const lone_lg = chain(&lone_nodes, &lone_layers, &lone_edges, &lone_index);
+    const lone_start = [_]NodeGeom{
+        .{ .x = 0, .y = 0, .w = 10, .h = 3, .layer = 0 },
+        .{ .x = 50, .y = 5, .w = 10, .h = 3, .layer = 1 },
+    };
+    var lone = lone_start;
+    const empty_g = sg.SemGraph{ .direction = .TD, .nodes = &.{}, .edges = &.{}, .clusters = &.{}, .classes = &.{}, .arena = null };
+    pressure.flushLeftRows(empty_g, &lone, lone_lg);
+    try testing.expectEqualSlices(NodeGeom, &lone_start, &lone);
 }

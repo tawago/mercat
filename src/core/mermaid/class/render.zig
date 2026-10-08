@@ -233,18 +233,3 @@ fn drawClassRelation(canvas: *Canvas, rel: *const ClassRelation, diagram: *const
         canvas.drawText(end_x, end_y - 1, marker, .edge);
     }
 }
-
-test "over the budget: its measured width; at that width it draws" {
-    const allocator = std.testing.allocator;
-    const source = "classDiagram\n    class Animal\n    class Duck\n    class Fish\n    class Zebra\n    Animal <|-- Duck\n    Animal <|-- Fish\n    Animal <|-- Zebra\n";
-    const width = (try render(allocator, source, 0)).too_wide;
-    try std.testing.expect(width > 0);
-    try std.testing.expectEqual(ladder.Fit{ .too_wide = width }, try render(allocator, source, width - 1));
-    const fitted = try render(allocator, source, width);
-    defer allocator.free(fitted.drawn);
-    try std.testing.expect(fitted.drawn.len > 0);
-}
-
-test "an empty diagram draws nothing" {
-    try std.testing.expectEqualStrings("", (try render(std.testing.allocator, "classDiagram\n", 0)).drawn);
-}

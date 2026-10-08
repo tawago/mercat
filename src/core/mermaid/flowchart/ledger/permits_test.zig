@@ -1,5 +1,4 @@
 const std = @import("std");
-const parse = @import("../parse.zig");
 const sg = @import("../sem_graph.zig");
 const pb = @import("../base/ledger.zig");
 const planner = @import("permits.zig");
@@ -76,91 +75,58 @@ fn canonicalBytes(allocator: std.mem.Allocator, plan: pb.BundlePermits) ![]const
     return try bytes.toOwnedSlice(allocator);
 }
 
-test "zero or one edge produces no groups" {
+test "discovery groups fans by shared end, keeps parallel pairs, and leaves chains and self-loops independent" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const empty = try planner.build(a, graph(&.{}), .joined);
-    try std.testing.expectEqual(@as(usize, 0), empty.plan.groups.len);
-    try std.testing.expectEqual(@as(usize, 0), empty.plan.memberships.len);
-    try expectClean(a, graph(&.{}), empty.plan);
-
-    const edges = [_]sg.Edge{edge(7, 0, 1)};
-    const one = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 0), one.plan.groups.len);
-    try std.testing.expectEqual(@as(usize, 1), one.plan.memberships.len);
-    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), one.plan.memberships[0].source_group);
-    try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), one.plan.memberships[0].target_group);
-    try expectClean(a, graph(&edges), one.plan);
-}
-
-test "two edges with one source produce one fan-out group" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(8, 0, 2), edge(4, 0, 1) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
-    const group = result.plan.groups[0];
-    try std.testing.expectEqual(pb.BundleDirection.out, group.direction);
-    try std.testing.expectEqual(@as(sg.NodeId, 0), group.pivot);
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 4, 8 }, group.members);
-    try expectClean(a, graph(&edges), result.plan);
-}
-
-test "two edges with one target produce one fan-in group" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(9, 2, 4), edge(3, 1, 4) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 1), result.plan.groups.len);
-    try std.testing.expectEqual(pb.BundleDirection.in, result.plan.groups[0].direction);
-    try std.testing.expectEqual(@as(sg.NodeId, 4), result.plan.groups[0].pivot);
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 3, 9 }, result.plan.groups[0].members);
-    try expectClean(a, graph(&edges), result.plan);
-}
-
-test "one dual edge receives source and target memberships" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(11, 0, 4), edge(12, 0, 1), edge(13, 2, 4) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    const membership = membershipOf(result.plan, 11).?;
-    try std.testing.expect(membership.source_group != null);
-    try std.testing.expect(membership.target_group != null);
-    try expectClean(a, graph(&edges), result.plan);
-}
-
-test "a pure chain produces no groups" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
-    try std.testing.expectEqual(@as(usize, 3), result.plan.memberships.len);
-    try expectClean(a, graph(&edges), result.plan);
-}
-
-test "compact and separate source statements produce identical plans" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const compact = try parse.parse(a, "flowchart TD\nA --> B & C\n");
-    const separate = try parse.parse(a, "flowchart TD\nA --> B\nA --> C\n");
-
-    const cp = try planner.build(a, compact, .joined);
-    const sp = try planner.build(a, separate, .joined);
-    try std.testing.expectEqualStrings(try canonicalBytes(a, cp.plan), try canonicalBytes(a, sp.plan));
-    try expectClean(a, compact, cp.plan);
-    try expectClean(a, separate, sp.plan);
+    const G = struct { dir: pb.BundleDirection, pivot: sg.NodeId, members: []const pb.EdgeId };
+    const Row = struct {
+        edges: []const sg.Edge,
+        groups: ?[]const G = &.{},
+        memberships: ?usize = null,
+        independent: []const pb.EdgeId = &.{},
+        dual: ?pb.EdgeId = null,
+    };
+    const rows = [_]Row{
+        .{ .edges = &.{}, .memberships = 0 },
+        .{ .edges = &.{edge(7, 0, 1)}, .memberships = 1, .independent = &.{7} },
+        // Members come back in canonical order, not input order.
+        .{ .edges = &.{ edge(8, 0, 2), edge(4, 0, 1) }, .groups = &.{.{ .dir = .out, .pivot = 0, .members = &.{ 4, 8 } }} },
+        .{ .edges = &.{ edge(9, 2, 4), edge(3, 1, 4) }, .groups = &.{.{ .dir = .in, .pivot = 4, .members = &.{ 3, 9 } }} },
+        .{ .edges = &.{ edge(11, 0, 4), edge(12, 0, 1), edge(13, 2, 4) }, .groups = null, .dual = 11 },
+        .{ .edges = &.{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) }, .memberships = 3 },
+        // A parallel pair is grouped at both ends, not deduped.
+        .{ .edges = &.{ edge(2, 0, 1), edge(7, 0, 1) }, .groups = &.{
+            .{ .dir = .out, .pivot = 0, .members = &.{ 2, 7 } },
+            .{ .dir = .in, .pivot = 1, .members = &.{ 2, 7 } },
+        } },
+        // The self-loop leaves the fan-in before the size check, so no one-member group forms.
+        .{ .edges = &.{ edge(0, 0, 4), edge(1, 4, 4) }, .memberships = 2, .independent = &.{ 0, 1 } },
+    };
+    for (rows) |row| {
+        const g = graph(row.edges);
+        const plan = (try planner.build(a, g, .joined)).plan;
+        try expectClean(a, g, plan);
+        if (row.groups) |want| {
+            try std.testing.expectEqual(want.len, plan.groups.len);
+            for (want, plan.groups) |w, got| {
+                try std.testing.expectEqual(w.dir, got.direction);
+                try std.testing.expectEqual(w.pivot, got.pivot);
+                try std.testing.expectEqualSlices(pb.EdgeId, w.members, got.members);
+            }
+        }
+        if (row.memberships) |n| try std.testing.expectEqual(n, plan.memberships.len);
+        for (row.independent) |id| {
+            const m = membershipOf(plan, id).?;
+            try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), m.source_group);
+            try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), m.target_group);
+        }
+        if (row.dual) |id| {
+            const m = membershipOf(plan, id).?;
+            try std.testing.expect(m.source_group != null and m.target_group != null);
+        }
+    }
 }
 
 test "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes" {
@@ -177,62 +143,32 @@ test "V-D-EDGE-ID-05: edge-array permutation preserves canonical plan bytes" {
     try expectClean(a, graph(&shuffled), right.plan);
 }
 
-test "edges with equal canonical keys stay two groups" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(2, 0, 1), edge(7, 0, 1) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 2), result.plan.groups.len);
-    try expectClean(a, graph(&edges), result.plan);
-}
-
 test "V-D-EDGE-ID-02: clustered graph returns empty plan and the skip marker" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
-    const cluster = [_]sg.Cluster{.{
-        .id = 0,
-        .raw_id = "cluster",
-        .label = "cluster",
-        .parent = null,
-        .members = &.{},
-        .sub_clusters = &.{},
-    }};
-    var clustered = graph(&.{});
-    clustered.clusters = &cluster;
+    const members = [_]sg.NodeId{ 1, 2 };
+    const fan_edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2) };
+    // An empty cluster, then a real fan whose leaves sit in the cluster.
+    const cases = [_]struct { members: []const sg.NodeId, edges: []const sg.Edge }{
+        .{ .members = &.{}, .edges = &.{} },
+        .{ .members = &members, .edges = &fan_edges },
+    };
+    for (cases) |case| {
+        const cluster = [_]sg.Cluster{
+            .{ .id = 0, .raw_id = "S", .label = "S", .parent = null, .members = case.members, .sub_clusters = &.{} },
+        };
+        var clustered = graph(case.edges);
+        clustered.clusters = &cluster;
 
-    const result = try planner.build(a, clustered, .joined);
-    try std.testing.expectEqual(pb.BundlePolicy.joined, result.plan.policy);
-    try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
-    try std.testing.expectEqual(@as(usize, 0), result.plan.memberships.len);
-    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
-    try expectClean(a, clustered, result.plan);
-}
-
-test "V-D-JOIN-SELECT-14: self-loop excluded from fan-in group leaves residual member independent" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const edges = [_]sg.Edge{ edge(0, 0, 4), edge(1, 4, 4) };
-
-    const result = try planner.build(a, graph(&edges), .joined);
-    try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
-    try std.testing.expectEqual(@as(usize, 2), result.plan.memberships.len);
-    for (result.plan.memberships) |membership| {
-        try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), membership.source_group);
-        try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), membership.target_group);
+        const result = try planner.build(a, clustered, .joined);
+        try std.testing.expectEqual(pb.BundlePolicy.joined, result.plan.policy);
+        try std.testing.expectEqual(pb.BundlePermits.Scope.skipped_clustered, result.plan.scope);
+        try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
+        try std.testing.expectEqual(@as(usize, 0), result.plan.memberships.len);
+        try std.testing.expect(result.report.bundle_permits_skipped_clustered);
+        if (case.edges.len == 0) try expectClean(a, clustered, result.plan);
     }
-    try expectClean(a, graph(&edges), result.plan);
-
-    const swapped = [_]sg.Edge{ edge(1, 4, 4), edge(0, 0, 4) };
-    const other = try planner.build(a, graph(&swapped), .joined);
-    try std.testing.expectEqualStrings(
-        try canonicalBytes(a, result.plan),
-        try canonicalBytes(a, other.plan),
-    );
-    try expectClean(a, graph(&swapped), other.plan);
 }
 
 test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co-members" {
@@ -251,25 +187,6 @@ test "V-D-JOIN-SELECT-14: self-loop exclusion does not annihilate real fan-in co
     try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.source_group);
     try std.testing.expectEqual(@as(?pb.CandidateBundleId, null), self_loop.target_group);
     try expectClean(a, graph(&edges), result.plan);
-}
-
-test "builder output always validates clean across discovery shapes" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const cases = [_][]const sg.Edge{
-        &.{},
-        &.{edge(0, 0, 1)},
-        &.{ edge(0, 0, 1), edge(1, 0, 2) },
-        &.{ edge(0, 1, 4), edge(1, 2, 4) },
-        &.{ edge(0, 0, 4), edge(1, 0, 1), edge(2, 2, 4) },
-        &.{ edge(0, 0, 4), edge(1, 1, 4), edge(2, 4, 4) },
-    };
-    for (cases) |edges| {
-        const g = graph(edges);
-        const result = try planner.build(a, g, .joined);
-        try expectClean(a, g, result.plan);
-    }
 }
 
 test "validator rejects each structural invariant corruption" {
@@ -358,6 +275,8 @@ test "rail preparation takes the pivot decoration with the most leaves, then the
     edges[3].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 13, 11, 12, 10 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 
     edges[2].kind = .solid;
     edges[3].kind = .solid;
@@ -369,28 +288,14 @@ test "rail preparation takes the pivot decoration with the most leaves, then the
     edges[3].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
+    prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 13, 11, 12, 10 });
+    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, prepared);
 
     edges[3].kind = .solid;
     edges[4].arrow_from = .circle;
     edges[4].kind = .dotted;
     prepared = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13, 14 });
     try std.testing.expectEqualSlices(pb.EdgeId, &.{ 12, 13 }, prepared);
-}
-
-test "rail preparation evidence and salvage are permutation invariant" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var edges = [_]sg.Edge{ edge(10, 0, 1), edge(11, 0, 2), edge(12, 0, 3), edge(13, 0, 4) };
-    edges[2].arrow_from = .circle;
-    edges[3].arrow_from = .circle;
-    edges[3].kind = .dotted;
-    const g = graph(&edges);
-
-    const ordered = try planner.prepareRailMembers(a, g, .out, 0, &.{ 10, 11, 12, 13 });
-    const shuffled = try planner.prepareRailMembers(a, g, .out, 0, &.{ 13, 11, 12, 10 });
-    try std.testing.expectEqualSlices(pb.EdgeId, ordered, shuffled);
-    try std.testing.expectEqualSlices(pb.EdgeId, &.{ 10, 11 }, ordered);
 }
 
 test "rail preparation ignores an invisible plurality" {
@@ -430,22 +335,4 @@ test "piece plan licenses a fan in piece-local ids; synthetic edges take no part
     for (result.plan.memberships) |m| {
         try std.testing.expect(m.edge <= 2);
     }
-}
-
-test "root-level build of a clustered graph is unchanged by the piece path" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const members = [_]sg.NodeId{ 1, 2 };
-    const clusters = [_]sg.Cluster{
-        .{ .id = 0, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{} },
-    };
-    var g = graph(&.{ edge(0, 0, 1), edge(1, 0, 2) });
-    g.clusters = &clusters;
-
-    const result = try planner.build(a, g, .joined);
-    try std.testing.expectEqual(pb.BundlePermits.Scope.skipped_clustered, result.plan.scope);
-    try std.testing.expect(result.report.bundle_permits_skipped_clustered);
-    try std.testing.expectEqual(@as(usize, 0), result.plan.groups.len);
 }

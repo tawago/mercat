@@ -114,42 +114,10 @@ test "incomplete overlapping fans get separate lanes" {
     try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
     try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
     try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(4, .in));
-}
-
-test "lane-separated rails take distinct ledger rows and the gap reserves exactly those" {
-    const a = testing.allocator;
-    var nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 },
-        .{ .real = 3 }, .{ .real = 4 }, .{ .real = 5 },
-    };
-    var row0 = [_]u32{ 0, 1, 2 };
-    var row1 = [_]u32{ 3, 4, 5 };
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 3, .reversed = false, .edge = 100 },
-        .{ .from = 0, .to = 4, .reversed = false, .edge = 101 },
-        .{ .from = 1, .to = 4, .reversed = false, .edge = 200 },
-        .{ .from = 2, .to = 4, .reversed = false, .edge = 201 },
-        .{ .from = 2, .to = 5, .reversed = false, .edge = 202 },
-    };
-    var reversed = [_]sg.EdgeId{};
-    const lg = mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Geom{
-        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 },
-        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 },
-    };
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    const graph = try mkGraph(aa, &edges);
-    const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
-    const ledger = try buildPiece(aa, graph, lg, &geom, fans, .{}, .{}, &.{2}, &.{}, &.{});
+    // The two lanes take distinct ledger rows, and the gap reserves exactly those.
     const row_a = ledger.rowOfFan(0, .out) orelse return error.MissingRail;
     const row_c = ledger.rowOfFan(2, .out) orelse return error.MissingRail;
     try testing.expect(row_a != row_c);
-    try testing.expectEqual(@as(u32, 2), ledger.gaps[0].rows_used);
-    try testing.expectEqual(@as(u32, 2), ledger.extraRows(0));
 }
 
 pub fn mkBareGraph(a: std.mem.Allocator, ledges: []const sugiyama.LayerEdge, extra: []const sg.Edge) !sg.SemGraph {
@@ -224,34 +192,7 @@ test "a clustered undirected fan with no declared leaf pairs unfuses onto separa
     }
 }
 
-test "a clustered DIRECTED fan is untouched by the closure licence" {
-    const a = testing.allocator;
-    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
-    var row0 = [_]u32{ 0, 1, 2 };
-    var row1 = [_]u32{3};
-    var layers = [_][]u32{ &row0, &row1 };
-    var edges = [_]sugiyama.LayerEdge{
-        .{ .from = 0, .to = 3, .reversed = false, .edge = 10 },
-        .{ .from = 1, .to = 3, .reversed = false, .edge = 11 },
-        .{ .from = 2, .to = 3, .reversed = false, .edge = 12 },
-    };
-    var reversed = [_]sg.EdgeId{};
-    const lg = mkLg(&nodes, &layers, &edges, &reversed);
-    const geom = [_]Geom{
-        .{ .x = 0, .w = 3 }, .{ .x = 9, .w = 3 }, .{ .x = 18, .w = 3 }, .{ .x = 9, .w = 3 },
-    };
-    var arena = std.heap.ArenaAllocator.init(a);
-    defer arena.deinit();
-    const aa = arena.allocator();
-    const graph = try mkGraph(aa, &edges);
-    const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
-    var lanes = [_]u32{ 9, 9, 9 };
-    peerLanes(fans, .in, 3, &lanes);
-    for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
-}
-
-test "a fan of placement proxies for directed crossings is untouched by the closure licence" {
+test "a clustered fan of directed edges, or of placement proxies for directed crossings, is untouched by the closure licence" {
     const a = testing.allocator;
     var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 }, .{ .real = 2 }, .{ .real = 3 } };
     var row0 = [_]u32{ 0, 1, 2 };
@@ -271,14 +212,15 @@ test "a fan of placement proxies for directed crossings is untouched by the clos
     defer arena.deinit();
     const aa = arena.allocator();
 
-    const graph = try mkBareGraph(aa, &edges, &.{});
-    for (@constCast(graph.edges)) |*e| e.stands_for = .forward_one_way;
-
-    const fans = try fan.detect(aa, graph, lg);
-    try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
-    var lanes = [_]u32{ 9, 9, 9 };
-    peerLanes(fans, .in, 3, &lanes);
-    for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+    const proxies = try mkBareGraph(aa, &edges, &.{});
+    for (@constCast(proxies.edges)) |*e| e.stands_for = .forward_one_way;
+    for ([_]sg.SemGraph{ try mkGraph(aa, &edges), proxies }) |graph| {
+        const fans = try fan.detect(aa, graph, lg);
+        try fan_lanes.assignLanes(Geom, aa, graph, lg, &geom, fans, .{});
+        var lanes = [_]u32{ 9, 9, 9 };
+        peerLanes(fans, .in, 3, &lanes);
+        for (lanes) |l| try testing.expectEqual(@as(u32, 0), l);
+    }
 }
 
 test "a salvaged fan's excluded members never land on the kept rail's lane" {
@@ -556,13 +498,10 @@ fn runFiveOfSix(cx_c: i32, bundles: pb.RealizedBundles) !bool {
     return laneOfPivot(fans, .out, 0) != laneOfPivot(fans, .out, 1);
 }
 
-test "a peer on its pivot's own column never shrinks a group into looking complete" {
+test "neither a peer on its pivot's own column nor a discharged edge shrinks a group into looking complete" {
+    var co = [_]pb.EdgeId{4};
     try testing.expect(try runFiveOfSix(21, .{}));
     try testing.expect(try runFiveOfSix(31, .{}));
-}
-
-test "a discharged edge never shrinks a group into looking complete" {
-    var co = [_]pb.EdgeId{4};
     try testing.expect(try runFiveOfSix(31, .{ .discharged = &co }));
 }
 

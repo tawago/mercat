@@ -266,103 +266,32 @@ fn singleScalar(bytes: []const u8) ?u21 {
     return std.unicode.utf8Decode(bytes) catch null;
 }
 
-test "Canvas basic operations" {
+test "drawText puts one scalar per cell at its authority width" {
     const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 20, 10);
-    defer canvas.deinit();
+    const cases = [_]struct { text: []const u8, row: []const u8 }{
+        .{ .text = "◁A◆", .row = "◁A◆" },
+        .{ .text = "A日B", .row = "A日 B" },
+    };
+    for (cases) |case| {
+        var canvas = try Canvas.init(testing.allocator, 12, 1);
+        defer canvas.deinit();
+        canvas.drawText(0, 0, case.text, .node_text);
+        const str = try canvas.toString(testing.allocator);
+        defer testing.allocator.free(str);
+        try testing.expectEqualStrings(case.row, str[0 .. str.len - 1]);
+    }
 
-    canvas.setChar(5, 5, 'X', .node_text);
-    const cell = canvas.getCell(5, 5).?;
-    try testing.expectEqual(@as(u21, 'X'), cell.char);
-
-    try testing.expect(canvas.getCell(-1, 0) == null);
-    try testing.expect(canvas.getCell(20, 0) == null);
-}
-
-test "Canvas draw box" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 10, 5);
-    defer canvas.deinit();
-
-    canvas.drawBox(.{ .x = 0, .y = 0, .width = 5, .height = 3 }, types.unicode_square, .node_border);
-
-    try testing.expectEqual(types.unicode_square.top_left, canvas.getCell(0, 0).?.char);
-    try testing.expectEqual(types.unicode_square.top_right, canvas.getCell(4, 0).?.char);
-    try testing.expectEqual(types.unicode_square.bottom_left, canvas.getCell(0, 2).?.char);
-    try testing.expectEqual(types.unicode_square.bottom_right, canvas.getCell(4, 2).?.char);
-}
-
-test "Canvas toString" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 5, 3);
-    defer canvas.deinit();
-
-    canvas.drawText(0, 0, "Hi", .node_text);
-    canvas.drawText(0, 2, "Lo", .node_text);
-
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-
-    try testing.expectEqualStrings("Hi\n\nLo\n", str);
-}
-
-test "drawText decodes multi-byte UTF-8 into one scalar per cell" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 10, 2);
-    defer canvas.deinit();
-
-    canvas.drawText(0, 0, "◁A◆", .node_text);
-    try testing.expectEqual(@as(u21, 0x25C1), canvas.getCell(0, 0).?.char);
-    try testing.expectEqual(@as(u21, 'A'), canvas.getCell(1, 0).?.char);
-    try testing.expectEqual(@as(u21, 0x25C6), canvas.getCell(2, 0).?.char);
-
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-    try testing.expectEqualStrings("◁A◆\n", str);
-}
-
-test "drawText uses authority width for ASCII and CJK scalars" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 12, 1);
-    defer canvas.deinit();
-
-    canvas.drawText(0, 0, "A日B", .node_text);
-    try testing.expectEqual(@as(u21, 'A'), canvas.getCell(0, 0).?.char);
-    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(1, 0).?.char);
-    try testing.expectEqual(@as(u21, ' '), canvas.getCell(2, 0).?.char);
-    try testing.expectEqual(@as(u21, 'B'), canvas.getCell(3, 0).?.char);
-
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-    try testing.expectEqualStrings("A日 B\n", str);
-
-    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 7, .height = 1 }, "日", .node_text);
-    try testing.expectEqual(@as(u21, 0x65E5), canvas.getCell(6, 0).?.char);
-}
-
-test "drawTextSpanning keeps one terminal column per cell after a wide grapheme" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 6, 1);
-    defer canvas.deinit();
-
-    try canvas.drawTextSpanning(0, 0, "A日B", .node_text);
-    canvas.setChar(5, 0, '|', .edge);
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-    try testing.expectEqualStrings("A日B |\n", str);
-
-    var tabbed = try Canvas.init(testing.allocator, 8, 1);
-    defer tabbed.deinit();
-    try tabbed.drawTextSpanning(0, 0, "ab\tc", .node_text);
-    tabbed.setChar(7, 0, '|', .edge);
-    const spaced = try tabbed.toString(testing.allocator);
-    defer testing.allocator.free(spaced);
-    try testing.expectEqualStrings("ab  c  |\n", spaced);
+    var centered = try Canvas.init(testing.allocator, 12, 1);
+    defer centered.deinit();
+    centered.drawTextCentered(.{ .x = 4, .y = 0, .width = 7, .height = 1 }, "日", .node_text);
+    try testing.expectEqual(@as(u21, 0x65E5), centered.getCell(6, 0).?.char);
 }
 
 test "drawTextSpanning draws every grapheme whole and keeps the column after it" {
     const testing = std.testing;
-    const cases = [_]struct { text: []const u8, row: []const u8 }{
+    const cases = [_]struct { text: []const u8, row: []const u8, x: i32 = 0 }{
+        .{ .text = "A日B", .row = "A日B   |" },
+        .{ .text = "ab\tc", .row = "ab  c  |" },
         .{ .text = "Cafe\u{0301}!", .row = "Cafe\u{0301}!  |" },
         .{ .text = "\u{304B}\u{3099}!", .row = "\u{304B}\u{3099}!    |" },
         .{ .text = "\u{2764}\u{FE0F}!", .row = "\u{2764}\u{FE0F}!    |" },
@@ -370,11 +299,14 @@ test "drawTextSpanning draws every grapheme whole and keeps the column after it"
         .{ .text = "👩‍💻!", .row = "👩‍💻!    |" },
         .{ .text = "\u{0301}x", .row = " \u{0301}x     |" },
         .{ .text = "\u{3099}x", .row = "\u{3000}\u{3099}x    |" },
+        // A lone emoji modifier opening a line is drawn on a space, keeping the cell before it.
+        .{ .text = "🏽x", .row = "| 🏽x   |", .x = 1 },
     };
     for (cases) |case| {
         var canvas = try Canvas.init(testing.allocator, 8, 1);
         defer canvas.deinit();
-        try canvas.drawTextSpanning(0, 0, case.text, .edge_label);
+        if (case.x > 0) canvas.setChar(0, 0, '|', .edge);
+        try canvas.drawTextSpanning(case.x, 0, case.text, .edge_label);
         canvas.setChar(7, 0, '|', .edge);
         const str = try canvas.toString(testing.allocator);
         defer testing.allocator.free(str);
@@ -383,33 +315,17 @@ test "drawTextSpanning draws every grapheme whole and keeps the column after it"
     }
 }
 
-test "a lone emoji modifier opening a line is drawn on a space, keeping the cell before it" {
+test "overwriting part of a grapheme blanks the rest of it" {
     const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 6, 1);
-    defer canvas.deinit();
-    canvas.setChar(0, 0, '|', .edge);
-    try canvas.drawTextSpanning(1, 0, "🏽x", .edge_label);
-    canvas.setChar(5, 0, '|', .edge);
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-    try testing.expectEqualStrings("| 🏽x |\n", str);
-    try testing.expectEqual(@as(usize, 6), try unicode.rawDisplayWidth(str[0 .. str.len - 1]));
-}
+    var whole = try Canvas.init(testing.allocator, 6, 1);
+    defer whole.deinit();
+    try whole.drawTextSpanning(0, 0, "👩‍💻👩‍💻", .edge_label);
+    whole.setChar(0, 0, '|', .node_border);
+    whole.setChar(5, 0, '#', .edge);
+    const whole_str = try whole.toString(testing.allocator);
+    defer testing.allocator.free(whole_str);
+    try testing.expectEqualStrings("| 👩‍💻 #\n", whole_str);
 
-test "overwriting a whole grapheme blanks its continuation" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 6, 1);
-    defer canvas.deinit();
-    try canvas.drawTextSpanning(0, 0, "👩‍💻👩‍💻", .edge_label);
-    canvas.setChar(0, 0, '|', .node_border);
-    canvas.setChar(5, 0, '#', .edge);
-    const str = try canvas.toString(testing.allocator);
-    defer testing.allocator.free(str);
-    try testing.expectEqualStrings("| 👩‍💻 #\n", str);
-}
-
-test "overwriting either half of a wide grapheme blanks its partner" {
-    const testing = std.testing;
     for ([_]i32{ 1, 2 }) |hit| {
         var canvas = try Canvas.init(testing.allocator, 6, 1);
         defer canvas.deinit();
@@ -424,24 +340,16 @@ test "overwriting either half of a wide grapheme blanks its partner" {
     }
 }
 
-test "drawText declines invalid UTF-8 controls and tabs atomically" {
+test "drawText declines invalid UTF-8, controls, tabs, and combining or ZWJ graphemes atomically" {
     const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 12, 1);
+    var canvas = try Canvas.init(testing.allocator, 24, 1);
     defer canvas.deinit();
 
     canvas.drawText(0, 0, "A\x80B", .node_text);
     canvas.drawText(3, 0, "A\nB", .node_text);
     canvas.drawText(6, 0, "A\tB", .node_text);
-    for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
-}
-
-test "drawText declines combining and ZWJ graphemes atomically" {
-    const testing = std.testing;
-    var canvas = try Canvas.init(testing.allocator, 12, 1);
-    defer canvas.deinit();
-
-    canvas.drawText(0, 0, "e\u{0301}X", .node_text);
-    canvas.drawTextCentered(.{ .x = 4, .y = 0, .width = 8, .height = 1 }, "👩‍💻", .node_text);
+    canvas.drawText(9, 0, "e\u{0301}X", .node_text);
+    canvas.drawTextCentered(.{ .x = 14, .y = 0, .width = 8, .height = 1 }, "👩‍💻", .node_text);
     for (canvas.cells[0]) |cell| try testing.expectEqual(@as(u21, ' '), cell.char);
 }
 

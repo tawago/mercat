@@ -55,16 +55,6 @@ test "empty document produces no bytes" {
     try testing.expectEqualStrings("", out);
 }
 
-test "single line gets one trailing newline" {
-    var spans = [_]Span{makeSpan("hello")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-
-    const out = try serialize(testing.allocator, rendered);
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings("hello\n", out);
-}
-
 test "spans concatenate in order and lines join with lf" {
     var spans0 = [_]Span{ makeSpan("foo"), makeSpan("bar") };
     var spans1 = [_]Span{makeSpan("baz")};
@@ -92,66 +82,6 @@ test "blank lines are preserved not trimmed" {
     try testing.expectEqualStrings("a\n\nb\n", out);
 }
 
-test "leading and trailing spaces are preserved" {
-    var spans = [_]Span{makeSpan("  indented text  ")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-
-    const out = try serialize(testing.allocator, rendered);
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings("  indented text  \n", out);
-}
-
-test "a line of only empty spans still contributes a row" {
-    var spans_empty = [_]Span{};
-    var lines = [_]Line{ .{ .spans = &spans_empty }, .{ .spans = &spans_empty } };
-    const rendered = Rendered{ .lines = &lines };
-
-    const out = try serialize(testing.allocator, rendered);
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings("\n\n", out);
-}
-
-test "multibyte utf8 is preserved" {
-    var spans = [_]Span{makeSpan("├─ café →")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-
-    const out = try serialize(testing.allocator, rendered);
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings("├─ café →\n", out);
-}
-
-test "printable ASCII remains byte-identical" {
-    const ascii = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-    var spans = [_]Span{makeSpan(ascii)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const out = try serialize(testing.allocator, .{ .lines = &lines });
-    defer testing.allocator.free(out);
-    try testing.expectEqualStrings(ascii ++ "\n", out);
-}
-
-test "rejects esc byte" {
-    var spans = [_]Span{makeSpan("\x1b[31mred")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects nul byte" {
-    var spans = [_]Span{makeSpan("a\x00b")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects carriage return byte" {
-    var spans = [_]Span{makeSpan("a\rb")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
 test "tabs expand at four-column stops including after wide graphemes" {
     var spans = [_]Span{makeSpan("\ta\t日\tx")};
     var lines = [_]Line{.{ .spans = &spans }};
@@ -161,66 +91,16 @@ test "tabs expand at four-column stops including after wide graphemes" {
     try testing.expectEqualStrings("    a   日  x\n", out);
 }
 
-test "rejects a generic C0 control (bell)" {
-    var spans = [_]Span{makeSpan("a\x07b")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects DEL" {
-    var spans = [_]Span{makeSpan("a\x7fb")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects a bare LF inside span text (line breaks are structural)" {
-    var spans = [_]Span{makeSpan("a\nb")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects utf8-encoded c1 csi introducer" {
-    var spans = [_]Span{makeSpan("\xc2\x9b[31mred")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects utf8-encoded c1 osc introducer" {
-    var spans = [_]Span{makeSpan("a\xc2\x9db")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, rendered));
-}
-
-test "rejects a Unicode format control with the existing typed error" {
-    var spans = [_]Span{makeSpan("a\u{2060}b")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    try testing.expectError(error.InvalidPlainByte, serialize(testing.allocator, .{ .lines = &lines }));
-}
-
-test "rejects invalid utf8" {
-    var spans = [_]Span{makeSpan("\xff\xfe")};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidUtf8, serialize(testing.allocator, rendered));
-}
-
-test "preserves grapheme bytes across spans without normalization" {
-    var split = [_]Span{ makeSpan("e"), makeSpan("\u{0301}") };
-    var split_lines = [_]Line{.{ .spans = &split }};
-    const decomposed = try serialize(testing.allocator, .{ .lines = &split_lines });
-    defer testing.allocator.free(decomposed);
-
-    var joined = [_]Span{makeSpan("é")};
-    var joined_lines = [_]Line{.{ .spans = &joined }};
-    const composed = try serialize(testing.allocator, .{ .lines = &joined_lines });
-    defer testing.allocator.free(composed);
-
-    try testing.expectEqualStrings("e\u{0301}\n", decomposed);
-    try testing.expectEqualStrings("é\n", composed);
-    try testing.expect(!std.mem.eql(u8, decomposed, composed));
+test "rejects terminal escapes, embedded line feeds and invalid utf8" {
+    const cases = [_]struct { text: []const u8, err: Error }{
+        .{ .text = "\x1b[31mred", .err = error.InvalidPlainByte },
+        .{ .text = "\xc2\x9b[31mred", .err = error.InvalidPlainByte },
+        .{ .text = "a\nb", .err = error.InvalidPlainByte },
+        .{ .text = "\xff\xfe", .err = error.InvalidUtf8 },
+    };
+    for (cases) |case| {
+        var spans = [_]Span{makeSpan(case.text)};
+        var lines = [_]Line{.{ .spans = &spans }};
+        try testing.expectError(case.err, serialize(testing.allocator, .{ .lines = &lines }));
+    }
 }

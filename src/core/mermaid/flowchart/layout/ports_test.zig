@@ -61,36 +61,15 @@ test "V-D-PORT-03: offsets follow o_i = m-(p-1)+2i with pitch 2 and corners excl
     }
 }
 
-test "V-D-PORT-03: p=3 on a w=5 node demands w_min=7 and allocates offsets 1,3,5 with height untouched" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    try std.testing.expect(!ports.satisfiable(5, 3));
-    const dims = ports.demandDims(.{ .south = 3 });
-    try std.testing.expectEqual(@as(u32, 7), dims.w_min);
-    try std.testing.expectEqual(@as(u32, 1), dims.h_min);
-
-    const atts = [_]ports.Attachment{
-        att("A", .source_exit, 0, 0),
-        att("B", .source_exit, 1, 0),
-        att("C", .source_exit, 2, 0),
-    };
-    const out = try assigned(try ports.allocate(a, dims.w_min, &atts));
-    try std.testing.expectEqual(@as(u32, 3), ports.midpoint(7));
-    try std.testing.expectEqual(@as(u32, 1), out[0].offset);
-    try std.testing.expectEqual(@as(u32, 3), out[1].offset);
-    try std.testing.expectEqual(@as(u32, 5), out[2].offset);
-}
-
-test "V-D-PORT-04: a singleton port is exactly today's midpoint floor(L/2)" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    for ([_]u32{ 3, 5, 7, 10 }) |side_len| {
-        const atts = [_]ports.Attachment{att("B", .source_exit, 0, 0)};
-        const out = try assigned(try ports.allocate(a, side_len, &atts));
-        try std.testing.expectEqual(side_len / 2, out[0].offset);
-    }
+test "demandDims needs 2*max+1 cells per axis, so p=3 does not fit a w=5 face" {
+    const t = std.testing;
+    try t.expect(!ports.satisfiable(5, 3));
+    const empty = ports.demandDims(.{});
+    try t.expectEqual(@as(u32, 1), empty.w_min);
+    try t.expectEqual(@as(u32, 1), empty.h_min);
+    const dims = ports.demandDims(.{ .north = 2, .south = 3, .east = 1 });
+    try t.expectEqual(@as(u32, 7), dims.w_min);
+    try t.expectEqual(@as(u32, 3), dims.h_min);
 }
 
 test "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed" {
@@ -106,23 +85,6 @@ test "V-D-PORT-04: capacity boundary L=2p+1 allocates and L=2p fails typed" {
         try std.testing.expectEqual(@as(usize, p), ok.len);
         try std.testing.expect(try ports.allocate(a, 2 * p, atts.items) == .capacity_exceeded);
     }
-}
-
-test "a face clamped to length 3 cannot hold two attachments and allocates none" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var independent = att("X", .source_exit, 7, 0);
-    independent.group = 3;
-    const rail: ports.Attachment = .{
-        .class = .rail_pivot,
-        .key = .{ .opposite = "Y", .endpoint_side = .source_exit, .kind = 0, .arrow_from = 0, .arrow_to = 2, .label = null },
-        .edge = 8,
-        .group = 5,
-        .members = &.{ 8, 9 },
-        .opposite_center = 4,
-    };
-    try std.testing.expect(try ports.allocate(a, 3, &.{ independent, rail }) == .capacity_exceeded);
 }
 
 test "attachments whose keys are byte-identical collide whatever order they arrive in" {
@@ -162,22 +124,6 @@ test "V-D-PORT-02: attachment input permutation yields byte-identical assignment
             try std.testing.expectEqual(want.offset, got.offset);
         }
     }
-}
-
-test "equal NodeId never coalesces: S1->T and S2->T get distinct entry ports" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const atts = [_]ports.Attachment{
-        att("S2", .target_entry, 1, 5),
-        att("S1", .target_entry, 0, 5),
-    };
-    const out = try assigned(try ports.allocate(a, 7, &atts));
-    try std.testing.expectEqual(@as(usize, 2), out.len);
-    try std.testing.expectEqualStrings("S1", out[0].attachment.key.opposite);
-    try std.testing.expectEqualStrings("S2", out[1].attachment.key.opposite);
-    try std.testing.expectEqual(@as(u32, 2), out[0].offset);
-    try std.testing.expectEqual(@as(u32, 4), out[1].offset);
 }
 
 test "clause-6 order: opposite center is primary, K breaks ties with no-label first and pinned ordinals" {
@@ -328,61 +274,6 @@ test "a fused union's leaf node exits through one shared attachment" {
     lapsed.fused = &.{};
     const per_edge = try ports.derive(a, graph, plan, lapsed, .TD, &.{});
     try std.testing.expectEqual(@as(usize, 2), (try ports.forSide(a, per_edge, 0, .south)).len);
-}
-
-test "graph edge-array permutation leaves derived allocation identical" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const nodes = [_]sg.Node{ mkNode(0, "S"), mkNode(1, "A"), mkNode(2, "B"), mkNode(3, "C") };
-    const fwd = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 0, 2), mkEdge(2, 0, 3) };
-    const rev = [_]sg.Edge{ mkEdge(2, 0, 3), mkEdge(0, 0, 1), mkEdge(1, 0, 2) };
-    var outs: [2][]const ports.Assignment = undefined;
-    for ([2][]const sg.Edge{ &fwd, &rev }, 0..) |edges, i| {
-        const graph = mkGraph(.TD, &nodes, edges);
-        const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{});
-        const south = try ports.forSide(a, derived, 0, .south);
-        outs[i] = try assigned(try ports.allocate(a, 7, south));
-    }
-    try std.testing.expectEqual(outs[0].len, outs[1].len);
-    for (outs[0], outs[1]) |want, got| {
-        try std.testing.expectEqual(want.attachment.edge, got.attachment.edge);
-        try std.testing.expectEqual(want.offset, got.offset);
-    }
-}
-
-test "side conventions are frozen per direction for forward, reversed, and self-loop attachments" {
-    const t = std.testing;
-    try t.expectEqual(sk.Dir4.south, ports.forwardSide(.TD, .source_exit));
-    try t.expectEqual(sk.Dir4.north, ports.forwardSide(.TD, .target_entry));
-    try t.expectEqual(sk.Dir4.north, ports.forwardSide(.BT, .source_exit));
-    try t.expectEqual(sk.Dir4.south, ports.forwardSide(.BT, .target_entry));
-    try t.expectEqual(sk.Dir4.east, ports.forwardSide(.LR, .source_exit));
-    try t.expectEqual(sk.Dir4.west, ports.forwardSide(.LR, .target_entry));
-    try t.expectEqual(sk.Dir4.west, ports.forwardSide(.RL, .source_exit));
-    try t.expectEqual(sk.Dir4.east, ports.forwardSide(.RL, .target_entry));
-    try t.expectEqual(sk.Dir4.east, ports.reversedSide(.TD));
-    try t.expectEqual(sk.Dir4.east, ports.reversedSide(.BT));
-    try t.expectEqual(sk.Dir4.south, ports.reversedSide(.LR));
-    try t.expectEqual(sk.Dir4.south, ports.reversedSide(.RL));
-    try t.expectEqual(sk.Dir4.east, ports.selfLoopSide(.TD, .source_exit));
-    try t.expectEqual(sk.Dir4.north, ports.selfLoopSide(.TD, .target_entry));
-    try t.expectEqual(sk.Dir4.east, ports.selfLoopSide(.BT, .source_exit));
-    try t.expectEqual(sk.Dir4.north, ports.selfLoopSide(.BT, .target_entry));
-    try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.LR, .source_exit));
-    try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.LR, .target_entry));
-    try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.RL, .source_exit));
-    try t.expectEqual(sk.Dir4.south, ports.selfLoopSide(.RL, .target_entry));
-}
-
-test "demandDims computes 2*max+1 per axis" {
-    const t = std.testing;
-    const empty = ports.demandDims(.{});
-    try t.expectEqual(@as(u32, 1), empty.w_min);
-    try t.expectEqual(@as(u32, 1), empty.h_min);
-    const dims = ports.demandDims(.{ .north = 2, .south = 3, .east = 1 });
-    try t.expectEqual(@as(u32, 7), dims.w_min);
-    try t.expectEqual(@as(u32, 3), dims.h_min);
 }
 
 test "a plain forward arrival co-located with a self-loop terminal joins the side allocation" {

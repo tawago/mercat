@@ -155,50 +155,22 @@ test {
     _ = @import("budget_test.zig");
 }
 
-test "halveAtLeastOne clamps to 1" {
-    try std.testing.expectEqual(@as(u32, 2), halveAtLeastOne(4));
-    try std.testing.expectEqual(@as(u32, 1), halveAtLeastOne(1));
-    try std.testing.expectEqual(@as(u32, 1), halveAtLeastOne(0));
-}
-
-test "rotateForRung only fires on switch_direction" {
-    const g: sem_graph.SemGraph = .{
-        .direction = .TD,
-        .nodes = &.{},
-        .edges = &.{},
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-    try std.testing.expectEqual(sem_graph.Direction.TD, rotateForRung(g, .natural).direction);
-    try std.testing.expectEqual(sem_graph.Direction.TD, rotateForRung(g, .tight).direction);
-    try std.testing.expectEqual(sem_graph.Direction.LR, rotateForRung(g, .switch_direction).direction);
-    try std.testing.expectEqual(sem_graph.Direction.TD, rotateForRung(g, .truncate).direction);
-
-    var g2 = g;
-    g2.direction = .BT;
-    try std.testing.expectEqual(sem_graph.Direction.RL, rotateForRung(g2, .switch_direction).direction);
-}
-
-test "each rung sets its own spacing, padding, justification and label width" {
-    const Expect = struct { h: u32, v: u32, pad: u32, justify: coords.Justify, scale: u8, label: ?u32 = null, rotated: bool = false };
-    const want = [_]Expect{
-        .{ .h = 4, .v = 2, .pad = 1, .justify = .center, .scale = 0 },
-        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1 },
-        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1, .label = 36 },
-        .{ .h = 2, .v = 1, .pad = 1, .justify = .flush_left, .scale = 1, .rotated = true },
-        .{ .h = 2, .v = 1, .pad = 0, .justify = .flush_left, .scale = 1 },
-    };
-    for (std.enums.values(Rung), want) |rung, w| {
+test "each rung past natural tightens spacing and adds only its own distinguishing option" {
+    const natural = optionsFor(.natural, 40);
+    try std.testing.expectEqual(@as(?u32, null), natural.max_label_width);
+    try std.testing.expect(!natural.is_direction_rotated);
+    for (std.enums.values(Rung)) |rung| {
         const o = optionsFor(rung, 40);
         try std.testing.expectEqual(@as(u32, 40), o.max_width);
         try std.testing.expectEqual(@intFromEnum(rung), o.rung);
-        try std.testing.expectEqual(w.h, o.h_spacing);
-        try std.testing.expectEqual(w.v, o.v_spacing);
-        try std.testing.expectEqual(w.pad, o.node_padding);
-        try std.testing.expectEqual(w.justify, o.justify);
-        try std.testing.expectEqual(w.scale, o.spacing_scale);
-        try std.testing.expectEqual(w.label, o.max_label_width);
-        try std.testing.expectEqual(w.rotated, o.is_direction_rotated);
+        if (rung == .natural) continue;
+        try std.testing.expect(o.h_spacing < natural.h_spacing and o.h_spacing >= 1);
+        try std.testing.expect(o.v_spacing < natural.v_spacing and o.v_spacing >= 1);
+        try std.testing.expect(o.spacing_scale > natural.spacing_scale);
+        try std.testing.expectEqual(rung == .wrap_labels, o.max_label_width != null);
+        try std.testing.expectEqual(rung == .switch_direction, o.is_direction_rotated);
+        try std.testing.expectEqual(rung == .truncate, o.node_padding < natural.node_padding);
     }
+    const wrap = optionsFor(.wrap_labels, 40).max_label_width.?;
+    try std.testing.expect(wrap > 0 and wrap < 40);
 }

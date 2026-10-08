@@ -79,31 +79,6 @@ test "a licensed cross-border fan-in whose members join on one rail from the tar
     try std.testing.expectEqual(ledger.IndependentReason.not_selected, stays.memberships[0].target.?.independent.reason);
 }
 
-test "invisible crossings sharing a pivot re-form no group and keep one stable id" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const crossings = [_]bridges.Crossing{
-        .{ .id = 0, .from = 1, .to = 8, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 3 },
-        .{ .id = 1, .from = 1, .to = 9, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null, .origin = 4 },
-        .{ .id = 2, .from = 1, .to = 6, .kind = .invisible, .arrow_from = .none, .arrow_to = .none, .label = null, .origin = 5 },
-        .{ .id = 3, .from = 1, .to = 7, .kind = .invisible, .arrow_from = .none, .arrow_to = .none, .label = null, .origin = 6 },
-    };
-    var routed: [4]sketch.EdgePath = undefined;
-    for (&routed, crossings) |*r, c| {
-        r.* = .{ .id = c.id, .from = c.from, .to = c.to, .polyline = &.{}, .port_from = .{ .node = c.from, .side = .south, .offset = 1 }, .port_to = .{ .node = c.to, .side = .north, .offset = 1 }, .arrow_from = c.arrow_from, .arrow_to = c.arrow_to, .label = null, .kind = c.kind };
-    }
-
-    const bundles = try bridge_plan.plan(a, &crossings, &routed, 0);
-    try std.testing.expectEqual(@as(usize, 4), bundles.memberships.len);
-    const g0 = bundles.memberships[0].source.?.independent.candidate_bundle;
-    try std.testing.expectEqual(@as(ledger.CandidateBundleId, 0), g0);
-    try std.testing.expectEqual(g0, bundles.memberships[1].source.?.independent.candidate_bundle);
-    try std.testing.expect(bundles.memberships[2].source == null and bundles.memberships[2].target == null);
-    try std.testing.expect(bundles.memberships[3].source == null and bundles.memberships[3].target == null);
-}
-
 test "a crossing the router skipped takes no membership row" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();

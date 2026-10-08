@@ -127,21 +127,6 @@ fn mkEdge(id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {
     return .{ .id = id, .from = from, .to = to, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null };
 }
 
-test "unite: lower-index root always wins, regardless of call order" {
-    {
-        var parent = [_]u32{ 0, 1, 2, 3 };
-        unite(&parent, 3, 1);
-        try testing.expectEqual(@as(u32, 1), find(&parent, 3));
-        try testing.expectEqual(@as(u32, 1), find(&parent, 1));
-    }
-    {
-        var parent = [_]u32{ 0, 1, 2, 3 };
-        unite(&parent, 1, 3);
-        try testing.expectEqual(@as(u32, 1), find(&parent, 3));
-        try testing.expectEqual(@as(u32, 1), find(&parent, 1));
-    }
-}
-
 test "packComponents: virtual-node geometry cannot widen a component's span" {
     const nodes = [_]sg.Node{
         mkNode(20, "PA"),
@@ -310,59 +295,4 @@ test "packComponents: packed components are contiguous with exactly COMPONENT_GA
 
     try testing.expectEqual(spans[0].right + COMPONENT_GAP, spans[1].left);
     try testing.expectEqual(spans[1].right + COMPONENT_GAP, spans[2].left);
-}
-
-test "packComponents: idempotent across repeated calls on equivalent input" {
-    const nodes = [_]sg.Node{
-        mkNode(0, "A"),
-        mkNode(1, "B"),
-        mkNode(2, "C"),
-    };
-    const graph = sg.SemGraph{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &.{},
-        .clusters = &.{},
-        .classes = &.{},
-        .arena = null,
-    };
-
-    var real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32) = .empty;
-    defer real_index.deinit(testing.allocator);
-    try real_index.put(testing.allocator, 0, 0);
-    try real_index.put(testing.allocator, 1, 1);
-    try real_index.put(testing.allocator, 2, 2);
-
-    var lg_nodes = [_]sugiyama.LayerNode{
-        .{ .real = 0 },
-        .{ .real = 1 },
-        .{ .real = 2 },
-    };
-    const lg = sugiyama.LayeredGraph{
-        .nodes = &lg_nodes,
-        .layers = &.{},
-        .edges = &.{},
-        .reversed_edges = &.{},
-        .real_index = real_index,
-        .arena = null,
-    };
-
-    const original = [_]NodeGeom{
-        .{ .x = 0, .y = 0, .w = 6, .h = 1, .layer = 0 },
-        .{ .x = 50, .y = 0, .w = 8, .h = 1, .layer = 0 },
-        .{ .x = 200, .y = 0, .w = 4, .h = 1, .layer = 0 },
-    };
-
-    var geom1 = original;
-    var geom2 = original;
-    try packComponents(testing.allocator, graph, &geom1, lg);
-    try packComponents(testing.allocator, graph, &geom2, lg);
-
-    for (geom1, geom2) |a1, a2| {
-        try testing.expectEqual(a1.x, a2.x);
-    }
-}
-
-test {
-    _ = @import("components_test.zig");
 }

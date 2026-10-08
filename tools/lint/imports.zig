@@ -66,21 +66,6 @@ pub const file_allowlists = [_]struct {
         .reason = "permits may only import std, prim, base/ledger, or sem_graph",
     },
     .{
-        .name = "ledger/permits_test.zig",
-        .allowed = &.{ .sem_graph, .parse_zone, .{ .exact = "permits.zig" } },
-        .reason = "permits_test may only import std, prim, base/ledger, sem_graph, parse, or permits",
-    },
-    .{
-        .name = "realized_production_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "ledger/permits.zig" }, .{ .exact = "select.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "paint.zig" } },
-        .reason = "realized_production_test may only import std, prim, base/ledger, parse, permits, select, raster, or paint",
-    },
-    .{
-        .name = "render_evidence_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .raster_zone, .{ .exact = "ledger/permits.zig" }, .{ .exact = "paint.zig" }, .{ .exact = "select.zig" } },
-        .reason = "render_evidence_test may only import std, prim, base/*, sem_graph, sketch, layout, permits, raster, paint, or select",
-    },
-    .{
         .name = "budget.zig",
         .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .cluster_zone, .recurse, .{ .exact = "budget_test.zig" } },
         .reason = "budget may only import std, prim, sem_graph, sketch, layout, parse, recurse, cluster, or budget_test",
@@ -89,11 +74,6 @@ pub const file_allowlists = [_]struct {
         .name = "recurse.zig",
         .allowed = &.{ .sem_graph, .sketch, .layout_zone, .cluster_zone, .{ .exact = "recurse_test.zig" } },
         .reason = "recurse may only import std, prim, sem_graph, sketch, layout, cluster, or recurse_test",
-    },
-    .{
-        .name = "recurse_test.zig",
-        .allowed = &.{ .recurse, .sem_graph, .sketch, .layout_zone, .cluster_zone, .raster_zone },
-        .reason = "recurse_test may only import std, prim, base/*, recurse, sem_graph, sketch, layout, cluster, or raster",
     },
     .{
         .name = "score.zig",
@@ -106,19 +86,9 @@ pub const file_allowlists = [_]struct {
         .reason = "score_geom may only import std, prim, or sketch",
     },
     .{
-        .name = "score_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "score.zig" }, .{ .exact = "score_geom.zig" } },
-        .reason = "score_test may only import std, prim, sketch, score, or score_geom",
-    },
-    .{
         .name = "sketch_clearance.zig",
         .allowed = &.{ .sketch, .{ .exact = "sketch_clearance_test.zig" } },
         .reason = "sketch_clearance may only import std, prim, sketch, or sketch_clearance_test",
-    },
-    .{
-        .name = "sketch_clearance_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "sketch_clearance.zig" } },
-        .reason = "sketch_clearance_test may only import std, prim, sketch, or sketch_clearance",
     },
     .{
         .name = "sketch_ports.zig",
@@ -126,75 +96,9 @@ pub const file_allowlists = [_]struct {
         .reason = "sketch_ports may only import std, prim, base/ledger, sketch, or sketch_ports_test",
     },
     .{
-        .name = "sketch_ports_test.zig",
-        .allowed = &.{.sketch},
-        .reason = "sketch_ports_test may only import std, prim, base/ledger, sketch, or sketch_ports",
-    },
-    .{
         .name = "select.zig",
         .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .raster_zone, .{ .exact = "score.zig" }, .{ .exact = "motif.zig" }, .{ .exact = "ledger/permits.zig" } },
         .reason = "select may only import std, prim, base/ledger, sem_graph, sketch, budget, score, motif, raster, ledger/permits, or parse",
-    },
-    .{
-        .name = "select_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .budget, .parse_zone, .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" }, .{ .exact = "raster.zig" }, .{ .exact = "score.zig" } },
-        .reason = "select_test may only import std, prim, base/ledger, sem_graph, sketch, budget, parse, select, ledger/permits, raster, or score",
-    },
-    .{
-        .name = "budget_test.zig",
-        .allowed = &.{ .budget, .sem_graph, .sketch, .parse_zone, .{ .exact = "build_options" }, .{ .exact = "score.zig" }, .{ .exact = "select.zig" } },
-        .reason = "budget_test may only import std, prim, build_options, budget, sem_graph, sketch, parse, score, or select",
-    },
-    .{
-        .name = "layout/bundle_commit_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "bundle_commit.zig" } },
-        .reason = "bundle_commit_test may only import std, prim, base/ledger, parse, permits, or bundle_commit",
-    },
-    .{
-        .name = "layout/port_plan_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .{ .exact = "../ledger/permits.zig" }, .{ .exact = "ports.zig" }, .{ .exact = "port_plan.zig" }, .{ .exact = "sugiyama.zig" }, .{ .exact = "node_geom.zig" }, .{ .exact = "fan_lanes_test.zig" } },
-        .reason = "port_plan_test may import the focused layout and permit surfaces",
-    },
-    .{
-        .name = "layout/rail_loop_test.zig",
-        .allowed = &.{ .sem_graph, .sketch, .layout_zone, .parse_zone, .{ .exact = "../ledger/permits.zig" } },
-        .reason = "rail_loop_test may import the layout, parse and permit surfaces",
-    },
-    .{
-        .name = "raster/rails_test.zig",
-        .allowed = &.{ .sketch, .{ .exact = "../lattice.zig" }, .{ .exact = "rails.zig" }, .{ .exact = "nodes.zig" }, .{ .exact = "../raster.zig" } },
-        .reason = "rails_test may only import std, prim, sketch, lattice, raster siblings, or raster",
-    },
-    .{
-        .name = "junction_licence_test.zig",
-        .allowed = &.{
-            .sem_graph,                         .sketch,
-            .parse_zone,                        .raster_zone,
-            .{ .exact = "lattice.zig" },        .{ .exact = "select.zig" },
-            .{ .exact = "ledger/permits.zig" },
-        },
-        .reason = "junction_licence_test may only import std, prim, base/*, sem_graph, sketch, parse, raster, lattice, select, or ledger/permits",
-    },
-    .{
-        .name = "decoration_cell_test.zig",
-        .allowed = &.{
-            .parse_zone,                .raster_zone,
-            .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" },
-        },
-        .reason = "decoration_cell_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
-    },
-    .{
-        .name = "route_once_test.zig",
-        .allowed = &.{
-            .parse_zone,                .raster_zone,
-            .{ .exact = "select.zig" }, .{ .exact = "ledger/permits.zig" },
-        },
-        .reason = "route_once_test may only import std, prim, base/*, parse, raster, select, or ledger/permits",
-    },
-    .{
-        .name = "entry_test.zig",
-        .allowed = &.{ .parse_zone, .raster_zone, .budget, .{ .exact = "entry.zig" }, .{ .exact = "select.zig" } },
-        .reason = "entry_test may only import std, prim, base/*, parse, raster, budget, select, or entry",
     },
     .{
         .name = "candidates.zig",
@@ -207,17 +111,11 @@ pub const file_allowlists = [_]struct {
         },
         .reason = "candidates may only import std, prim, base/*, sem_graph, budget, select, raster, or paint",
     },
-    .{
-        .name = "candidates_test.zig",
-        .allowed = &.{ .parse_zone, .{ .exact = "entry.zig" }, .{ .exact = "candidates.zig" } },
-        .reason = "candidates_test may only import std, prim, parse, entry, or candidates",
-    },
-    .{
-        .name = "grapheme_width_test.zig",
-        .allowed = &.{.{ .exact = "entry.zig" }},
-        .reason = "grapheme_width_test may only import std, unicode, base/*, or entry",
-    },
 };
+
+pub fn isTestFile(basename: []const u8) bool {
+    return std.mem.indexOf(u8, basename, "_test") != null;
+}
 
 const base_reason = "base/ files may import only std and base/ siblings; types.zig alone may import unicode";
 
@@ -233,6 +131,10 @@ pub fn checkImport(rel_path: []const u8, target: []const u8) ?[]const u8 {
         if (in_base_dir and !std.mem.eql(u8, rel_path, "base" ++ &[_]u8{sep} ++ "types.zig")) return base_reason;
         return null;
     }
+
+    // Test files sit above the graph (cycles.zig does not count them), so they may import
+    // anything in the tree; only the width-authority seal above applies to them.
+    if (isTestFile(std.fs.path.basename(rel_path))) return null;
 
     if (std.mem.indexOf(u8, target, "base/") != null) return null;
 

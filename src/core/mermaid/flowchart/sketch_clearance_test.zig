@@ -31,3 +31,29 @@ test "clearLine prefers a margined line over a closer touch-free-only line" {
     try std.testing.expect(got != want - 3);
     try std.testing.expectEqual(want - 8, got);
 }
+
+test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather than searching further for a margined one" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const want: i32 = 50;
+    var list = std.ArrayList(NodePlacement){};
+    var row: i32 = want - 40;
+    var next_id: u32 = 0;
+    while (row <= want + 29) : (row += 1) {
+        if (row == want + 5) continue;
+        try list.append(alloc, .{
+            .id = next_id,
+            .rect = .{ .x = 0, .y = row, .w = 10, .h = 1 },
+            .shape = .rect,
+            .lines = &.{},
+            .cluster_id = null,
+        });
+        next_id += 1;
+    }
+    const placements = try list.toOwnedSlice(alloc);
+
+    const got = sketch_clearance.clearLine(true, want, 0, 5, placements, 9999, 9998, .{ .margin = true });
+    try std.testing.expectEqual(want + 5, got);
+}

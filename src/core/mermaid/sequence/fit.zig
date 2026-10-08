@@ -37,23 +37,22 @@ fn expectWrapRungsLast(rungs: []const Spacing) !void {
     }
 }
 
-test "an undirected top-down diagram tries a tight left-to-right rung before wrapping" {
-    const rungs = ladder(.TB, false);
-    try std.testing.expectEqualSlices(Spacing, &.{ s8, s4, s2, lr_tight, w8, w4, w2 }, rungs);
-    try std.testing.expectEqual(Spacing{ .participant = 2, .padding = 1, .direction = .LR }, rungs[3]);
-    try expectWrapRungsLast(rungs);
-}
-
-test "a written top-down direction wraps after the three spacing rungs" {
-    for ([_]Direction{ .TB, .TD, .BT, .RL }) |direction| {
-        const rungs = ladder(direction, true);
-        try std.testing.expectEqualSlices(Spacing, &.{ s8, s4, s2, w8, w4, w2 }, rungs);
-        try expectWrapRungsLast(rungs);
+test "wrap rungs come last, left to right never wraps, and an undirected top-down diagram tries left to right first" {
+    for ([_]Direction{ .TB, .TD, .BT, .RL, .LR }) |direction| {
+        for ([_]bool{ true, false }) |explicit| {
+            const rungs = ladder(direction, explicit);
+            try expectWrapRungsLast(rungs);
+            if (direction == .LR) {
+                for (rungs) |rung| try std.testing.expect(!rung.wrap);
+            }
+        }
     }
-}
-
-test "left to right keeps the three spacing rungs and never wraps" {
-    for ([_]bool{ true, false }) |explicit| {
-        try std.testing.expectEqualSlices(Spacing, &.{ s8, s4, s2 }, ladder(.LR, explicit));
-    }
+    const auto = ladder(.TB, false);
+    const first_wrap = for (auto, 0..) |rung, i| {
+        if (rung.wrap) break i;
+    } else auto.len;
+    var tight_lr = false;
+    for (auto[0..first_wrap]) |rung| tight_lr = tight_lr or rung.direction == .LR;
+    try std.testing.expect(tight_lr);
+    try std.testing.expect(first_wrap < auto.len);
 }

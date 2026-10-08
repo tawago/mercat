@@ -1,6 +1,7 @@
 const std = @import("std");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
+const prim = @import("prim");
 
 const testing = std.testing;
 
@@ -24,81 +25,39 @@ fn expectReset(c: lattice.Cell) !void {
     try testing.expectEqual(lattice.Shape.rect, c.shape);
 }
 
-test "a glyph write resets every field of the cell it covers" {
-    var buf: [1]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-
-    lw.writeGlyph(&lat, 0, 0, 'A');
-
-    const c = lat.atConst(0, 0).*;
-    switch (c.occupant) {
-        .label_char => |cp| try testing.expectEqual(@as(u21, 'A'), cp),
-        else => return error.NotALabelChar,
-    }
-    try expectReset(c);
-}
-
-test "a continuation write resets every field, exactly as a glyph write does" {
-    var buf: [1]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-
-    lw.writeCont(&lat, 0, 0);
-
-    const c = lat.atConst(0, 0).*;
-    try testing.expectEqual(lattice.Occupant.label_cont, std.meta.activeTag(c.occupant));
-    try expectReset(c);
-}
-
-test "a span write claims head plus continuations and resets both" {
-    var buf: [3]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-
-    lw.writeSpan(&lat, 0, 0, '日', 2);
-
-    switch (lat.atConst(0, 0).occupant) {
-        .label_char => |cp| try testing.expectEqual(@as(u21, '日'), cp),
-        else => return error.NotALabelChar,
-    }
-    try expectReset(lat.atConst(0, 0).*);
-
-    try testing.expectEqual(
-        lattice.Occupant.label_cont,
-        std.meta.activeTag(lat.atConst(1, 0).occupant),
-    );
-    try expectReset(lat.atConst(1, 0).*);
-
-    try testing.expectEqual(
-        lattice.Occupant.edge_segment,
-        std.meta.activeTag(lat.atConst(2, 0).occupant),
-    );
-}
-
-test "a span of 1 writes no continuation" {
-    var buf: [2]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-
-    lw.writeSpan(&lat, 0, 0, 'x', 1);
-
-    try testing.expectEqual(
-        lattice.Occupant.label_char,
-        std.meta.activeTag(lat.atConst(0, 0).occupant),
-    );
-    try testing.expectEqual(
-        lattice.Occupant.edge_segment,
-        std.meta.activeTag(lat.atConst(1, 0).occupant),
-    );
-}
-
-test "prepare resolves one cell per grapheme head, interning multi-codepoint graphemes once" {
+test "prepare: one cell per grapheme head; cell_count follows prim.displayWidth except a tab claims one cell" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
+    const family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}";
+    const Row = struct { text: []const u8, cells: usize, cell_count: u32, width: ?u32 = null };
+    const rows = [_]Row{
+        .{ .text = "", .cells = 0, .cell_count = 0 },
+        .{ .text = "hello world", .cells = 11, .cell_count = 11 },
+        .{ .text = "A日B語C", .cells = 5, .cell_count = 7 },
+        .{ .text = "cafe\u{0301}", .cells = 4, .cell_count = 4 }, // a combining mark claims no cell
+        .{ .text = "\u{1F680}", .cells = 1, .cell_count = 2 },
+        .{ .text = family, .cells = 1, .cell_count = 2 },
+        .{ .text = "\u{1F1EF}\u{1F1F5}", .cells = 1, .cell_count = 2 }, // flag
+        .{ .text = "\u{2764}\u{FE0F}", .cells = 1, .cell_count = 2 }, // VS16 widens
+        .{ .text = "\u{2764}", .cells = 1, .cell_count = 1 },
+        .{ .text = "\u{1F44D}\u{1F3FD} OK", .cells = 4, .cell_count = 5 },
+        .{ .text = "a\xffb", .cells = 3, .cell_count = 3 }, // malformed byte
+        .{ .text = "a\tb", .cells = 3, .cell_count = 3, .width = 5 }, // tab: one cell, display width 5
+        .{ .text = "e\u{0301}" ++ [_]u8{prim.LINE_BREAK} ++ "x", .cells = 3, .cell_count = 3 }, // as "e\u{0301} x"
+    };
+    for (rows) |r| {
+        var table = lw.GlyphTable.init(a);
+        const run = try lw.prepare(a, &table, r.text);
+        try testing.expectEqual(r.cells, run.cells.len);
+        try testing.expectEqual(r.cell_count, run.cell_count);
+        try testing.expectEqual(r.width orelse r.cell_count, run.width);
+        try testing.expectEqual(r.width orelse r.cell_count, prim.displayWidth(r.text));
+    }
+
     var table = lw.GlyphTable.init(a);
     const run = try lw.prepare(a, &table, "e\u{0301}\u{1F680}e\u{0301} 日");
-    try testing.expectEqual(@as(usize, 5), run.cells.len);
-    try testing.expectEqual(@as(u32, 7), run.cell_count);
-    try testing.expectEqual(@as(u32, 7), run.width);
     try testing.expect(lattice.isGlyphRef(run.cells[0].value));
     try testing.expectEqual(@as(u8, 1), run.cells[0].span);
     try testing.expectEqual(@as(u21, 0x1F680), run.cells[1].value);
@@ -108,38 +67,17 @@ test "prepare resolves one cell per grapheme head, interning multi-codepoint gra
     try testing.expectEqual(@as(u21, '日'), run.cells[4].value);
     try testing.expectEqual(@as(u8, 2), run.cells[4].span);
 
+    const with_sentinel = try lw.prepare(a, &table, "e\u{0301}" ++ [_]u8{prim.LINE_BREAK} ++ "x");
+    try testing.expectEqual(run.cells[0].value, with_sentinel.cells[0].value);
+    try testing.expectEqual(@as(u21, ' '), with_sentinel.cells[1].value);
+    const malformed = try lw.prepare(a, &table, "a\xffe\u{0301}");
+    try testing.expectEqual(@as(u21, 0xFF), malformed.cells[1].value);
+    try testing.expectEqual(run.cells[0].value, malformed.cells[2].value);
+
     const glyphs = try table.finish();
     try testing.expectEqual(@as(usize, 1), glyphs.len);
     try testing.expectEqualStrings("e\u{0301}", glyphs[0].bytes);
     try testing.expectEqual(@as(u8, 1), glyphs[0].width);
-}
-
-test "prepare walks graphemes through controls and malformed bytes exactly as prim.displayWidth counts them" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    var table = lw.GlyphTable.init(a);
-
-    const with_sentinel = try lw.prepare(a, &table, "e\u{0301}\nx");
-    try testing.expectEqual(@as(usize, 3), with_sentinel.cells.len);
-    try testing.expect(lattice.isGlyphRef(with_sentinel.cells[0].value));
-    try testing.expectEqual(@as(u21, ' '), with_sentinel.cells[1].value);
-    try testing.expectEqual(@as(u21, 'x'), with_sentinel.cells[2].value);
-    try testing.expectEqual(@as(u32, 3), with_sentinel.cell_count);
-    try testing.expectEqual(@as(u32, 3), with_sentinel.width);
-
-    const malformed = try lw.prepare(a, &table, "a\xffe\u{0301}");
-    try testing.expectEqual(@as(usize, 3), malformed.cells.len);
-    try testing.expectEqual(@as(u21, 0xFF), malformed.cells[1].value);
-    try testing.expect(lattice.isGlyphRef(malformed.cells[2].value));
-    try testing.expectEqual(@as(u32, 3), malformed.cell_count);
-    try testing.expectEqual(@as(u32, 3), malformed.width);
-
-    const tabbed = try lw.prepare(a, &table, "a\tb");
-    try testing.expectEqual(@as(u32, 3), tabbed.cell_count);
-    try testing.expectEqual(@as(u32, 5), tabbed.width);
-
-    try testing.expectEqual(@as(usize, 1), (try table.finish()).len);
 }
 
 test "the glyph table owns its bytes" {
@@ -158,19 +96,7 @@ test "the glyph table owns its bytes" {
     try testing.expectEqual(lattice.glyphRef(0), ref);
 }
 
-test "a span write with an interned reference stores the reference, not a scalar" {
-    var buf: [2]lattice.Cell = undefined;
-    var lat = dirtyLattice(&buf);
-    const ref = lattice.glyphRef(3);
-    lw.writeSpan(&lat, 0, 0, ref, 2);
-    switch (lat.atConst(0, 0).occupant) {
-        .label_char => |cp| try testing.expectEqual(ref, cp),
-        else => return error.NotALabelChar,
-    }
-    try testing.expectEqual(lattice.Occupant.label_cont, std.meta.activeTag(lat.atConst(1, 0).occupant));
-}
-
-test "a run write lays every cell out in order and claims exactly cell_count cells" {
+test "a run write lays every cell out in order, resets each, and claims exactly cell_count cells" {
     var buf: [5]lattice.Cell = undefined;
     var lat = dirtyLattice(&buf);
     const cells = [_]lw.LabelCell{ .{ .value = 'a', .span = 1 }, .{ .value = '日', .span = 2 }, .{ .value = lattice.glyphRef(0), .span = 1 } };
@@ -191,4 +117,5 @@ test "a run write lays every cell out in order and claims exactly cell_count cel
     try testing.expectEqual(lattice.Occupant.label_cont, std.meta.activeTag(lat.atConst(2, 0).occupant));
     try expectHead(lat, 3, lattice.glyphRef(0));
     try testing.expectEqual(lattice.Occupant.edge_segment, std.meta.activeTag(lat.atConst(4, 0).occupant));
+    for (0..4) |x| try expectReset(lat.atConst(@intCast(x), 0).*);
 }

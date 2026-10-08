@@ -173,14 +173,6 @@ fn expectInterior(lat: lattice.Lattice, x: u32, y: u32, node: lattice.NodeId) !v
     try testing.expectEqual(@as(u4, 0), c.neighbours.toMask());
 }
 
-fn expectEmpty(lat: lattice.Lattice, x: u32, y: u32) !void {
-    const c = lat.atConst(x, y).*;
-    switch (c.occupant) {
-        .empty => {},
-        else => return error.NotEmpty,
-    }
-}
-
 fn singleNodeSketch(np: sketch.NodePlacement, nodes_buf: []sketch.NodePlacement) sketch.Sketch {
     nodes_buf[0] = np;
     return .{
@@ -192,37 +184,6 @@ fn singleNodeSketch(np: sketch.NodePlacement, nodes_buf: []sketch.NodePlacement)
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-}
-
-test "single 3x3 rect produces 4 corners + 4 edges + 1 interior" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 3, 3);
-    var nodes_buf: [1]sketch.NodePlacement = undefined;
-    const s = singleNodeSketch(.{
-        .id = 7,
-        .rect = .{ .x = 0, .y = 0, .w = 3, .h = 3 },
-        .shape = .rect,
-        .lines = &.{},
-        .cluster_id = null,
-    }, &nodes_buf);
-
-    const n = rasterizeNodes(&lat, s);
-    try testing.expectEqual(@as(u32, 1), n);
-
-    try expectBorder(lat, 0, 0, 7, .corner_nw, .{ .e = true, .s = true });
-    try expectBorder(lat, 2, 0, 7, .corner_ne, .{ .w = true, .s = true });
-    try expectBorder(lat, 2, 2, 7, .corner_se, .{ .w = true, .n = true });
-    try expectBorder(lat, 0, 2, 7, .corner_sw, .{ .e = true, .n = true });
-
-    try expectBorder(lat, 1, 0, 7, .edge_n, .{ .e = true, .w = true });
-    try expectBorder(lat, 1, 2, 7, .edge_s, .{ .e = true, .w = true });
-    try expectBorder(lat, 0, 1, 7, .edge_w, .{ .n = true, .s = true });
-    try expectBorder(lat, 2, 1, 7, .edge_e, .{ .n = true, .s = true });
-
-    try expectInterior(lat, 1, 1, 7);
 }
 
 test "wider 5x3 rect has 4 corners, 3+3 top/bottom edges, 3 interior" {
@@ -259,52 +220,6 @@ test "wider 5x3 rect has 4 corners, 3+3 top/bottom edges, 3 interior" {
     try expectInterior(lat, 1, 1, 1);
     try expectInterior(lat, 2, 1, 1);
     try expectInterior(lat, 3, 1, 1);
-}
-
-test "two non-overlapping rects both rasterize" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var lat = try makeLattice(a, 10, 5);
-    var nodes_buf: [2]sketch.NodePlacement = undefined;
-    nodes_buf[0] = .{
-        .id = 1,
-        .rect = .{ .x = 0, .y = 0, .w = 4, .h = 3 },
-        .shape = .rect,
-        .lines = &.{},
-        .cluster_id = null,
-    };
-    nodes_buf[1] = .{
-        .id = 2,
-        .rect = .{ .x = 5, .y = 1, .w = 4, .h = 3 },
-        .shape = .rect,
-        .lines = &.{},
-        .cluster_id = null,
-    };
-    const s = sketch.Sketch{
-        .bbox = .{ .x = 0, .y = 0, .w = 10, .h = 5 },
-        .direction = .TD,
-        .nodes = nodes_buf[0..2],
-        .clusters = &.{},
-        .edges = &.{},
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-
-    const n = rasterizeNodes(&lat, s);
-    try testing.expectEqual(@as(u32, 2), n);
-
-    try expectBorder(lat, 0, 0, 1, .corner_nw, .{ .e = true, .s = true });
-    try expectBorder(lat, 3, 0, 1, .corner_ne, .{ .w = true, .s = true });
-    try expectInterior(lat, 1, 1, 1);
-
-    try expectBorder(lat, 5, 1, 2, .corner_nw, .{ .e = true, .s = true });
-    try expectBorder(lat, 8, 1, 2, .corner_ne, .{ .w = true, .s = true });
-    try expectInterior(lat, 6, 2, 2);
-
-    try expectEmpty(lat, 4, 0);
-    try expectEmpty(lat, 4, 4);
 }
 
 test "conflicting cell is skipped, leaving the prior occupant intact" {

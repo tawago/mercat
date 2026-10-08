@@ -27,6 +27,14 @@ pub const Viewport = struct {
         self.lineUp(@max(self.height, 1));
     }
 
+    pub fn halfPageDown(self: *Viewport) void {
+        self.lineDown(@max(self.height / 2, 1));
+    }
+
+    pub fn halfPageUp(self: *Viewport) void {
+        self.lineUp(@max(self.height / 2, 1));
+    }
+
     pub fn toTop(self: *Viewport) void {
         self.top = 0;
     }
@@ -59,19 +67,15 @@ pub const Viewport = struct {
     }
 };
 
-test "lineForRow maps visible rows to document lines" {
-    const view = Viewport{ .top = 3, .height = 5, .total = 20 };
-    try std.testing.expectEqual(@as(usize, 3), view.lineForRow(0));
-    try std.testing.expectEqual(@as(usize, 7), view.lineForRow(4));
-    try std.testing.expectEqual(@as(usize, 7), view.lineForRow(100));
-}
-
-test "lineForRow clamps to content bounds" {
-    const bottom = Viewport{ .top = 18, .height = 5, .total = 20 };
-    try std.testing.expectEqual(@as(usize, 19), bottom.lineForRow(4));
-
-    const empty = Viewport{};
-    try std.testing.expectEqual(@as(usize, 0), empty.lineForRow(3));
+test "lineForRow maps visible rows to document lines, clamped to content" {
+    const cases = [_]struct { view: Viewport, row: usize, line: usize }{
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 0, .line = 3 },
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 4, .line = 7 },
+        .{ .view = .{ .top = 3, .height = 5, .total = 20 }, .row = 100, .line = 7 },
+        .{ .view = .{ .top = 18, .height = 5, .total = 20 }, .row = 4, .line = 19 },
+        .{ .view = .{}, .row = 3, .line = 0 },
+    };
+    for (cases) |c| try std.testing.expectEqual(c.line, c.view.lineForRow(c.row));
 }
 
 test "clamps scrolling to content bounds" {
@@ -83,4 +87,17 @@ test "clamps scrolling to content bounds" {
     try std.testing.expectEqual(@as(usize, 2), viewport.top);
     viewport.toBottom();
     try std.testing.expectEqual(@as(usize, 7), viewport.top);
+}
+
+test "half pages move by half the height, at least one line" {
+    var viewport = Viewport{};
+    viewport.setMetrics(10, 100);
+    viewport.halfPageDown();
+    try std.testing.expectEqual(@as(usize, 5), viewport.top);
+    viewport.halfPageUp();
+    viewport.halfPageUp();
+    try std.testing.expectEqual(@as(usize, 0), viewport.top);
+    viewport.setMetrics(1, 100);
+    viewport.halfPageDown();
+    try std.testing.expectEqual(@as(usize, 1), viewport.top);
 }

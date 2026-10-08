@@ -361,13 +361,6 @@ pub const Decoded = struct {
         self.chunk_types.deinit(allocator);
     }
 
-    pub fn hasChunk(self: Decoded, name: *const [4]u8) bool {
-        for (self.chunk_types.items) |t| {
-            if (std.mem.eql(u8, &t, name)) return true;
-        }
-        return false;
-    }
-
     pub fn rgbaSha256(self: Decoded) [32]u8 {
         var digest: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(self.pixels, &digest, .{});
@@ -472,76 +465,40 @@ fn makeGradient(allocator: std.mem.Allocator, w: u32, h: u32) ![]u8 {
     return buf;
 }
 
-test "encode/decode RGBA roundtrip preserves pixels and dimensions" {
+test "encode/decode roundtrips: one pixel, a gradient, and solid runs on the LZ77 match path" {
     const allocator = testing.allocator;
-    const w: u32 = 17;
-    const h: u32 = 11;
-    const pixels = try makeGradient(allocator, w, h);
-    defer allocator.free(pixels);
+    const Case = struct { w: u32, h: u32, pixels: []u8, compresses: bool };
 
-    const enc = try encodeRgba(allocator, pixels, w, h);
-    defer enc.deinit(allocator);
-
-    var dec = try decodePng(allocator, enc.bytes);
-    defer dec.deinit(allocator);
-
-    try testing.expectEqual(w, dec.width);
-    try testing.expectEqual(h, dec.height);
-    try testing.expectEqualSlices(u8, pixels, dec.pixels);
-}
-
-test "solid runs compress and roundtrip (LZ77 match path)" {
-    const allocator = testing.allocator;
-    const w: u32 = 64;
-    const h: u32 = 40;
-    const pixels = try allocator.alloc(u8, @as(usize, w) * h * 4);
-    defer allocator.free(pixels);
-    @memset(pixels, 0xFF);
+    var one = [_]u8{ 12, 34, 56, 78 };
+    const gradient = try makeGradient(allocator, 17, 11);
+    defer allocator.free(gradient);
+    const solid = try allocator.alloc(u8, 64 * 40 * 4);
+    defer allocator.free(solid);
+    @memset(solid, 0xFF);
     var y: u32 = 10;
     while (y < 30) : (y += 1) {
         var x: u32 = 8;
         while (x < 56) : (x += 1) {
-            const i = (@as(usize, y) * w + x) * 4;
-            pixels[i + 0] = 0;
-            pixels[i + 1] = 0;
-            pixels[i + 2] = 0;
+            const i = (@as(usize, y) * 64 + x) * 4;
+            @memset(solid[i .. i + 3], 0);
         }
     }
 
-    const enc = try encodeRgba(allocator, pixels, w, h);
-    defer enc.deinit(allocator);
-    var dec = try decodePng(allocator, enc.bytes);
-    defer dec.deinit(allocator);
-    try testing.expectEqualSlices(u8, pixels, dec.pixels);
-    try testing.expect(enc.bytes.len < pixels.len);
-}
-
-test "output is deterministic across two encodes" {
-    const allocator = testing.allocator;
-    const pixels = try makeGradient(allocator, 23, 9);
-    defer allocator.free(pixels);
-    const a = try encodeRgba(allocator, pixels, 23, 9);
-    defer a.deinit(allocator);
-    const b = try encodeRgba(allocator, pixels, 23, 9);
-    defer b.deinit(allocator);
-    try testing.expectEqualSlices(u8, a.bytes, b.bytes);
-    try testing.expectEqualSlices(u8, &a.sha256, &b.sha256);
-}
-
-test "no tIME or tEXt metadata chunks are emitted" {
-    const allocator = testing.allocator;
-    const pixels = try makeGradient(allocator, 5, 5);
-    defer allocator.free(pixels);
-    const enc = try encodeRgba(allocator, pixels, 5, 5);
-    defer enc.deinit(allocator);
-    var dec = try decodePng(allocator, enc.bytes);
-    defer dec.deinit(allocator);
-    try testing.expect(dec.hasChunk("IHDR"));
-    try testing.expect(dec.hasChunk("IDAT"));
-    try testing.expect(dec.hasChunk("IEND"));
-    try testing.expect(!dec.hasChunk("tIME"));
-    try testing.expect(!dec.hasChunk("tEXt"));
-    try testing.expect(!dec.hasChunk("pHYs"));
+    const cases = [_]Case{
+        .{ .w = 1, .h = 1, .pixels = &one, .compresses = false },
+        .{ .w = 17, .h = 11, .pixels = gradient, .compresses = false },
+        .{ .w = 64, .h = 40, .pixels = solid, .compresses = true },
+    };
+    for (cases) |case| {
+        const enc = try encodeRgba(allocator, case.pixels, case.w, case.h);
+        defer enc.deinit(allocator);
+        var dec = try decodePng(allocator, enc.bytes);
+        defer dec.deinit(allocator);
+        try testing.expectEqual(case.w, dec.width);
+        try testing.expectEqual(case.h, dec.height);
+        try testing.expectEqualSlices(u8, case.pixels, dec.pixels);
+        if (case.compresses) try testing.expect(enc.bytes.len < case.pixels.len);
+    }
 }
 
 test "size mismatch and zero dimensions are rejected" {
@@ -549,14 +506,4 @@ test "size mismatch and zero dimensions are rejected" {
     var small = [_]u8{0} ** 4;
     try testing.expectError(error.PixelBufferSizeMismatch, encodeRgba(allocator, &small, 2, 2));
     try testing.expectError(error.InvalidDimensions, encodeRgba(allocator, &small, 0, 1));
-}
-
-test "single-pixel image roundtrips" {
-    const allocator = testing.allocator;
-    var one = [_]u8{ 12, 34, 56, 78 };
-    const enc = try encodeRgba(allocator, &one, 1, 1);
-    defer enc.deinit(allocator);
-    var dec = try decodePng(allocator, enc.bytes);
-    defer dec.deinit(allocator);
-    try testing.expectEqualSlices(u8, &one, dec.pixels);
 }

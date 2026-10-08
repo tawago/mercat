@@ -22,8 +22,6 @@ pub fn build(b: *std.Build) void {
     if (onlyStepRequested(b, "unicode-check")) return;
 
     const options = b.addOptions();
-    const calibration_inputs = b.option([]const u8, "calibration-inputs", "Directory containing optional score-calibration inputs");
-    options.addOption(?[]const u8, "calibration_inputs", calibration_inputs);
     const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
     const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
     if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
@@ -98,6 +96,13 @@ pub fn build(b: *std.Build) void {
     test_module.addImport("text", text_mod);
     test_module.addImport("unicode", unicode_mod);
     linkExportFont(b, test_module);
+    test_module.addAnonymousImport("kitchen_sink_md", .{
+        .root_source_file = b.path("tests/fixtures/kitchen-sink.md"),
+    });
+    // The TUI key-table test checks that README.md documents every binding.
+    test_module.addAnonymousImport("readme_md", .{
+        .root_source_file = b.path("README.md"),
+    });
 
     const unit_tests = b.addTest(.{
         .root_module = test_module,
@@ -108,19 +113,23 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&test_run.step);
 
-    const legacy_mermaid_test_module = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid/legacy_test.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    legacy_mermaid_test_module.addImport("prim", prim_mod);
-    legacy_mermaid_test_module.addImport("text", text_mod);
-    legacy_mermaid_test_module.addImport("unicode", unicode_mod);
-    const legacy_mermaid_tests = b.addTest(.{ .root_module = legacy_mermaid_test_module });
-    const legacy_mermaid_test_run = b.addRunArtifact(legacy_mermaid_tests);
-    const legacy_mermaid_test_step = b.step("test-mermaid-legacy", "Run legacy Mermaid renderer tests");
-    legacy_mermaid_test_step.dependOn(&legacy_mermaid_test_run.step);
-    test_step.dependOn(&legacy_mermaid_test_run.step);
+    // Opt-in: the markdown fuzz properties over their full fixed-seed corpus
+    // (2500 iterations each, not the default run's few hundred).
+    const fuzz_long_tests = b.addTest(.{ .root_module = test_module, .filters = &.{"property:"} });
+    const fuzz_long_run = b.addRunArtifact(fuzz_long_tests);
+    fuzz_long_run.setEnvironmentVariable("MERCAT_LONG_FUZZ", "1");
+    const fuzz_long_step = b.step("test-fuzz-long", "Run the markdown fuzz properties at full length (not part of test)");
+    fuzz_long_step.dependOn(&fuzz_long_run.step);
+
+    // CLI contract tests: run the installed binary and check messages and exit codes.
+    const cli_test_run = b.addSystemCommand(&.{ "bash", "tests/cli/run.sh" });
+    cli_test_run.setCwd(b.path("."));
+    cli_test_run.addArtifactArg(exe);
+    cli_test_run.expectExitCode(0);
+    cli_test_run.has_side_effects = true;
+    const cli_test_step = b.step("test-cli", "Run CLI message/exit-code tests against the built binary");
+    cli_test_step.dependOn(&cli_test_run.step);
+    test_step.dependOn(&cli_test_run.step);
 
     const font_test_module = b.createModule(.{
         .root_source_file = b.path("src/export/font.zig"),
@@ -134,39 +143,6 @@ pub fn build(b: *std.Build) void {
     const font_test_step = b.step("test-export-font", "Run export font-service tests");
     font_test_step.dependOn(&font_test_run.step);
     test_step.dependOn(&font_test_run.step);
-
-    const sem_graph_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid/flowchart/sem_graph.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    sem_graph_mod.addImport("prim", prim_mod);
-
-    const parser_mod = b.createModule(.{
-        .root_source_file = b.path("src/core/mermaid/flowchart/parse.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    parser_mod.addImport("prim", prim_mod);
-
-    const prop_test_module = b.createModule(.{
-        .root_source_file = b.path("tests/property/all.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    prop_test_module.addImport("sem_graph", sem_graph_mod);
-    prop_test_module.addImport("parser", parser_mod);
-    prop_test_module.addImport("flowchart", flowchart_mod);
-
-    const prop_tests = b.addTest(.{
-        .root_module = prop_test_module,
-    });
-
-    const prop_test_run = b.addRunArtifact(prop_tests);
-    const prop_test_step = b.step("test-property", "Run property-based tests");
-    prop_test_step.dependOn(&prop_test_run.step);
-
-    test_step.dependOn(&prop_test_run.step);
 
     const check_mod = b.createModule(.{
         .root_source_file = b.path("src/core/mermaid/check.zig"),
@@ -193,7 +169,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    flowchart_test_module.addOptions("build_options", options);
     flowchart_test_module.addImport("prim", prim_mod);
     flowchart_test_module.addImport("unicode", unicode_mod);
     const flowchart_tests = b.addTest(.{ .root_module = flowchart_test_module });

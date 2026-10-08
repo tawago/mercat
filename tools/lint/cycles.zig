@@ -161,17 +161,6 @@ fn runCheck(a: std.mem.Allocator, sources: []const Source) ![]const []const u8 {
     return violations.items;
 }
 
-test "two files that import each other are one cycle" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const found = try runCheck(arena.allocator(), &.{
-        .{ .path = "x/a.zig", .contents = "const b = @import(\"b.zig\");\n" },
-        .{ .path = "x/b.zig", .contents = "const a = @import(\"a.zig\");\n" },
-    });
-    try std.testing.expectEqual(@as(usize, 1), found.len);
-    try std.testing.expect(std.mem.indexOf(u8, found[0], "x/a.zig, x/b.zig") != null);
-}
-
 test "a chain that never returns is not a cycle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -207,24 +196,18 @@ test "a file that imports itself is a cycle" {
     try std.testing.expectEqual(@as(usize, 1), found.len);
 }
 
-test "test blocks, aggregation lines, comments and test files do not make edges" {
+test "test blocks, aggregation lines, comments and test files make no edges; an import after a closed test block does" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const found = try runCheck(arena.allocator(), &.{
-        .{ .path = "a.zig", .contents = "const std = @import(\"std\");\n\ntest \"uses b\" {\n    const b = @import(\"b.zig\");\n    _ = b;\n}\n\ntest {\n    _ = @import(\"a_test.zig\");\n}\n" },
-        .{ .path = "b.zig", .contents = "// const a = @import(\"a.zig\");\nconst a = @import(\"a.zig\"); // trailing\n" },
-    });
-    try std.testing.expectEqual(@as(usize, 0), found.len);
-}
-
-test "an import between tests at column 0 still counts" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const found = try runCheck(arena.allocator(), &.{
-        .{ .path = "a.zig", .contents = "const b = @import(\"b.zig\");\n\ntest \"x\" {\n}\n\nconst late = @import(\"b.zig\");\n" },
-        .{ .path = "b.zig", .contents = "const a = @import(\"a.zig\");\n" },
-    });
-    try std.testing.expectEqual(@as(usize, 1), found.len);
+    const b_imports_a: Source = .{ .path = "b.zig", .contents = "// const a = @import(\"a.zig\");\nconst a = @import(\"a.zig\"); // trailing\n" };
+    const cases = [_]struct { a: []const u8, cycles: usize }{
+        .{ .a = "const std = @import(\"std\");\n\ntest \"uses b\" {\n    const b = @import(\"b.zig\");\n    _ = b;\n}\n\ntest {\n    _ = @import(\"a_test.zig\");\n}\n", .cycles = 0 },
+        .{ .a = "test \"x\" {\n}\n\nconst late = @import(\"b.zig\");\n", .cycles = 1 },
+    };
+    for (cases) |case| {
+        const found = try runCheck(arena.allocator(), &.{ .{ .path = "a.zig", .contents = case.a }, b_imports_a });
+        try std.testing.expectEqual(case.cycles, found.len);
+    }
 }
 
 test "relative targets resolve against the importing file's directory" {

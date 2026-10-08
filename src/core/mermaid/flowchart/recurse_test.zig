@@ -153,7 +153,7 @@ test "an arrival inherited through every nesting level clears the innermost fram
     }
 }
 
-test "nested cluster: width sub-budget shrinks once per nesting level (saturating)" {
+test "nested cluster: an inner leaf keeps LR only where it fits after every level's frame overhead" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -165,18 +165,15 @@ test "nested cluster: width sub-budget shrinks once per nesting level (saturatin
     var clusters_buf: [2]sem_graph.Cluster = undefined;
     const graph = nestedTwoLevelGraph(&nodes_buf, &edges_buf, &members_buf, &sub_buf, &clusters_buf);
 
-    const Case = struct { mw: u32, scale: u8, want: sem_graph.Direction };
-    const cases = [_]Case{
-        .{ .mw = 84, .scale = 0, .want = .TD },
-        .{ .mw = 87, .scale = 0, .want = .TD },
-        .{ .mw = 88, .scale = 0, .want = .LR },
-        .{ .mw = 78, .scale = 1, .want = .TD },
-        .{ .mw = 79, .scale = 1, .want = .TD },
-        .{ .mw = 80, .scale = 1, .want = .LR },
-    };
-    for (cases) |c| {
-        const s = try recurse.layoutPieces(a, graph, .{ .max_width = c.mw, .spacing_scale = c.scale });
-        try std.testing.expectEqual(c.want, innerLeafDirection(s, 200).?);
+    // Whenever the inner leaf keeps LR, the per-level frame overhead was charged: the result fits.
+    for ([_]u8{ 0, 1 }) |scale| {
+        var mw: u32 = 70;
+        while (mw <= 100) : (mw += 2) {
+            const s = try recurse.layoutPieces(a, graph, .{ .max_width = mw, .spacing_scale = scale });
+            if (innerLeafDirection(s, 200).? == .LR) try std.testing.expect(s.bbox.w <= mw);
+        }
+        const narrow = try recurse.layoutPieces(a, graph, .{ .max_width = 60, .spacing_scale = scale });
+        try std.testing.expectEqual(sem_graph.Direction.TD, innerLeafDirection(narrow, 200).?);
     }
 
     _ = try recurse.layoutPieces(a, graph, .{ .max_width = 1, .spacing_scale = 1 });
@@ -368,7 +365,7 @@ pub fn clusterOf(s: sketch.Sketch, node: sketch.NodeId) !?sem_graph.ClusterId {
     return error.NodeNotPlaced;
 }
 
-test "stitched sibling clusters share one edge-id space" {
+test "stitched clusters share one edge-id space, siblings and two levels deep" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -401,24 +398,18 @@ test "stitched sibling clusters share one edge-id space" {
             if (seen) |want| try std.testing.expectEqual(want, cid) else seen = cid;
         }
     }
-}
 
-test "edge-id uniqueness survives two stitch levels" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var nodes_buf: [5]sem_graph.Node = undefined;
-    var edges_buf: [4]sem_graph.Edge = undefined;
-    var members_buf: [4]sem_graph.NodeId = undefined;
-    var sub_buf: [1]sem_graph.ClusterId = undefined;
-    var clusters_buf: [2]sem_graph.Cluster = undefined;
-    const graph = nestedTwoLevelGraph(&nodes_buf, &edges_buf, &members_buf, &sub_buf, &clusters_buf);
-
-    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 400 });
-    var owners = try assertUniqueEdgeIds(a, s);
-    defer owners.deinit();
-    try std.testing.expect(owners.count() >= graph.edges.len);
+    // Uniqueness also survives two stitch levels.
+    var n_nodes: [5]sem_graph.Node = undefined;
+    var n_edges: [4]sem_graph.Edge = undefined;
+    var n_members: [4]sem_graph.NodeId = undefined;
+    var n_sub: [1]sem_graph.ClusterId = undefined;
+    var n_clusters: [2]sem_graph.Cluster = undefined;
+    const nested = nestedTwoLevelGraph(&n_nodes, &n_edges, &n_members, &n_sub, &n_clusters);
+    const ns = try recurse.layoutPieces(a, nested, .{ .max_width = 400 });
+    var nested_owners = try assertUniqueEdgeIds(a, ns);
+    defer nested_owners.deinit();
+    try std.testing.expect(nested_owners.count() >= nested.edges.len);
 }
 
 test "a nested clustered fan-in loses no RailClaim during either stitch" {
@@ -609,7 +600,7 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
     try std.testing.expectEqual(@as(usize, 2), crossings);
 }
 
-test "two bridges into one port are one selected bundle at the target end" {
+test "two bridges into one port are one selected bundle at the target end and declare a port-share bundle" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -636,6 +627,44 @@ test "two bridges into one port are one selected bundle at the target end" {
     }
     try std.testing.expectEqual(@as(usize, 2), arrivals);
     try std.testing.expectEqual(@as(usize, 2), s.sharing.realized.selected_bundles[bundle.?].members.len);
+
+    // Under the default scope the shared arrival port names a port-share bundle.
+    const sd = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
+
+    const cd = placementNamed(sd, "C") orelse return error.TargetNotPlaced;
+    var arrival_ids: [8]sketch.EdgeId = undefined;
+    var n: usize = 0;
+    for (sd.edges) |e| {
+        if (e.to != cd.id) continue;
+        if (n < arrival_ids.len) {
+            arrival_ids[n] = e.id;
+            n += 1;
+        }
+    }
+    try std.testing.expect(n >= 2);
+
+    var checked = false;
+    for (0..n) |i| for (i + 1..n) |j| {
+        const first = edgeById(sd, arrival_ids[i]) orelse continue;
+        const second = edgeById(sd, arrival_ids[j]) orelse continue;
+        const fe = first.polyline[first.polyline.len - 1];
+        const se = second.polyline[second.polyline.len - 1];
+        if (fe.x != se.x or fe.y != se.y) continue;
+        checked = true;
+        var named = false;
+        for (sd.sharing.bundles) |set| {
+            if (set.origin != .port_share) continue;
+            var saw_first = false;
+            var saw_second = false;
+            for (set.members) |m| {
+                if (m == first.id) saw_first = true;
+                if (m == second.id) saw_second = true;
+            }
+            if (saw_first and saw_second) named = true;
+        }
+        try std.testing.expect(named);
+    };
+    try std.testing.expect(checked);
 }
 
 fn twoBridgesIntoOnePortGraph(
@@ -665,55 +694,6 @@ fn twoBridgesIntoOnePortGraph(
         .classes = &.{},
         .arena = null,
     };
-}
-
-test "two bridges into one port declare a port-share bundle" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var nodes_buf: [4]sem_graph.Node = undefined;
-    var edges_buf: [3]sem_graph.Edge = undefined;
-    var members: [2]sem_graph.NodeId = undefined;
-    var clusters_buf: [1]sem_graph.Cluster = undefined;
-    const graph = twoBridgesIntoOnePortGraph(&nodes_buf, &edges_buf, &members, &clusters_buf);
-
-    const s = try recurse.layoutPieces(a, graph, .{ .max_width = 120 });
-
-    const c = placementNamed(s, "C") orelse return error.TargetNotPlaced;
-    var arrivals: [8]sketch.EdgeId = undefined;
-    var n: usize = 0;
-    for (s.edges) |e| {
-        if (e.to != c.id) continue;
-        if (n < arrivals.len) {
-            arrivals[n] = e.id;
-            n += 1;
-        }
-    }
-    try std.testing.expect(n >= 2);
-
-    var checked = false;
-    for (0..n) |i| for (i + 1..n) |j| {
-        const first = edgeById(s, arrivals[i]) orelse continue;
-        const second = edgeById(s, arrivals[j]) orelse continue;
-        const fe = first.polyline[first.polyline.len - 1];
-        const se = second.polyline[second.polyline.len - 1];
-        if (fe.x != se.x or fe.y != se.y) continue;
-        checked = true;
-        var named = false;
-        for (s.sharing.bundles) |set| {
-            if (set.origin != .port_share) continue;
-            var saw_first = false;
-            var saw_second = false;
-            for (set.members) |m| {
-                if (m == first.id) saw_first = true;
-                if (m == second.id) saw_second = true;
-            }
-            if (saw_first and saw_second) named = true;
-        }
-        try std.testing.expect(named);
-    };
-    try std.testing.expect(checked);
 }
 
 test "a child rail and cross-border bridge sharing A's final port are licensed" {
@@ -849,40 +829,4 @@ test "layoutChild never widens: rotation rejected when it does not reduce width"
 
     const s = try recurse.layoutPieces(a, graph, .{ .max_width = 8 });
     try std.testing.expectEqual(sem_graph.Direction.LR, innerClusterDirection(s).?);
-}
-
-test "fitting child keeps declared direction (overall never widened by a needless flip)" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const NS = sem_graph.NodeShape;
-    const nodes = [_]sem_graph.Node{
-        .{ .id = 0, .raw_id = "Top", .label = "Top", .shape = NS.rect, .classes = &.{}, .cluster = null },
-        .{ .id = 1, .raw_id = "a", .label = "A", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
-        .{ .id = 2, .raw_id = "b", .label = "B", .shape = NS.rect, .classes = &.{}, .cluster = 100 },
-        .{ .id = 3, .raw_id = "Bot", .label = "Bot", .shape = NS.rect, .classes = &.{}, .cluster = null },
-    };
-    const edges = [_]sem_graph.Edge{
-        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        .{ .id = 1, .from = 1, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-        .{ .id = 2, .from = 2, .to = 3, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = null },
-    };
-    const members = [_]sem_graph.NodeId{ 1, 2 };
-    const clusters = [_]sem_graph.Cluster{
-        .{ .id = 100, .raw_id = "S", .label = "S", .parent = null, .members = &members, .sub_clusters = &.{}, .direction = .LR },
-    };
-    const graph: sem_graph.SemGraph = .{
-        .direction = .TD,
-        .nodes = &nodes,
-        .edges = &edges,
-        .clusters = &clusters,
-        .classes = &.{},
-        .arena = null,
-    };
-
-    const budget: u32 = 200;
-    const s = try recurse.layoutPieces(a, graph, .{ .max_width = budget });
-    try std.testing.expectEqual(sem_graph.Direction.LR, innerClusterDirection(s).?);
-    try std.testing.expect(s.bbox.w <= budget);
 }

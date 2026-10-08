@@ -126,24 +126,3 @@ pub const StateDiagram = struct {
         return max_layer + 1;
     }
 };
-
-test "StateDiagram basic operations" {
-    const testing = std.testing;
-    var diagram = StateDiagram.init(testing.allocator);
-    defer diagram.deinit();
-
-    try diagram.addState(.{ .id = "s1", .label = "State 1" });
-    try diagram.addState(.{ .id = "s2", .label = "State 2" });
-    try diagram.addState(.{ .id = "[*]_start", .state_type = .start });
-    try diagram.addState(.{ .id = "[*]_end", .state_type = .end });
-
-    try diagram.addTransition(.{ .from = "[*]_start", .to = "s1" });
-    try diagram.addTransition(.{ .from = "s1", .to = "s2", .label = "go" });
-    try diagram.addTransition(.{ .from = "s2", .to = "[*]_end" });
-
-    try testing.expect(diagram.getState("s1") != null);
-    try testing.expect(diagram.getState("s2") != null);
-    try testing.expect(diagram.getState("s3") == null);
-    try testing.expectEqual(@as(usize, 3), diagram.transitions.items.len);
-    try testing.expectEqual(@as(usize, 4), diagram.state_order.items.len);
-}

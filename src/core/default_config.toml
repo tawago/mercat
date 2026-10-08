@@ -1,5 +1,7 @@
 [general]
-editor = "vim"
+# Empty: use $VISUAL, then $EDITOR, then the first of nvim/vim/vi/nano on PATH.
+# May include arguments, e.g. "code --wait".
+editor = ""
 pager = "less -R"
 
 [display]
@@ -7,12 +9,17 @@ pager = "less -R"
 #   dark, light, ansi (16-color terminal palette),
 #   dracula, tokyo-night, pink, markview.
 # Or the name of a user theme file at ~/.config/mercat/themes/<name>.toml.
-# Override for one run with --style <name> or MERCAT_THEME=<name>.
+# Override for one run with --theme <name> or MERCAT_THEME=<name>.
+# `mercat --list-themes` lists every available name.
 theme = "dark"
 # Deprecated: superseded by the theme system. Still parsed so old configs load,
 # but no longer selects a palette variant.
 syntax_theme = "default"
+# Wrap width: 0 = terminal width (plain/png export: 120), else 20..1000.
 width = 0
+# Color and OSC 8 hyperlinks: auto (only when stdout is a terminal), always,
+# never. --color, NO_COLOR and CLICOLOR_FORCE/FORCE_COLOR take precedence.
+color = "auto"
 
 # Inline theme overrides layer on top of the selected theme. Each [theme.<slot>]
 # table tweaks one element; absent keys inherit, an empty string "" clears an
@@ -39,7 +46,6 @@ width = 0
 #   # or rounded (─│ with ╭╮╰╯ corners).
 #   table_style = "grid"
 # Per-heading prefixes live on each [theme.headingN] slot's `prefix` key.
-line_numbers = false
 # How YAML front matter (--- metadata at the top of a file) is displayed:
 #   "panel" (default) — banded metadata card
 #   "dim"             — muted key/value list, no chrome
@@ -50,14 +56,8 @@ line_numbers = false
 frontmatter = "panel"
 
 [mermaid]
-enabled = true
-style = "rounded"
 # How an edge that crosses a subgraph frame border is drawn:
 #   "bridge" (default) — frame stays solid, the edge bridges across it
 #   "cross"            — legacy junction weld (a tee/cross on the border)
 # Override for one run with MERCAT_SUBGRAPH_EDGES=bridge|cross.
 subgraph_edges = "bridge"
-
-[files]
-show_hidden = false
-extensions = ["md", "markdown", "mdown", "mkd"]
