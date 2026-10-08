@@ -157,7 +157,7 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 
 The status line shows the file name on the left and the position on the
 right (`L 30-58/897 6%`, or `Top` / `Bot` / `All`); messages such as
-`Reloaded` or search counts appear next to the file name for 2.5 seconds,
+`Reloaded` or search counts appear next to the file name for 2 seconds,
 warnings (an invalid-UTF-8 or theme warning at startup or reload, a failed
 copy) for 5 seconds.
 
