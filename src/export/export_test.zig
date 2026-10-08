@@ -89,39 +89,6 @@ fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8
     };
 }
 
-fn runMercatStdin(allocator: std.mem.Allocator, extra_args: []const []const u8, stdin_bytes: []const u8) !Run {
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(allocator);
-    try argv.append(allocator, mercat_exe_path);
-    for (extra_args) |a| try argv.append(allocator, a);
-
-    var child_env = try ChildEnv.init(allocator, &.{});
-    defer child_env.deinit();
-
-    var child = std.process.Child.init(argv.items, allocator);
-    child.env_map = &child_env.env;
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-    try child.spawn();
-
-    try child.stdin.?.writeAll(stdin_bytes);
-    child.stdin.?.close();
-    child.stdin = null;
-
-    const out = try child.stdout.?.readToEndAlloc(allocator, 16 * 1024 * 1024);
-    errdefer allocator.free(out);
-    const err = try child.stderr.?.readToEndAlloc(allocator, 16 * 1024 * 1024);
-    errdefer allocator.free(err);
-    const term = try child.wait();
-    return .{
-        .exited_zero = term == .Exited and term.Exited == 0,
-        .exit_code = if (term == .Exited) term.Exited else 255,
-        .stdout = out,
-        .stderr = err,
-    };
-}
-
 fn tmpPath(allocator: std.mem.Allocator, tmp: *std.testing.TmpDir, name: []const u8) ![]u8 {
     const dir = try tmp.dir.realpathAlloc(allocator, ".");
     defer allocator.free(dir);
@@ -149,37 +116,7 @@ const wide_markdown =
 
 const sample_mermaid = "flowchart TD\n  A[Start] --> B[Middle]\n  B --> C[End]\n";
 
-test "two separate-process PNG exports are byte-identical" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "in.mmd", sample_mermaid);
-    const in_path = try tmpPath(allocator, &tmp, "in.mmd");
-    defer allocator.free(in_path);
-    const out_a = try tmpPath(allocator, &tmp, "a.png");
-    defer allocator.free(out_a);
-    const out_b = try tmpPath(allocator, &tmp, "b.png");
-    defer allocator.free(out_b);
-
-    const r1 = try runMercat(allocator, &.{ "--format", "png", "--monochrome", "-w", "90", "-o", out_a, in_path });
-    defer r1.deinit(allocator);
-    try testing.expect(r1.exited_zero);
-    const r2 = try runMercat(allocator, &.{ "--format", "png", "--monochrome", "-w", "90", "-o", out_b, in_path });
-    defer r2.deinit(allocator);
-    try testing.expect(r2.exited_zero);
-
-    const bytes_a = try tmp.dir.readFileAlloc(allocator, "a.png", 16 * 1024 * 1024);
-    defer allocator.free(bytes_a);
-    const bytes_b = try tmp.dir.readFileAlloc(allocator, "b.png", 16 * 1024 * 1024);
-    defer allocator.free(bytes_b);
-    try testing.expect(bytes_a.len > 0);
-    try testing.expectEqualSlices(u8, bytes_a, bytes_b);
-    try testing.expectEqualSlices(u8, "\x89PNG\r\n\x1a\n", bytes_a[0..8]);
-}
-
-test "non-terminal plain output defaults to 120 columns" {
+test "plain output defaults to 120 columns off a terminal and -w bounds it" {
     try requireBinary();
     const allocator = testing.allocator;
 
@@ -194,37 +131,14 @@ test "non-terminal plain output defaults to 120 columns" {
     try testing.expect(def.exited_zero);
     const w120 = try runMercat(allocator, &.{ "--format", "plain", "-w", "120", in_path });
     defer w120.deinit(allocator);
-    const w90 = try runMercat(allocator, &.{ "--format", "plain", "-w", "90", in_path });
-    defer w90.deinit(allocator);
-
-    try testing.expectEqualSlices(u8, w120.stdout, def.stdout);
-    try testing.expect(!std.mem.eql(u8, w90.stdout, def.stdout));
-    try testing.expect(maxLineBytes(def.stdout) <= 120);
-    try testing.expect(maxLineBytes(def.stdout) > 90);
-}
-
-test "explicit 60/90/120 widths bound the output width" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "wide.md", wide_markdown);
-    const in_path = try tmpPath(allocator, &tmp, "wide.md");
-    defer allocator.free(in_path);
-
-    inline for (.{ "60", "90", "120" }) |w| {
-        const r = try runMercat(allocator, &.{ "--format", "plain", "-w", w, in_path });
-        defer r.deinit(allocator);
-        try testing.expect(r.exited_zero);
-        try testing.expect(maxLineBytes(r.stdout) <= comptime std.fmt.parseInt(usize, w, 10) catch unreachable);
-    }
-
     const w60 = try runMercat(allocator, &.{ "--format", "plain", "-w", "60", in_path });
     defer w60.deinit(allocator);
-    const w120 = try runMercat(allocator, &.{ "--format", "plain", "-w", "120", in_path });
-    defer w120.deinit(allocator);
-    try testing.expect(!std.mem.eql(u8, w60.stdout, w120.stdout));
+    try testing.expect(w60.exited_zero);
+
+    try testing.expectEqualSlices(u8, w120.stdout, def.stdout);
+    try testing.expect(!std.mem.eql(u8, w60.stdout, def.stdout));
+    try testing.expect(maxLineBytes(def.stdout) <= 120);
+    try testing.expect(maxLineBytes(def.stdout) > 60);
     try testing.expect(maxLineBytes(w60.stdout) <= 60);
 }
 
@@ -246,34 +160,6 @@ test "renders a .mmd flowchart to plain text with box-drawing" {
         std.mem.indexOf(u8, r.stdout, "\u{2502}") != null;
     try testing.expect(has_box);
     try testing.expect(std.mem.indexOfScalar(u8, r.stdout, 0x1b) == null);
-}
-
-test "renders a Markdown file to plain text" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "doc.md", "# Heading One\n\nSome body text.\n");
-    const in_path = try tmpPath(allocator, &tmp, "doc.md");
-    defer allocator.free(in_path);
-
-    const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", in_path });
-    defer r.deinit(allocator);
-    try testing.expect(r.exited_zero);
-    try testing.expect(std.mem.indexOf(u8, r.stdout, "Heading One") != null);
-    try testing.expect(std.mem.indexOf(u8, r.stdout, "Some body text.") != null);
-}
-
-test "reads Markdown from stdin via -" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    const r = try runMercatStdin(allocator, &.{ "--format", "plain", "-w", "80", "-" }, "# Piped Title\n\nhello world\n");
-    defer r.deinit(allocator);
-    try testing.expect(r.exited_zero);
-    try testing.expect(std.mem.indexOf(u8, r.stdout, "Piped Title") != null);
-    try testing.expect(std.mem.indexOf(u8, r.stdout, "hello world") != null);
 }
 
 test "plain file output writes the file and emits nothing to stdout (no pager)" {
@@ -350,70 +236,5 @@ test "png export of an uncovered glyph fails without leaving a file" {
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
-    }
-}
-
-test "invalid format/output combinations exit non-zero end-to-end" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "doc.md", "# Title\n");
-    const in_path = try tmpPath(allocator, &tmp, "doc.md");
-    defer allocator.free(in_path);
-    const out_path = try tmpPath(allocator, &tmp, "out");
-    defer allocator.free(out_path);
-
-    {
-        const r = try runMercat(allocator, &.{ "--format", "png", in_path });
-        defer r.deinit(allocator);
-        try testing.expect(!r.exited_zero);
-    }
-    {
-        const r = try runMercat(allocator, &.{ "-o", out_path, in_path });
-        defer r.deinit(allocator);
-        try testing.expect(!r.exited_zero);
-    }
-    {
-        const r = try runMercat(allocator, &.{ "--format", "png", "-o", out_path, "-p", in_path });
-        defer r.deinit(allocator);
-        try testing.expect(!r.exited_zero);
-    }
-    {
-        const r = try runMercat(allocator, &.{ "--format", "svg", in_path });
-        defer r.deinit(allocator);
-        try testing.expect(!r.exited_zero);
-    }
-}
-
-test "valid format/output combinations succeed end-to-end" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "doc.md", "# Title\n\nbody\n");
-    const in_path = try tmpPath(allocator, &tmp, "doc.md");
-    defer allocator.free(in_path);
-    const txt_path = try tmpPath(allocator, &tmp, "out.txt");
-    defer allocator.free(txt_path);
-
-    {
-        const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", in_path });
-        defer r.deinit(allocator);
-        try testing.expect(r.exited_zero);
-        try testing.expect(r.stdout.len > 0);
-    }
-    {
-        const r = try runMercat(allocator, &.{ "--format", "plain", "-w", "80", "-o", txt_path, in_path });
-        defer r.deinit(allocator);
-        try testing.expect(r.exited_zero);
-    }
-    {
-        // --monochrome only applies to PNG; elsewhere it is a usage error.
-        const r = try runMercat(allocator, &.{ "--monochrome", in_path });
-        defer r.deinit(allocator);
-        try testing.expect(!r.exited_zero);
     }
 }

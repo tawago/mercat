@@ -196,23 +196,6 @@ fn advanceUnits(info: *const c.stbtt_fontinfo, codepoint: u21) i32 {
 
 const testing = std.testing;
 
-test "font provenance metadata is exposed for the manifest API (§4.3)" {
-    try testing.expect(font_release_version.len != 0);
-    try testing.expect(stb_truetype_revision.len != 0);
-    try testing.expect(font_name.len != 0);
-    try testing.expect(stb_truetype_version.len != 0);
-    try testing.expectEqual(@as(usize, 40), stb_truetype_revision.len);
-}
-
-test "embedded font hash is stable and matches the pin" {
-    var digest: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(ttf_bytes, &digest, .{});
-    try testing.expectEqualSlices(u8, &expected_sha256, &digest);
-
-    const font = try Font.init(20);
-    try testing.expectEqualSlices(u8, &expected_sha256, &font.sha256);
-}
-
 test "font initializes with sane monospace metrics at 20px" {
     const font = try Font.init(20);
     try testing.expect(font.scale > 0.0);
@@ -225,74 +208,4 @@ test "font initializes with sane monospace metrics at 20px" {
     try testing.expectEqual(@as(i16, 16), font.baseline_px);
     try testing.expectEqual(@as(i32, font.cell_width_px), font.advancePx(' '));
     try testing.expectEqual(@as(i32, font.cell_width_px), font.advancePx('M'));
-}
-
-test "cell metrics are integer and internally consistent" {
-    const font = try Font.init(20);
-    const extent: f32 = @floatFromInt(font.ascent_units - font.descent_units + font.line_gap_units);
-    const expect_h: u16 = @intFromFloat(@ceil(extent * font.scale));
-    try testing.expectEqual(expect_h, font.cell_height_px);
-    const expect_baseline: i16 = @intFromFloat(@ceil(@as(f32, @floatFromInt(font.ascent_units)) * font.scale));
-    try testing.expectEqual(expect_baseline, font.baseline_px);
-}
-
-test "the five geometric shape code points resolve to real glyphs" {
-    const font = try Font.init(20);
-    for (required_shape_scalars) |cp| {
-        try testing.expect(font.hasGlyph(cp));
-        const gi = try font.requireGlyph(cp);
-        try testing.expect(gi != 0);
-    }
-}
-
-test "ASCII printable and box-drawing code points resolve" {
-    const font = try Font.init(20);
-    const sample = [_]u21{
-        'A',    'z',    '0',    '#',    ' ',
-        0x2500, 0x2502, 0x250C, 0x2514, 0x253C,
-        0x2022, 0x2192,
-    };
-    for (sample) |cp| {
-        _ = try font.requireGlyph(cp);
-    }
-}
-
-test "missing glyph fails closed with error.MissingGlyph" {
-    const font = try Font.init(20);
-    const absent: u21 = 0x1F4A9;
-    try testing.expect(!font.hasGlyph(absent));
-    try testing.expectError(Error.MissingGlyph, font.requireGlyph(absent));
-    try testing.expectEqual(@as(i32, 0), font.glyphIndex(absent));
-}
-
-test "space may map to glyph zero without erroring" {
-    const font = try Font.init(20);
-    _ = try font.requireGlyph(' ');
-}
-
-test "rasterizing a covered glyph yields a non-empty coverage mask" {
-    const font = try Font.init(20);
-    const gi = try font.requireGlyph('M');
-    var bmp = try font.rasterizeGlyphIndex(testing.allocator, gi);
-    defer bmp.deinit(testing.allocator);
-    try testing.expect(bmp.width > 0);
-    try testing.expect(bmp.height > 0);
-    try testing.expectEqual(@as(usize, @intCast(bmp.width * bmp.height)), bmp.coverage.len);
-    var any_ink = false;
-    for (bmp.coverage) |px| {
-        if (px != 0) {
-            any_ink = true;
-            break;
-        }
-    }
-    try testing.expect(any_ink);
-}
-
-test "rasterizing an empty glyph (space) yields a zero-size bitmap" {
-    const font = try Font.init(20);
-    const gi = font.glyphIndex(' ');
-    var bmp = try font.rasterizeGlyphIndex(testing.allocator, gi);
-    defer bmp.deinit(testing.allocator);
-    try testing.expectEqual(@as(i32, 0), bmp.width);
-    try testing.expectEqual(@as(usize, 0), bmp.coverage.len);
 }

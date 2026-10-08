@@ -116,21 +116,14 @@ fn pixelAt(s: Surface, x: u32, y: u32) Color {
     return .{ .r = s.pixels[i], .g = s.pixels[i + 1], .b = s.pixels[i + 2], .a = s.pixels[i + 3] };
 }
 
-test "fill paints every pixel opaque" {
-    var s = try Surface.init(testing.allocator, 3, 2);
-    defer s.deinit(testing.allocator);
-    s.fill(.{ .r = 10, .g = 20, .b = 30 });
-    try testing.expectEqual(Color{ .r = 10, .g = 20, .b = 30, .a = 255 }, pixelAt(s, 2, 1));
-}
-
 test "fillRect clips to surface bounds" {
     var s = try Surface.init(testing.allocator, 4, 4);
     defer s.deinit(testing.allocator);
-    s.fill(.{ .r = 0, .g = 0, .b = 0 });
+    s.fill(.{ .r = 10, .g = 20, .b = 30 });
     s.fillRect(-2, -2, 4, 4, .{ .r = 255, .g = 255, .b = 255 });
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255, .a = 255 }, pixelAt(s, 0, 0));
     try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255, .a = 255 }, pixelAt(s, 1, 1));
-    try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0, .a = 255 }, pixelAt(s, 2, 2));
+    try testing.expectEqual(Color{ .r = 10, .g = 20, .b = 30, .a = 255 }, pixelAt(s, 2, 2));
 }
 
 test "blendMask composites coverage over the background" {
@@ -138,10 +131,9 @@ test "blendMask composites coverage over the background" {
     defer s.deinit(testing.allocator);
     s.fill(.{ .r = 255, .g = 255, .b = 255 });
     const mask = [_]u8{ 255, 128 };
-    s.blendMask(&mask, 2, 1, 0, 0, .{ .r = 0, .g = 0, .b = 0 });
-    try testing.expectEqual(@as(u8, 0), pixelAt(s, 0, 0).r);
-    const half = pixelAt(s, 1, 0).r;
-    try testing.expectEqual(@as(u8, 127), half);
+    s.blendMask(&mask, 2, 1, 0, 0, .{ .r = 200, .g = 100, .b = 50 });
+    try testing.expectEqual(Color{ .r = 200, .g = 100, .b = 50, .a = 255 }, pixelAt(s, 0, 0));
+    try testing.expectEqual(Color{ .r = 227, .g = 177, .b = 152, .a = 255 }, pixelAt(s, 1, 0));
 }
 
 test "blendMask clips negative and overflowing coordinates" {

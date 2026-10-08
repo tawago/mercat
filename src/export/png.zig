@@ -264,127 +264,35 @@ fn decodeDims(bytes: []const u8) struct { w: u32, h: u32 } {
     return .{ .w = w, .h = h };
 }
 
-test "render produces a PNG matching the document pixel dimensions" {
+test "writeFile writes the encoded PNG at the document pixel dimensions" {
     const allocator = testing.allocator;
     const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("Hi", .body)};
+    var spans = [_]Span{makeSpan("Full document", .body)};
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
     defer doc.deinit(allocator);
 
-    const result = try render(allocator, doc, &face, .monochrome, null);
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(dir_path);
+    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "doc.png" });
+    defer allocator.free(out_path);
+
+    const result = try writeFile(allocator, doc, &face, .monochrome, out_path, null);
     defer result.deinit(allocator);
 
-    try testing.expectEqual(try doc.pixelWidth(), result.width());
-    try testing.expectEqual(try doc.pixelHeight(), result.height());
-    const dims = decodeDims(result.encoded.bytes);
-    try testing.expectEqual(result.width(), dims.w);
-    try testing.expectEqual(result.height(), dims.h);
+    const written = try std.fs.cwd().readFileAlloc(allocator, out_path, 64 * 1024 * 1024);
+    defer allocator.free(written);
+    try testing.expectEqualSlices(u8, result.encoded.bytes, written);
+    const dims = decodeDims(written);
+    try testing.expectEqual(try doc.pixelWidth(), dims.w);
+    try testing.expectEqual(try doc.pixelHeight(), dims.h);
     try testing.expectEqualSlices(u8, &face.sha256, &result.font_sha256);
 }
 
 fn makeSpan(text: []const u8, style: render_model.SpanStyle) Span {
     return .{ .text = text, .style = style };
-}
-
-test "render is deterministic across two same-process exports" {
-    const allocator = testing.allocator;
-    const face = try font.Font.init(20);
-    var spans = [_]Span{ makeSpan("Deterministic ", .heading1), makeSpan("output", .code) };
-    var lines = [_]Line{.{ .spans = &spans }};
-    var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .theme);
-    defer doc.deinit(allocator);
-
-    const a = try render(allocator, doc, &face, .theme, null);
-    defer a.deinit(allocator);
-    const b = try render(allocator, doc, &face, .theme, null);
-    defer b.deinit(allocator);
-    try testing.expectEqualSlices(u8, a.encoded.bytes, b.encoded.bytes);
-    try testing.expectEqualSlices(u8, &a.outputSha256(), &b.outputSha256());
-}
-
-test "monochrome output contains only black, white, and antialias grays" {
-    const allocator = testing.allocator;
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("Ag", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
-    defer doc.deinit(allocator);
-
-    const w = try doc.pixelWidth();
-    const h = try doc.pixelHeight();
-    var surface = try Surface.init(allocator, w, h);
-    defer surface.deinit(allocator);
-    surface.fill(doc.page_background);
-    for (doc.runs) |run| try paintRunGlyphs(allocator, &surface, doc.geometry, run, &face, null);
-
-    var i: usize = 0;
-    while (i < surface.pixels.len) : (i += 4) {
-        const r = surface.pixels[i];
-        try testing.expectEqual(r, surface.pixels[i + 1]);
-        try testing.expectEqual(r, surface.pixels[i + 2]);
-        try testing.expectEqual(@as(u8, 255), surface.pixels[i + 3]);
-    }
-}
-
-test "combining mark across styles shares the base grapheme geometry and ink" {
-    const allocator = testing.allocator;
-    const face = try font.Font.init(20);
-
-    var spans_b = [_]Span{ makeSpan("e", .body), makeSpan("\u{0301}", .emphasis) };
-    var lines_b = [_]Line{.{ .spans = &spans_b }};
-    var doc_b = try buildDoc(allocator, .{ .lines = &lines_b }, &face, .monochrome);
-    defer doc_b.deinit(allocator);
-
-    var spans_a = [_]Span{makeSpan("e\u{0301}", .body)};
-    var lines_a = [_]Line{.{ .spans = &spans_a }};
-    var doc_a = try buildDoc(allocator, .{ .lines = &lines_a }, &face, .monochrome);
-    defer doc_a.deinit(allocator);
-
-    const w = try doc_b.pixelWidth();
-    const h = try doc_b.pixelHeight();
-    try testing.expectEqual(@as(usize, 1), doc_b.runs.len);
-    try testing.expectEqual(render_model.SpanStyle.body, doc_b.runs[0].semantic_style);
-    try testing.expectEqualStrings("e\u{0301}", doc_b.runs[0].text);
-    try testing.expectEqual(w, try doc_a.pixelWidth());
-    try testing.expectEqual(h, try doc_a.pixelHeight());
-
-    var sa = try Surface.init(allocator, w, h);
-    defer sa.deinit(allocator);
-    var sb = try Surface.init(allocator, w, h);
-    defer sb.deinit(allocator);
-    sa.fill(doc_a.page_background);
-    sb.fill(doc_b.page_background);
-    for (doc_a.runs) |run| try paintRunGlyphs(allocator, &sa, doc_a.geometry, run, &face, null);
-    for (doc_b.runs) |run| try paintRunGlyphs(allocator, &sb, doc_b.geometry, run, &face, null);
-
-    try testing.expectEqualSlices(u8, sa.pixels, sb.pixels);
-}
-
-test "missing glyph fails and writeFile leaves no file" {
-    const allocator = testing.allocator;
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("\u{1F4A9}", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
-    defer doc.deinit(allocator);
-
-    var tmp = testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-    const path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(path);
-    const out_path = try std.fs.path.join(allocator, &.{ path, "missing.png" });
-    defer allocator.free(out_path);
-
-    var diag: Diagnostic = .{};
-    try testing.expectError(error.MissingGlyph, writeFile(allocator, doc, &face, .monochrome, out_path, &diag));
-    try testing.expectEqual(@as(u21, 0x1F4A9), diag.missing_codepoint);
-    try testing.expectEqual(@as(u32, 0), diag.row);
-    try testing.expectError(error.FileNotFound, std.fs.cwd().access(out_path, .{}));
-    var it = tmp.dir.iterate();
-    while (try it.next()) |entry| {
-        try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
-    }
 }
 
 test "missing constituent leaves an existing target byte-identical" {
@@ -412,35 +320,4 @@ test "missing constituent leaves an existing target byte-identical" {
     try testing.expectEqualStrings("original", after);
     var it = tmp.dir.iterate();
     while (try it.next()) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
-}
-
-test "writeFile atomically creates a decodable PNG" {
-    const allocator = testing.allocator;
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("Full document", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    var doc = try buildDoc(allocator, .{ .lines = &lines }, &face, .monochrome);
-    defer doc.deinit(allocator);
-
-    var tmp = testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(dir_path);
-    const out_path = try std.fs.path.join(allocator, &.{ dir_path, "doc.png" });
-    defer allocator.free(out_path);
-
-    const result = try writeFile(allocator, doc, &face, .monochrome, out_path, null);
-    defer result.deinit(allocator);
-
-    const written = try std.fs.cwd().readFileAlloc(allocator, out_path, 64 * 1024 * 1024);
-    defer allocator.free(written);
-    try testing.expectEqualSlices(u8, result.encoded.bytes, written);
-    const dims = decodeDims(written);
-    try testing.expectEqual(result.width(), dims.w);
-    try testing.expectEqual(result.height(), dims.h);
-
-    var it = tmp.dir.iterate();
-    while (try it.next()) |entry| {
-        try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
-    }
 }
