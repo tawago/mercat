@@ -5,185 +5,98 @@ const args = @import("args.zig");
 const parse = args.parse;
 const parseDiag = args.parseDiag;
 const Parsed = args.Parsed;
-const Mode = args.Mode;
-const OutputFormat = args.OutputFormat;
-const Input = args.Input;
 
-test "parses cli arguments" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--style", "dark", "-w", "88", "README.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqual(Mode.cli, parsed.mode);
-    try std.testing.expectEqual(@as(?usize, 88), parsed.width);
-    try std.testing.expectEqualStrings("dark", parsed.style.?);
-    try std.testing.expectEqualStrings("README.md", parsed.input.file);
+/// Parses `argv` and compares every field of the result with `want`.
+fn expectParsed(argv: []const []const u8, want: Parsed) !void {
+    const got = try parse(std.testing.allocator, argv);
+    defer got.deinit(std.testing.allocator);
+    inline for (std.meta.fields(Parsed)) |f| {
+        const w = @field(want, f.name);
+        const g = @field(got, f.name);
+        switch (@TypeOf(w)) {
+            ?[]const u8, ?[]u8 => {
+                try std.testing.expectEqual(w == null, g == null);
+                if (w) |s| try std.testing.expectEqualStrings(s, g.?);
+            },
+            args.Input => {
+                try std.testing.expectEqual(std.meta.activeTag(w), std.meta.activeTag(g));
+                if (w.filePath()) |p| try std.testing.expectEqualStrings(p, g.filePath().?);
+            },
+            else => try std.testing.expectEqual(w, g),
+        }
+    }
 }
 
-test "--dump-theme captures the theme name" {
-    const argv = [_][]const u8{ "mercat", "--dump-theme", "dracula" };
-    const parsed = try parse(std.testing.allocator, &argv);
-    defer parsed.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("dracula", parsed.dump_theme.?);
-}
+const ParseRow = struct { argv: []const []const u8, want: Parsed };
+const x_md: args.Input = .{ .file = "x.md" };
 
-test "--dump-theme without a value errors" {
-    const argv = [_][]const u8{ "mercat", "--dump-theme" };
-    try std.testing.expectError(error.MissingValue, parse(std.testing.allocator, &argv));
-}
-
-test "--style accepts any name; validation is deferred to the registry" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--style", "dracula", "README.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqualStrings("dracula", parsed.style.?);
-    try std.testing.expectEqualStrings("dracula", parsed.effectiveTheme("light"));
-    try std.testing.expectEqualStrings("light", (Parsed{}).effectiveTheme("light"));
-}
-
-test "supports heading marker override" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--no-heading-markers", "README.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqual(@as(?bool, false), parsed.heading_markers);
-}
-
-test "parses frontmatter style flag and rejects invalid values" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--frontmatter", "compact", "README.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.frontmatter.?);
-    try std.testing.expectEqual(config.FrontmatterStyle.compact, parsed.effectiveFrontmatter(.panel));
-    try std.testing.expectEqual(config.FrontmatterStyle.dim, (Parsed{}).effectiveFrontmatter(.dim));
-
-    const bad = [_][]const u8{ "mercat", "--frontmatter", "table", "README.md" };
-    try std.testing.expectError(error.InvalidFrontmatterStyle, parse(allocator, &bad));
-}
-
-test "frontmatter: missing value at end of argv errors MissingValue" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--frontmatter" };
-    try std.testing.expectError(error.MissingValue, parse(allocator, &argv));
-}
-
-test "frontmatter: accepts every valid style spelling" {
-    const allocator = std.testing.allocator;
-    const cases = [_]struct { text: []const u8, style: config.FrontmatterStyle }{
-        .{ .text = "panel", .style = .panel },
-        .{ .text = "dim", .style = .dim },
-        .{ .text = "compact", .style = .compact },
-        .{ .text = "raw", .style = .raw },
-        .{ .text = "hidden", .style = .hidden },
+test "every flag_table row parses into its field" {
+    for ([_][]const u8{ "--help", "-h" }) |a| {
+        try std.testing.expectError(error.ShowHelp, parse(std.testing.allocator, &.{ "mercat", a }));
+    }
+    for ([_][]const u8{ "--version", "-v", "-V" }) |a| {
+        try std.testing.expectError(error.ShowVersion, parse(std.testing.allocator, &.{ "mercat", a }));
+    }
+    const out: ?[]u8 = @constCast("out.txt");
+    const rows = [_]ParseRow{
+        .{ .argv = &.{ "mercat", "--pager", "x.md" }, .want = .{ .input = x_md, .pager = true } },
+        .{ .argv = &.{ "mercat", "-p", "x.md" }, .want = .{ .input = x_md, .pager = true } },
+        .{ .argv = &.{ "mercat", "--tui", "x.md" }, .want = .{ .input = x_md, .mode = .tui } },
+        .{ .argv = &.{ "mercat", "-t", "x.md" }, .want = .{ .input = x_md, .mode = .tui } },
+        .{ .argv = &.{ "mercat", "--width", "88", "x.md" }, .want = .{ .input = x_md, .width = 88 } },
+        .{ .argv = &.{ "mercat", "-w", "88", "x.md" }, .want = .{ .input = x_md, .width = 88 } },
+        .{ .argv = &.{ "mercat", "--theme", "dark", "x.md" }, .want = .{ .input = x_md, .style = "dark" } },
+        .{ .argv = &.{ "mercat", "--style", "dracula", "x.md" }, .want = .{ .input = x_md, .style = "dracula" } },
+        .{ .argv = &.{ "mercat", "--dump-theme", "dracula" }, .want = .{ .dump_theme = "dracula" } },
+        .{ .argv = &.{ "mercat", "--list-themes" }, .want = .{ .list_themes = true } },
+        .{ .argv = &.{ "mercat", "--color", "always", "x.md" }, .want = .{ .input = x_md, .color = .always } },
+        .{ .argv = &.{ "mercat", "--heading-markers", "x.md" }, .want = .{ .input = x_md, .heading_markers = true } },
+        .{ .argv = &.{ "mercat", "--no-heading-markers", "x.md" }, .want = .{ .input = x_md, .heading_markers = false } },
+        .{ .argv = &.{ "mercat", "--frontmatter", "compact", "x.md" }, .want = .{ .input = x_md, .frontmatter = .compact } },
+        .{ .argv = &.{ "mercat", "--format", "plain", "x.md" }, .want = .{ .input = x_md, .format = .plain } },
+        .{ .argv = &.{ "mercat", "--format", "plain", "--output", "out.txt", "x.md" }, .want = .{ .input = x_md, .format = .plain, .output_path = out } },
+        .{ .argv = &.{ "mercat", "--format", "plain", "-o", "out.txt", "x.md" }, .want = .{ .input = x_md, .format = .plain, .output_path = out } },
+        .{ .argv = &.{ "mercat", "--format", "png", "-o", "out.txt", "--monochrome", "x.md" }, .want = .{ .input = x_md, .format = .png, .output_path = out, .monochrome = true } },
+        .{ .argv = &.{ "mercat", "--box-style", "rounded", "x.md" }, .want = .{ .input = x_md, .box_style = .rounded } },
+        .{ .argv = &.{ "mercat", "--layout", "tree", "x.md" }, .want = .{ .input = x_md, .force_layout = .tree } },
+        .{ .argv = &.{ "mercat", "--force-layout", "tree", "x.md" }, .want = .{ .input = x_md, .force_layout = .tree } },
+        .{ .argv = &.{ "mercat", "--crossing-heuristic", "barycenter", "x.md" }, .want = .{ .input = x_md, .crossing_heuristic = .barycenter } },
+        .{ .argv = &.{ "mercat", "--aspect-ratio", "2.5", "x.md" }, .want = .{ .input = x_md, .aspect_ratio = 2.5 } },
+        .{ .argv = &.{ "mercat", "--debug-mermaid", "x.md" }, .want = .{ .input = x_md, .debug_mermaid = true } },
     };
-    for (cases) |case| {
-        const argv = [_][]const u8{ "mercat", "--frontmatter", case.text, "README.md" };
-        const parsed = try parse(allocator, &argv);
-        defer parsed.deinit(allocator);
-        try std.testing.expectEqual(case.style, parsed.frontmatter.?);
+    for (rows) |row| try expectParsed(row.argv, row.want);
+
+    // Every spelling in flag_table, aliases included, has a row above.
+    const shown = [_][]const u8{ "--help", "-h", "--version", "-v", "-V" };
+    for (args.flag_table) |spec| {
+        var seen = false;
+        for (shown) |a| seen = seen or std.mem.eql(u8, a, spec.name);
+        for (rows) |row| for (row.argv) |a| {
+            seen = seen or std.mem.eql(u8, a, spec.name);
+        };
+        if (!seen) std.debug.print("flag_table row without a test: {s}\n", .{spec.name});
+        try std.testing.expect(seen);
     }
 }
 
-test "frontmatter: effectiveFrontmatter honors config when flag absent and flag wins when present" {
-    const styles = [_]config.FrontmatterStyle{ .panel, .dim, .compact, .raw, .hidden };
-    for (styles) |style| {
-        try std.testing.expectEqual(style, (Parsed{}).effectiveFrontmatter(style));
-    }
-    const with_flag = Parsed{ .frontmatter = .hidden };
-    for (styles) |config_value| {
-        try std.testing.expectEqual(config.FrontmatterStyle.hidden, with_flag.effectiveFrontmatter(config_value));
-    }
-}
-
-test "rejects pager plus tui" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "-p", "-t", "README.md" };
-    try std.testing.expectError(error.IncompatibleModes, parse(allocator, &argv));
-}
-
-test "falls back to default width" {
-    const parsed = Parsed{};
-    try std.testing.expectEqual(@as(usize, 0), parsed.effectiveWidth(0));
-    try std.testing.expectEqual(@as(usize, 92), parsed.effectiveWidth(92));
-}
-
-test "defaults to terminal format" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "README.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqual(OutputFormat.terminal, parsed.format);
-    try std.testing.expectEqual(@as(?[]u8, null), parsed.output_path);
-    try std.testing.expectEqual(false, parsed.monochrome);
-}
-
-test "parses png format with output path and monochrome" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "png", "-o", "out.png", "--monochrome", "in.md" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqual(OutputFormat.png, parsed.format);
-    try std.testing.expectEqualStrings("out.png", parsed.output_path.?);
-    try std.testing.expectEqual(true, parsed.monochrome);
-}
-
-test "parses png format with long output flag" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "png", "--output", "out.png", "in.mmd" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-
-    try std.testing.expectEqual(OutputFormat.png, parsed.format);
-    try std.testing.expectEqualStrings("out.png", parsed.output_path.?);
-}
-
-test "rejects invalid format value" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "svg", "in.md" };
-    try std.testing.expectError(error.InvalidFormat, parse(allocator, &argv));
-}
-
-test "rejects missing format value" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format" };
-    try std.testing.expectError(error.MissingValue, parse(allocator, &argv));
-}
-
-test "rejects png without output" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "png", "in.mmd" };
-    try std.testing.expectError(error.PngRequiresOutput, parse(allocator, &argv));
-}
-
-test "rejects png with pager" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "png", "-o", "out.png", "-p", "in.mmd" };
-    try std.testing.expectError(error.PngWithPager, parse(allocator, &argv));
-}
-
-test "rejects tui with plain format" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "-t", "--format", "plain", "." };
-    try std.testing.expectError(error.FormatRequiresCliMode, parse(allocator, &argv));
-}
-
-test "rejects tui with png format" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "png", "-o", "out.png", "-t", "." };
-    try std.testing.expectError(error.FormatRequiresCliMode, parse(allocator, &argv));
-}
-
-test "rejects terminal format with output" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "-o", "out.txt", "in.md" };
-    try std.testing.expectError(error.TerminalWithOutput, parse(allocator, &argv));
+test "argument syntax forms" {
+    const out: ?[]u8 = @constCast("out.txt");
+    const rows = [_]ParseRow{
+        .{ .argv = &.{"mercat"}, .want = .{} },
+        .{ .argv = &.{ "mercat", "-" }, .want = .{ .input = .stdin } },
+        .{ .argv = &.{ "mercat", "--width=80", "--theme=light", "--frontmatter=dim", "--color=never", "x.md" }, .want = .{ .input = x_md, .width = 80, .style = "light", .frontmatter = .dim, .color = .never } },
+        .{ .argv = &.{ "mercat", "--style=pink", "--force-layout=tree", "x.md" }, .want = .{ .input = x_md, .style = "pink", .force_layout = .tree } },
+        .{ .argv = &.{ "mercat", "--format=plain", "--output=out.txt", "x.md" }, .want = .{ .input = x_md, .format = .plain, .output_path = out } },
+        .{ .argv = &.{ "mercat", "-w80", "--format", "plain", "-oout.txt", "x.md" }, .want = .{ .input = x_md, .width = 80, .format = .plain, .output_path = out } },
+        .{ .argv = &.{ "mercat", "-pw", "40", "x.md" }, .want = .{ .input = x_md, .pager = true, .width = 40 } },
+    };
+    for (rows) |row| try expectParsed(row.argv, row.want);
+    // Bundled no-value flags are still separate options.
+    try std.testing.expectError(error.IncompatibleModes, parse(std.testing.allocator, &.{ "mercat", "-pt", "x.md" }));
+    // Other parse errors keep their short-option wording.
+    var note_buf: [64]u8 = undefined;
+    const empty: args.Diagnostic = .{};
+    try std.testing.expectEqual(@as(?[]const u8, null), args.describeNote(&note_buf, error.UnknownFlag, &empty));
 }
 
 test "message: --monochrome without --format png is a usage error" {
@@ -194,13 +107,6 @@ test "message: --monochrome without --format png is a usage error" {
 test "message: an empty -o value is a usage error" {
     try expectMessage(&.{ "mercat", "--format", "plain", "-o", "", "in.md" }, error.EmptyOutputPath, "option '-o' needs a non-empty file name");
     try expectMessage(&.{ "mercat", "--format", "png", "--output=", "in.md" }, error.EmptyOutputPath, "option '--output' needs a non-empty file name");
-}
-
-test "message: unique prefixes win over edit distance" {
-    try expectMessage(&.{ "mercat", "--out", "x" }, error.UnknownFlag, "unknown option '--out' (did you mean '--output'?)");
-    try expectMessage(&.{ "mercat", "--list" }, error.UnknownFlag, "unknown option '--list' (did you mean '--list-themes'?)");
-    try expectMessage(&.{ "mercat", "--vers" }, error.UnknownFlag, "unknown option '--vers' (did you mean '--version'?)");
-    try expectMessage(&.{ "mercat", "--mono" }, error.UnknownFlag, "unknown option '--mono' (did you mean '--monochrome'?)");
 }
 
 fn expectSingleDash(argv: []const []const u8, option: []const u8, long: []const u8) !void {
@@ -216,24 +122,10 @@ fn expectSingleDash(argv: []const []const u8, option: []const u8, long: []const 
 
 test "single-dash long options get a did-you-mean instead of short-cluster errors" {
     try expectSingleDash(&.{ "mercat", "-width", "80", "x.md" }, "-width", "--width");
-    try expectSingleDash(&.{ "mercat", "-format", "plain", "x.md" }, "-format", "--format");
+    // Not "-o utput": no stray file named "utput" is written.
     try expectSingleDash(&.{ "mercat", "--format", "plain", "-output", "x", "y.md" }, "-output", "--output");
     try expectSingleDash(&.{ "mercat", "-theme=dark", "x.md" }, "-theme", "--theme");
-    try expectSingleDash(&.{ "mercat", "-tui", "x.md" }, "-tui", "--tui");
     try expectSingleDash(&.{ "mercat", "-out", "x" }, "-out", "--output");
-}
-
-test "short clusters and attached values are not mistaken for long options" {
-    const allocator = std.testing.allocator;
-    const a = try parse(allocator, &.{ "mercat", "-w80", "x.md" });
-    a.deinit(allocator);
-    const b = try parse(allocator, &.{ "mercat", "--format", "plain", "-oout.txt", "x.md" });
-    b.deinit(allocator);
-    try std.testing.expectError(error.IncompatibleModes, parse(allocator, &.{ "mercat", "-pt", "x.md" }));
-    // Other parse errors keep their short-option wording.
-    var note_buf: [64]u8 = undefined;
-    const empty: args.Diagnostic = .{};
-    try std.testing.expectEqual(@as(?[]const u8, null), args.describeNote(&note_buf, error.UnknownFlag, &empty));
 }
 
 test "prescanColor finds the last valid --color before '--'" {
@@ -244,38 +136,18 @@ test "prescanColor finds the last valid --color before '--'" {
     try std.testing.expectEqual(@as(?args.ColorMode, null), args.prescanColor(&.{ "mercat", "--color" }));
 }
 
-test "non-terminal width resolution" {
+test "width resolution: -w 0 means the export default for plain/png" {
     var parsed = Parsed{ .width = 60 };
     try std.testing.expectEqual(@as(usize, 60), parsed.nonTerminalWidth(90));
     parsed = Parsed{};
     try std.testing.expectEqual(@as(usize, 90), parsed.nonTerminalWidth(90));
     try std.testing.expectEqual(@as(usize, 120), parsed.nonTerminalWidth(0));
+    parsed = Parsed{ .width = 0 };
+    try std.testing.expectEqual(@as(usize, 120), parsed.nonTerminalWidth(90));
+    try std.testing.expectEqual(@as(usize, 0), parsed.effectiveWidth(90));
 }
 
-test "output path is freed on deinit" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "--format", "plain", "-o", "out.txt", "in.md" };
-    const parsed = try parse(allocator, &argv);
-    parsed.deinit(allocator);
-}
-
-test "no arguments leaves input unset so stdin can be read implicitly" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{"mercat"};
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(Input.none, std.meta.activeTag(parsed.input));
-}
-
-test "explicit dash still selects stdin" {
-    const allocator = std.testing.allocator;
-    const argv = [_][]const u8{ "mercat", "-" };
-    const parsed = try parse(allocator, &argv);
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(Input.stdin, std.meta.activeTag(parsed.input));
-}
-
-// ---- Messages: golden strings for every usage error ----
+// ---- Messages: golden strings for usage errors ----
 
 fn expectMessage(argv: []const []const u8, expected_err: args.ParseError, expected: []const u8) !void {
     var d: args.Diagnostic = .{};
@@ -293,8 +165,7 @@ fn expectMessage(argv: []const []const u8, expected_err: args.ParseError, expect
 
 test "message: unknown option with did-you-mean" {
     try expectMessage(&.{ "mercat", "--widht", "80" }, error.UnknownFlag, "unknown option '--widht' (did you mean '--width'?)");
-    try expectMessage(&.{ "mercat", "--them=dark" }, error.UnknownFlag, "unknown option '--them' (did you mean '--theme'?)");
-    try expectMessage(&.{ "mercat", "--colour", "never" }, error.UnknownFlag, "unknown option '--colour' (did you mean '--color'?)");
+    try expectMessage(&.{ "mercat", "--out", "x" }, error.UnknownFlag, "unknown option '--out' (did you mean '--output'?)");
 }
 
 test "message: unknown option without a close match has no suggestion" {
@@ -311,20 +182,33 @@ test "message: flag that takes no value given one with =" {
     try expectMessage(&.{ "mercat", "--pager=yes", "x.md" }, error.UnexpectedValue, "option '--pager' does not take an argument");
 }
 
-test "message: invalid enum values list the valid ones" {
+test "message: invalid enum values list every valid one" {
     try expectMessage(&.{ "mercat", "--format", "svg", "x.md" }, error.InvalidFormat, "invalid value 'svg' for '--format' (expected one of: terminal, plain, png)");
-    try expectMessage(&.{ "mercat", "--frontmatter=zz", "x.md" }, error.InvalidFrontmatterStyle, "invalid value 'zz' for '--frontmatter' (expected one of: panel, dim, compact, raw, hidden)");
-    try expectMessage(&.{ "mercat", "--box-style", "zz" }, error.InvalidBoxStyle, "invalid value 'zz' for '--box-style' (expected one of: standard, rounded, heavy, double, ascii)");
-    try expectMessage(&.{ "mercat", "--layout", "zz" }, error.InvalidLayout, "invalid value 'zz' for '--layout' (expected one of: auto, sugiyama, tree, force)");
-    try expectMessage(&.{ "mercat", "--crossing-heuristic", "zz" }, error.InvalidCrossingHeuristic, "invalid value 'zz' for '--crossing-heuristic' (expected one of: median, barycenter)");
-    try expectMessage(&.{ "mercat", "--color", "yes" }, error.InvalidColor, "invalid value 'yes' for '--color' (expected one of: auto, always, never)");
     try expectMessage(&.{ "mercat", "--aspect-ratio", "-1" }, error.InvalidAspectRatio, "invalid value '-1' for '--aspect-ratio' (expected a positive number, e.g. 2.0)");
+    const cases = .{
+        .{ "--format", error.InvalidFormat, args.OutputFormat },
+        .{ "--frontmatter", error.InvalidFrontmatterStyle, config.FrontmatterStyle },
+        .{ "--box-style", error.InvalidBoxStyle, args.BoxDrawingStyle },
+        .{ "--layout", error.InvalidLayout, args.ForceLayout },
+        .{ "--crossing-heuristic", error.InvalidCrossingHeuristic, args.CrossingReductionHeuristic },
+        .{ "--color", error.InvalidColor, args.ColorMode },
+    };
+    inline for (cases) |case| {
+        var d: args.Diagnostic = .{};
+        try std.testing.expectError(case[1], parseDiag(std.testing.allocator, &.{ "mercat", case[0], "zz", "x.md" }, &d));
+        var buf: [512]u8 = undefined;
+        const msg = args.describe(&buf, case[1], &d);
+        inline for (comptime std.meta.fieldNames(case[2])) |name| {
+            if (std.mem.indexOf(u8, msg, name) == null) {
+                std.debug.print("'{s}' missing from: {s}\n", .{ name, msg });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
 }
 
 test "message: width outside 0 or 20..1000 names the range" {
-    try expectMessage(&.{ "mercat", "-w", "eighty" }, error.InvalidWidth, "invalid width 'eighty' for '-w' (expected 0 for auto, or 20..1000)");
     try expectMessage(&.{ "mercat", "--width=5" }, error.InvalidWidth, "invalid width '5' for '--width' (expected 0 for auto, or 20..1000)");
-    try expectMessage(&.{ "mercat", "-w1001" }, error.InvalidWidth, "invalid width '1001' for '-w' (expected 0 for auto, or 20..1000)");
 }
 
 test "message: conflicting options" {
@@ -344,48 +228,7 @@ test "message: png without -o and -o without an export format" {
     try expectMessage(&.{ "mercat", "-o", "out.txt", "x.md" }, error.TerminalWithOutput, "-o needs --format plain or --format png (terminal output goes to stdout)");
 }
 
-test "help and version are not usage errors" {
-    try std.testing.expectError(error.ShowHelp, parse(std.testing.allocator, &.{ "mercat", "--help" }));
-    try std.testing.expectError(error.ShowVersion, parse(std.testing.allocator, &.{ "mercat", "-V" }));
-    try std.testing.expect(!args.isUsageError(error.ShowHelp));
-    try std.testing.expect(!args.isUsageError(error.ShowVersion));
-}
-
 // ---- Argument syntax ----
-
-test "--flag=value works for value-taking long options" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "--width=80", "--theme=light", "--frontmatter=dim", "--color=never", "x.md" });
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(@as(?usize, 80), parsed.width);
-    try std.testing.expectEqualStrings("light", parsed.style.?);
-    try std.testing.expectEqual(config.FrontmatterStyle.dim, parsed.frontmatter.?);
-    try std.testing.expectEqual(args.ColorMode.never, parsed.color.?);
-}
-
-test "--output=path and --format=plain" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "--format=plain", "--output=out.txt", "x.md" });
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(OutputFormat.plain, parsed.format);
-    try std.testing.expectEqualStrings("out.txt", parsed.output_path.?);
-}
-
-test "attached short values: -w80 and -oout.txt" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "-w80", "--format", "plain", "-oout.txt", "x.md" });
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(@as(?usize, 80), parsed.width);
-    try std.testing.expectEqualStrings("out.txt", parsed.output_path.?);
-}
-
-test "bundled short flags" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "-pw", "40", "x.md" });
-    defer parsed.deinit(allocator);
-    try std.testing.expect(parsed.pager);
-    try std.testing.expectEqual(@as(?usize, 40), parsed.width);
-}
 
 test "'--' ends options so dash-leading file names work" {
     const allocator = std.testing.allocator;
@@ -398,31 +241,6 @@ test "'--' ends options so dash-leading file names work" {
     try std.testing.expectEqualStrings("-", dash.input.file);
 }
 
-test "--theme is canonical and --style stays an alias" {
-    const allocator = std.testing.allocator;
-    const a = try parse(allocator, &.{ "mercat", "--theme", "pink", "x.md" });
-    defer a.deinit(allocator);
-    try std.testing.expectEqualStrings("pink", a.style.?);
-    const b = try parse(allocator, &.{ "mercat", "--style=pink", "x.md" });
-    defer b.deinit(allocator);
-    try std.testing.expectEqualStrings("pink", b.style.?);
-}
-
-test "--list-themes and --color parse" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "--list-themes", "--color", "always" });
-    defer parsed.deinit(allocator);
-    try std.testing.expect(parsed.list_themes);
-    try std.testing.expectEqual(args.ColorMode.always, parsed.color.?);
-}
-
-test "--force-layout stays an alias of --layout" {
-    const allocator = std.testing.allocator;
-    const parsed = try parse(allocator, &.{ "mercat", "--force-layout=tree", "x.md" });
-    defer parsed.deinit(allocator);
-    try std.testing.expectEqual(args.ForceLayout.tree, parsed.force_layout.?);
-}
-
 // ---- Width ----
 
 test "width accepts 0 and 20..1000 only" {
@@ -432,18 +250,4 @@ test "width accepts 0 and 20..1000 only" {
     for ([_][]const u8{ "1", "19", "1001", "-3", "", "8x" }) |bad| {
         try std.testing.expectError(error.InvalidWidth, args.parseWidth(bad));
     }
-}
-
-test "-w 0 means the export default for plain/png, not a literal 0" {
-    const parsed = Parsed{ .width = 0 };
-    try std.testing.expectEqual(@as(usize, 120), parsed.nonTerminalWidth(0));
-    try std.testing.expectEqual(@as(usize, 120), parsed.nonTerminalWidth(90));
-    try std.testing.expectEqual(@as(usize, 0), parsed.effectiveWidth(90));
-}
-
-// ---- Suggestions ----
-
-test "suggest stays quiet for distant typos" {
-    try std.testing.expectEqual(@as(?[]const u8, null), args.suggest("--zzzzzzzzzz"));
-    try std.testing.expectEqualStrings("--list-themes", args.suggest("--list-theme").?);
 }

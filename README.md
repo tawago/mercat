@@ -163,8 +163,8 @@ copy) for 5 seconds.
 
 Known issue: in a terminal that never answers the device-status query
 (`ESC [5n`), quitting or pressing `e` can hang
-([#87](https://github.com/tawago/mercat/issues/87); repro in
-`tests/repro/tui/dsr-hang/`).
+([#87](https://github.com/tawago/mercat/issues/87), which has a repro
+script).
 
 **Copying.** Releasing a mouse selection copies it with the platform
 clipboard tool (`pbcopy`, or `wl-copy`, `xclip` or `xsel`) and with OSC 52

@@ -144,15 +144,6 @@ pub fn openFileNotify(
     }
 }
 
-test "editor command splits and appends path" {
-    const allocator = std.testing.allocator;
-    var command = try process.splitCommand(allocator, "nvim -u NONE");
-    defer command.deinit(allocator);
-
-    try std.testing.expectEqual(@as(usize, 3), command.argv.len);
-    try std.testing.expectEqualStrings("nvim", command.argv[0]);
-}
-
 test {
     _ = @import("editor_test.zig");
 }

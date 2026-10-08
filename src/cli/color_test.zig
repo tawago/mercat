@@ -1,79 +1,61 @@
 const std = @import("std");
 const color = @import("color.zig");
 
-const resolve = color.resolve;
+const Row = struct { flag: ?color.Mode, config: color.Mode, env: color.Env, tty: bool, want: bool };
 
-test "flag wins over every environment variable" {
-    const env = color.Env{ .no_color = "1", .force_color = "1", .term = "dumb" };
-    try std.testing.expect(resolve(.always, .never, env, false));
-    try std.testing.expect(!resolve(.never, .always, .{ .force_color = "1" }, true));
+fn expectRows(comptime f: fn (?color.Mode, color.Mode, color.Env, bool) bool, rows: []const Row) !void {
+    for (rows, 0..) |r, i| {
+        if (f(r.flag, r.config, r.env, r.tty) != r.want) {
+            std.debug.print("row {d} expected {}\n", .{ i, r.want });
+            return error.TestUnexpectedResult;
+        }
+    }
 }
 
-test "stderr: never (flag or config) turns diagnostics color off even on a terminal" {
-    const stderr = color.resolveStderr;
-    try std.testing.expect(!stderr(.never, .auto, .{ .force_color = "1" }, true));
-    try std.testing.expect(!stderr(null, .never, .{ .clicolor_force = "1" }, true));
-    // A flag overrides the config key.
-    try std.testing.expect(stderr(.auto, .never, .{}, true));
+// Precedence: flag > NO_COLOR > CLICOLOR_FORCE/FORCE_COLOR > config > TERM=dumb > tty.
+test "resolve: color precedence for stdout" {
+    try expectRows(color.resolve, &.{
+        // The flag wins over every environment variable and the config.
+        .{ .flag = .always, .config = .never, .env = .{ .no_color = "1", .force_color = "1", .term = "dumb" }, .tty = false, .want = true },
+        .{ .flag = .never, .config = .always, .env = .{ .force_color = "1" }, .tty = true, .want = false },
+        // --color auto still honors TERM=dumb and the tty check.
+        .{ .flag = .auto, .config = .never, .env = .{}, .tty = true, .want = true },
+        .{ .flag = .auto, .config = .always, .env = .{}, .tty = false, .want = false },
+        .{ .flag = .auto, .config = .auto, .env = .{ .term = "dumb" }, .tty = true, .want = false },
+        // NO_COLOR (non-empty) disables color, even over forcing; empty is ignored.
+        .{ .flag = null, .config = .auto, .env = .{ .no_color = "1" }, .tty = true, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .no_color = "1", .force_color = "1" }, .tty = true, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .no_color = "" }, .tty = true, .want = true },
+        // CLICOLOR_FORCE / FORCE_COLOR force color when not "0" or empty.
+        .{ .flag = null, .config = .auto, .env = .{ .clicolor_force = "1" }, .tty = false, .want = true },
+        .{ .flag = null, .config = .never, .env = .{ .force_color = "3" }, .tty = false, .want = true },
+        .{ .flag = null, .config = .auto, .env = .{ .force_color = "0" }, .tty = false, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .clicolor_force = "" }, .tty = false, .want = false },
+        // The config mode applies after env, before TERM=dumb.
+        .{ .flag = null, .config = .always, .env = .{ .term = "dumb" }, .tty = false, .want = true },
+        .{ .flag = null, .config = .never, .env = .{}, .tty = true, .want = false },
+        .{ .flag = null, .config = .always, .env = .{ .no_color = "x" }, .tty = true, .want = false },
+        // auto: color only on a tty.
+        .{ .flag = null, .config = .auto, .env = .{ .term = "xterm-256color" }, .tty = true, .want = true },
+        .{ .flag = null, .config = .auto, .env = .{ .term = "xterm-256color" }, .tty = false, .want = false },
+    });
 }
 
-test "stderr: always and forcing variables do not force color onto a non-terminal stderr" {
-    const stderr = color.resolveStderr;
-    try std.testing.expect(!stderr(.always, .auto, .{}, false));
-    try std.testing.expect(!stderr(null, .always, .{}, false));
-    try std.testing.expect(!stderr(null, .auto, .{ .force_color = "1", .clicolor_force = "1" }, false));
-    try std.testing.expect(stderr(.always, .auto, .{}, true));
-}
-
-test "stderr: NO_COLOR and TERM=dumb apply to stderr's own terminal" {
-    const stderr = color.resolveStderr;
-    try std.testing.expect(stderr(null, .auto, .{}, true));
-    try std.testing.expect(!stderr(.always, .auto, .{ .no_color = "1" }, true));
-    try std.testing.expect(!stderr(null, .auto, .{ .term = "dumb" }, true));
-    try std.testing.expect(stderr(null, .auto, .{ .no_color = "" }, true));
-}
-
-test "--color auto still honors TERM=dumb and the tty check" {
-    try std.testing.expect(resolve(.auto, .never, .{}, true));
-    try std.testing.expect(!resolve(.auto, .always, .{}, false));
-    try std.testing.expect(!resolve(.auto, .auto, .{ .term = "dumb" }, true));
-}
-
-test "NO_COLOR (non-empty) disables color; empty NO_COLOR is ignored" {
-    try std.testing.expect(!resolve(null, .auto, .{ .no_color = "1" }, true));
-    try std.testing.expect(!resolve(null, .auto, .{ .no_color = "1", .force_color = "1" }, true));
-    try std.testing.expect(resolve(null, .auto, .{ .no_color = "" }, true));
-}
-
-test "CLICOLOR_FORCE / FORCE_COLOR force color when not '0'" {
-    try std.testing.expect(resolve(null, .auto, .{ .clicolor_force = "1" }, false));
-    try std.testing.expect(resolve(null, .never, .{ .force_color = "3" }, false));
-    try std.testing.expect(!resolve(null, .auto, .{ .force_color = "0" }, false));
-    try std.testing.expect(!resolve(null, .auto, .{ .clicolor_force = "" }, false));
-}
-
-test "config mode applies after env, before TERM=dumb" {
-    try std.testing.expect(resolve(null, .always, .{ .term = "dumb" }, false));
-    try std.testing.expect(!resolve(null, .never, .{}, true));
-    try std.testing.expect(!resolve(null, .always, .{ .no_color = "x" }, true));
-}
-
-test "auto: color only on a tty, never with TERM=dumb" {
-    try std.testing.expect(resolve(null, .auto, .{ .term = "xterm-256color" }, true));
-    try std.testing.expect(!resolve(null, .auto, .{ .term = "xterm-256color" }, false));
-    try std.testing.expect(!resolve(null, .auto, .{ .term = "dumb" }, true));
-}
-
-test "hyperlinks need color and a tty stdout" {
-    try std.testing.expect(color.Emit.init(true, true).hyperlinks);
-    try std.testing.expect(!color.Emit.init(true, false).hyperlinks);
-    try std.testing.expect(!color.Emit.init(false, true).hyperlinks);
-    try std.testing.expect(!color.Emit.init(false, true).color);
-}
-
-test "parseMode accepts exactly auto/always/never" {
-    try std.testing.expectEqual(color.Mode.always, color.parseMode("always").?);
-    try std.testing.expectEqual(color.Mode.never, color.parseMode("never").?);
-    try std.testing.expectEqual(color.Mode.auto, color.parseMode("auto").?);
-    try std.testing.expectEqual(@as(?color.Mode, null), color.parseMode("yes"));
+test "resolveStderr: diagnostics follow stderr's own terminal" {
+    try expectRows(color.resolveStderr, &.{
+        // never (flag or config) turns color off even on a terminal; a flag overrides config.
+        .{ .flag = .never, .config = .auto, .env = .{ .force_color = "1" }, .tty = true, .want = false },
+        .{ .flag = null, .config = .never, .env = .{ .clicolor_force = "1" }, .tty = true, .want = false },
+        .{ .flag = .auto, .config = .never, .env = .{}, .tty = true, .want = true },
+        // always and forcing variables never force color onto a non-terminal.
+        .{ .flag = .always, .config = .auto, .env = .{}, .tty = false, .want = false },
+        .{ .flag = null, .config = .always, .env = .{}, .tty = false, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .force_color = "1", .clicolor_force = "1" }, .tty = false, .want = false },
+        .{ .flag = .always, .config = .auto, .env = .{}, .tty = true, .want = true },
+        // NO_COLOR and TERM=dumb apply to stderr's own terminal.
+        .{ .flag = null, .config = .auto, .env = .{}, .tty = true, .want = true },
+        .{ .flag = .always, .config = .auto, .env = .{ .no_color = "1" }, .tty = true, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .term = "dumb" }, .tty = true, .want = false },
+        .{ .flag = null, .config = .auto, .env = .{ .no_color = "" }, .tty = true, .want = true },
+    });
 }

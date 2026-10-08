@@ -158,14 +158,14 @@ All notable changes to this project will be documented in this file.
 
 ### Diagrams
 
-- Minimal reproduction files for the open Mermaid issues (#57-#85, tracked in
-  #86) live in `tests/repro/mermaid/`.
+- The open Mermaid issues (#57-#85, tracked in #86) each carry a minimal
+  reproduction in the GitHub issue itself.
 
 ### Known issues
 
 - The TUI can hang on quit (`q`, `Ctrl-C`) or when starting the editor (`e`)
-  if the terminal never answers the startup device-status query (#87). A
-  reproduction lives in `tests/repro/tui/dsr-hang/`.
+  if the terminal never answers the startup device-status query (#87). The
+  reproduction script is in the issue.
 
 ## [0.3.1]
 

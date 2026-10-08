@@ -1,6 +1,8 @@
-//! Hostile input: invalid UTF-8 in each kind of block, invisible and
-//! control characters, and terminal escape injection. Every case must render as normal markdown with no block falling back to raw
-//! source, lose no visible text, and never emit a control character.
+//! Hostile input: invalid UTF-8 in each kind of block (mermaid fences
+//! included), invisible and control characters, and terminal escape
+//! injection. Every case must render as normal markdown with no block falling
+//! back to raw source, lose no visible text, and never emit a control
+//! character.
 const std = @import("std");
 const markdown = @import("parser.zig");
 const render_model = @import("render.zig");
