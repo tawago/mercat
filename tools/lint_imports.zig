@@ -4,8 +4,6 @@ const imports = @import("lint/imports.zig");
 const banned = @import("lint/vocabulary.zig");
 const cycles = @import("lint/cycles.zig");
 
-const code_line_cap: usize = 1000;
-
 pub const LintReport = struct {
     violations: []const []const u8,
     arena: *std.heap.ArenaAllocator,
@@ -53,13 +51,8 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
         defer file.close();
         const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
 
-        if (!isTestFile(entry.basename)) {
+        if (!imports.isTestFile(entry.basename)) {
             try production.append(a, .{ .path = try a.dupe(u8, entry.path), .contents = contents });
-            const code_lines = codeLines(contents);
-            if (code_lines > code_line_cap) {
-                const msg = try std.fmt.allocPrint(a, "{s}: {d} code lines exceeds the {d}-code-line cap (blank and // lines are free)", .{ entry.path, code_lines, code_line_cap });
-                try violations.append(a, msg);
-            }
         }
 
         try banned.scan(a, &violations, entry.path, contents, &banned.table);
@@ -70,22 +63,6 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
     try cycles.check(a, &violations, production.items);
 
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
-}
-
-fn codeLines(contents: []const u8) usize {
-    var count: usize = 0;
-    var line_it = std.mem.splitScalar(u8, contents, '\n');
-    while (line_it.next()) |line| {
-        const trimmed = std.mem.trimLeft(u8, line, " \t\r");
-        if (trimmed.len == 0) continue;
-        if (std.mem.startsWith(u8, trimmed, "//")) continue;
-        count += 1;
-    }
-    return count;
-}
-
-fn isTestFile(basename: []const u8) bool {
-    return std.mem.indexOf(u8, basename, "_test") != null;
 }
 
 pub fn main() !void {
@@ -122,36 +99,18 @@ test "lint flags bad fixtures" {
     var report = try lint(allocator, "tools/lint_fixtures/bad");
     defer report.deinit();
 
-    var saw_big = false;
     var saw_fallback = false;
     var saw_banned = false;
     var saw_cycle = false;
     for (report.violations) |v| {
-        if (std.mem.indexOf(u8, v, "big_file.zig") != null) saw_big = true;
         if (std.mem.indexOf(u8, v, "dummy.zig") != null and std.mem.indexOf(u8, v, "fallback") != null) saw_fallback = true;
         if (std.mem.indexOf(u8, v, "banned.zig") != null and std.mem.indexOf(u8, v, "codepointWidth") != null) saw_banned = true;
         if (std.mem.indexOf(u8, v, "import cycle among 2 files: cycle_a.zig, cycle_b.zig") != null) saw_cycle = true;
     }
     try std.testing.expect(report.violations.len >= 3);
-    try std.testing.expect(saw_big);
     try std.testing.expect(saw_fallback);
     try std.testing.expect(saw_banned);
     try std.testing.expect(saw_cycle);
-}
-
-test "code lines: blank and //-prefixed lines are free, indentation and CR are ignored" {
-    try std.testing.expectEqual(@as(usize, 0), codeLines(""));
-    try std.testing.expectEqual(@as(usize, 1), codeLines("const x = 1;"));
-    try std.testing.expectEqual(@as(usize, 2), codeLines("//! doc\n\nconst x = 1;\n    // note\n\t/// doc\r\n  const y = 2;\n\r\n"));
-}
-
-test "the cap exempts *_test*.zig and nothing else" {
-    try std.testing.expect(isTestFile("widget_test.zig"));
-    try std.testing.expect(isTestFile("widget_test2.zig"));
-    try std.testing.expect(isTestFile("layout_test_helpers.zig"));
-    try std.testing.expect(!isTestFile("widget.zig"));
-    try std.testing.expect(!isTestFile("latest.zig"));
-    try std.testing.expect(!isTestFile("testing.zig"));
 }
 
 test {

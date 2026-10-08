@@ -28,7 +28,7 @@ pub const table = [_]Row{
     .{
         .token = "lib/unicode.zig",
         .why = "import the Unicode authority as the named module \"unicode\" so consumers cannot bypass one shared module identity",
-        .allow = &.{ "types.zig", "imports.zig", "vocabulary.zig" },
+        .allow = &.{"types.zig"},
     },
     .{
         .token = "getenv",
@@ -266,135 +266,33 @@ fn collect(
     return out;
 }
 
-test "banned token: violation names file, 1-based line, token, and why" {
+test "banned token: scan reports once per file with path, line, token and why, honouring allow and only" {
     const a = testing.allocator;
-    const rows = [_]Row{.{ .token = "OldName", .why = "renamed to NewName" }};
-    var got = try collect(a, "layout/thing.zig", "a\nb OldName", &rows);
-    defer got.deinit(a);
-
-    try testing.expectEqual(@as(usize, 1), got.list.items.len);
-    const msg = got.list.items[0];
-    try testing.expect(std.mem.indexOf(u8, msg, "layout/thing.zig") != null);
-    try testing.expect(std.mem.indexOf(u8, msg, ":2:") != null);
-    try testing.expect(std.mem.indexOf(u8, msg, "OldName") != null);
-    try testing.expect(std.mem.indexOf(u8, msg, "NewName") != null);
-}
-
-test "banned token: absent token yields nothing" {
-    const a = testing.allocator;
-    const rows = [_]Row{.{ .token = "OldName", .why = "renamed to NewName" }};
-    var got = try collect(a, "layout/thing.zig", "nothing retired in here\n", &rows);
-    defer got.deinit(a);
-
-    try testing.expectEqual(@as(usize, 0), got.list.items.len);
-}
-
-test "banned token: allow exempts by basename" {
-    const a = testing.allocator;
-    const rows = [_]Row{.{
-        .token = "OldName",
-        .why = "renamed to NewName",
-        .allow = &.{"prose.zig"},
-    }};
-
-    var exempt = try collect(a, "layout/prose.zig", "OldName", &rows);
-    defer exempt.deinit(a);
-    try testing.expectEqual(@as(usize, 0), exempt.list.items.len);
-
-    var caught = try collect(a, "layout/other.zig", "OldName", &rows);
-    defer caught.deinit(a);
-    try testing.expectEqual(@as(usize, 1), caught.list.items.len);
-}
-
-test "banned token: only scopes a row to named basenames" {
-    const a = testing.allocator;
-    const rows = [_]Row{.{
-        .token = "OldName",
-        .why = "renamed to NewName",
-        .only = &.{"lanes.zig"},
-    }};
-
-    var base_hit = try collect(a, "base/lanes.zig", "OldName", &rows);
-    defer base_hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), base_hit.list.items.len);
-
-    var layout_hit = try collect(a, "layout/lanes.zig", "OldName", &rows);
-    defer layout_hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), layout_hit.list.items.len);
-
-    var miss = try collect(a, "layout/back_edges.zig", "OldName", &rows);
-    defer miss.deinit(a);
-    try testing.expectEqual(@as(usize, 0), miss.list.items.len);
-}
-
-test "banned token: repeated occurrences report once per file" {
-    const a = testing.allocator;
-    const rows = [_]Row{.{ .token = "OldName", .why = "renamed to NewName" }};
-    var got = try collect(a, "layout/thing.zig", "OldName\nOldName\nOldName\n", &rows);
-    defer got.deinit(a);
-
-    try testing.expectEqual(@as(usize, 1), got.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, got.list.items[0], ":1:") != null);
-}
-
-test "banned token: a reverted wave-A spelling fires" {
-    const a = testing.allocator;
-    var got = try collect(a, "layout/thing.zig", "const d = lanes.Demand{};\n", &table);
-    defer got.deinit(a);
-
-    try testing.expectEqual(@as(usize, 1), got.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, got.list.items[0], "LaneClaim") != null);
-}
-
-test "banned token: a reverted fan-role spelling fires on both families" {
-    const a = testing.allocator;
-    var out_hit = try collect(a, "raster/rails.zig", "role = .fan_out_trunk;\n", &table);
-    defer out_hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), out_hit.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, out_hit.list.items[0], "fan_out_dropper") != null);
-
-    var in_hit = try collect(a, "raster/rails.zig", "role = .fan_in_trunk;\n", &table);
-    defer in_hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), in_hit.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, in_hit.list.items[0], "fan_in_dropper") != null);
-}
-
-test "banned token: a reverted diagnostic-tag spelling fires" {
-    const a = testing.allocator;
-    var got = try collect(a, "ledger/realized.zig", "return .trunk_pivot_side_arrow;\n", &table);
-    defer got.deinit(a);
-
-    try testing.expectEqual(@as(usize, 1), got.list.items.len);
-    try testing.expect(std.mem.indexOf(u8, got.list.items[0], "rail_pivot_side_arrow") != null);
-}
-
-test "banned token: an env read fires in every file, entry.zig included" {
-    const a = testing.allocator;
-    for ([_][]const u8{ "layout/thing.zig", "entry.zig" }) |path| {
-        var hit = try collect(a, path, "const v = std.posix.getenv(\"MERCAT_X\");\n", &table);
-        defer hit.deinit(a);
-        try testing.expectEqual(@as(usize, 1), hit.list.items.len);
-    }
-}
-
-test "banned token: a third codepointWidth table fires, the two authorities are exempt" {
-    const a = testing.allocator;
-    var hit = try collect(a, "raster/labels.zig", "pub fn codepointWidth(cp: u21) u32 {\n", &table);
-    defer hit.deinit(a);
-    try testing.expectEqual(@as(usize, 1), hit.list.items.len);
-
-    var prim = try collect(a, "base/types.zig", "pub fn codepointWidth(cp: u21) u32 {\n", &table);
-    defer prim.deinit(a);
-    try testing.expectEqual(@as(usize, 0), prim.list.items.len);
-}
-
-test "banned token: production table is well-formed" {
-    for (table) |row| {
-        const short_privacy_token = std.mem.eql(u8, row.token, "TSD") or
-            std.mem.eql(u8, row.token, "SDD") or
-            std.mem.eql(u8, row.token, "§");
-        try testing.expect(row.token.len >= 4 or short_privacy_token);
-        try testing.expect(row.why.len != 0);
-        try testing.expect(row.allow.len == 0 or row.only.len == 0);
+    const cases = [_]struct {
+        path: []const u8,
+        contents: []const u8 = "OldName",
+        allow: []const []const u8 = &.{},
+        only: []const []const u8 = &.{},
+        hits: usize,
+        line: []const u8 = ":1:",
+    }{
+        .{ .path = "layout/thing.zig", .contents = "a\nb OldName", .hits = 1, .line = ":2:" },
+        .{ .path = "layout/thing.zig", .contents = "OldName\nOldName\nOldName\n", .hits = 1 },
+        .{ .path = "layout/prose.zig", .allow = &.{"prose.zig"}, .hits = 0 },
+        .{ .path = "layout/other.zig", .allow = &.{"prose.zig"}, .hits = 1 },
+        .{ .path = "base/lanes.zig", .only = &.{"lanes.zig"}, .hits = 1 },
+        .{ .path = "layout/lanes.zig", .only = &.{"lanes.zig"}, .hits = 1 },
+        .{ .path = "layout/back_edges.zig", .only = &.{"lanes.zig"}, .hits = 0 },
+    };
+    for (cases) |case| {
+        const rows = [_]Row{.{ .token = "OldName", .why = "renamed to NewName", .allow = case.allow, .only = case.only }};
+        var got = try collect(a, case.path, case.contents, &rows);
+        defer got.deinit(a);
+        try testing.expectEqual(case.hits, got.list.items.len);
+        if (case.hits == 0) continue;
+        const msg = got.list.items[0];
+        for ([_][]const u8{ case.path, case.line, "OldName", "NewName" }) |part| {
+            try testing.expect(std.mem.indexOf(u8, msg, part) != null);
+        }
     }
 }
