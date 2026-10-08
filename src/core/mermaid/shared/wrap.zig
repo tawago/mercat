@@ -144,18 +144,21 @@ fn expectLines(expected: []const []const u8, text: []const u8, width: u32) !void
     }
 }
 
-test "words pack greedily up to the width" {
-    try expectLines(&.{ "Transaction:", "dedupe +", "minimized", "record +", "event + task" }, "Transaction: dedupe + minimized record + event + task", 12);
-    try expectLines(&.{"fits on one line"}, "fits on one line", 16);
-    try expectLines(&.{ "a  b", "c" }, "a  b   c", 4);
-    try expectLines(&.{ "a", "b", "c" }, "a  b   c", 3);
-}
-
-test "a word wider than the width takes its own line whole" {
-    try expectLines(&.{ "abcdefghij", "k" }, "abcdefghij k", 4);
-    try expectLines(&.{ "Transaction:", "dedupe" }, "Transaction: dedupe", 9);
-    try expectLines(&.{ "a", "Acknowledge", "b" }, "a Acknowledge b", 9);
+test "words pack greedily; a word wider than the width takes its own line whole; blank text has no lines" {
+    const cases = [_]struct { text: []const u8, width: u32, lines: []const []const u8 }{
+        .{ .text = "Transaction: dedupe + minimized record + event + task", .width = 12, .lines = &.{ "Transaction:", "dedupe +", "minimized", "record +", "event + task" } },
+        .{ .text = "fits on one line", .width = 16, .lines = &.{"fits on one line"} },
+        .{ .text = "a  b   c", .width = 4, .lines = &.{ "a  b", "c" } },
+        .{ .text = "a  b   c", .width = 3, .lines = &.{ "a", "b", "c" } },
+        .{ .text = "abcdefghij k", .width = 4, .lines = &.{ "abcdefghij", "k" } },
+        .{ .text = "Transaction: dedupe", .width = 9, .lines = &.{ "Transaction:", "dedupe" } },
+        .{ .text = "a Acknowledge b", .width = 9, .lines = &.{ "a", "Acknowledge", "b" } },
+        .{ .text = "", .width = 10, .lines = &.{} },
+        .{ .text = "   ", .width = 10, .lines = &.{} },
+    };
+    for (cases) |case| try expectLines(case.lines, case.text, case.width);
     try std.testing.expectEqual(@as(u32, 12), try longestWord("Transaction: dedupe"));
+    try std.testing.expectEqual(@as(u32, 0), try longestWord(""));
 }
 
 test "East Asian wide characters break between each other" {
@@ -173,7 +176,7 @@ test "an emoji grapheme is never split" {
     try expectLines(&.{family}, family, 1);
     try expectLines(&.{ "a", family ++ family, "b" }, "a " ++ family ++ family ++ " b", 3);
     try std.testing.expectEqual(@as(u32, 4), try longestWord(family ++ family));
-    try expectLines(&.{ "\u{1F600}\u{1F600}" }, "\u{1F600}\u{1F600}", 2);
+    try expectLines(&.{"\u{1F600}\u{1F600}"}, "\u{1F600}\u{1F600}", 2);
 }
 
 test "a tab is measured from the start of the line it lands on" {
@@ -186,12 +189,6 @@ test "a tab is measured from the start of the line it lands on" {
 test "br tags force a break" {
     try expectLines(&.{ "one", "two", "three" }, "one<br>two<br/>three", 20);
     try expectLines(&.{ "end", "start" }, "<br>end<br/>start<br>", 20);
-}
-
-test "empty text has no lines" {
-    try expectLines(&.{}, "", 10);
-    try expectLines(&.{}, "   ", 10);
-    try std.testing.expectEqual(@as(u32, 0), try longestWord(""));
 }
 
 test "no line is wider than the width or the longest word, and no word is split" {

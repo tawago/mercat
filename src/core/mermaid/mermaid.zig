@@ -60,3 +60,23 @@ fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options: Op
     if (result.is_fallback) return .{ .not_drawn = .{ .banner = result.fallback_reason } };
     return .{ .drawn = result.output };
 }
+
+test "each kind over the budget reports its measured width, draws at that width, and draws nothing when empty" {
+    const allocator = std.testing.allocator;
+    const Fit = @import("shared/ladder.zig").Fit;
+    const cases = .{
+        .{ class.render, "classDiagram\n    class Animal\n    class Duck\n    class Fish\n    class Zebra\n    Animal <|-- Duck\n    Animal <|-- Fish\n    Animal <|-- Zebra\n", "classDiagram\n" },
+        .{ er.render, "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE_ITEM : contains\n", "erDiagram\n" },
+        .{ state.render, "stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running : start\n    Running --> Idle : stop\n    Running --> [*]\n", "stateDiagram-v2\n" },
+    };
+    inline for (cases) |case| {
+        const render_kind = case[0];
+        const width = (try render_kind(allocator, case[1], 0)).too_wide;
+        try std.testing.expect(width > 0);
+        try std.testing.expectEqual(Fit{ .too_wide = width }, try render_kind(allocator, case[1], width - 1));
+        const fitted = try render_kind(allocator, case[1], width);
+        defer allocator.free(fitted.drawn);
+        try std.testing.expect(fitted.drawn.len > 0);
+        try std.testing.expectEqualStrings("", (try render_kind(allocator, case[2], 0)).drawn);
+    }
+}

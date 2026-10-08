@@ -264,43 +264,30 @@ test "parse simple state diagram" {
     try testing.expectEqual(StateType.end, diagram.getState("[*]_end_0").?.state_type);
 }
 
-test "parse state diagram with descriptions" {
+test "parse state descriptions, transition labels, choice and direction" {
     const testing = std.testing;
 
     const source =
         \\stateDiagram-v2
+        \\    direction LR
+        \\    state if_state <<choice>>
         \\    s1 : This is state 1
         \\    s2 : This is state 2
-        \\    s1 --> s2
-    ;
-
-    var diagram = try parse(testing.allocator, source);
-    defer diagram.deinit();
-
-    try testing.expectEqual(@as(usize, 2), diagram.state_order.items.len);
-
-    const s1 = diagram.getState("s1").?;
-    try testing.expectEqualStrings("This is state 1", s1.label.?);
-
-    const s2 = diagram.getState("s2").?;
-    try testing.expectEqualStrings("This is state 2", s2.label.?);
-}
-
-test "parse state diagram with transition labels" {
-    const testing = std.testing;
-
-    const source =
-        \\stateDiagram-v2
         \\    s1 --> s2 : go forward
-        \\    s2 --> s1 : go back
+        \\    s2 --> if_state : go back
     ;
 
     var diagram = try parse(testing.allocator, source);
     defer diagram.deinit();
 
+    try testing.expectEqual(Direction.LR, diagram.direction);
+    try testing.expectEqual(@as(usize, 3), diagram.state_order.items.len);
+    try testing.expectEqualStrings("This is state 1", diagram.getState("s1").?.label.?);
+    try testing.expectEqualStrings("This is state 2", diagram.getState("s2").?.label.?);
     try testing.expectEqual(@as(usize, 2), diagram.transitions.items.len);
     try testing.expectEqualStrings("go forward", diagram.transitions.items[0].label.?);
     try testing.expectEqualStrings("go back", diagram.transitions.items[1].label.?);
+    try testing.expectEqual(StateType.choice, diagram.getState("if_state").?.state_type);
 }
 
 test "parse state diagram with composite state" {
@@ -324,39 +311,4 @@ test "parse state diagram with composite state" {
     const second = diagram.getState("second").?;
     try testing.expect(second.parent_id != null);
     try testing.expectEqualStrings("First", second.parent_id.?);
-}
-
-test "parse state diagram with choice" {
-    const testing = std.testing;
-
-    const source =
-        \\stateDiagram-v2
-        \\    state if_state <<choice>>
-        \\    [*] --> IsPositive
-        \\    IsPositive --> if_state
-        \\    if_state --> False : if n < 0
-        \\    if_state --> True : if n >= 0
-    ;
-
-    var diagram = try parse(testing.allocator, source);
-    defer diagram.deinit();
-
-    const choice = diagram.getState("if_state").?;
-    try testing.expectEqual(StateType.choice, choice.state_type);
-}
-
-test "parse state diagram direction" {
-    const testing = std.testing;
-
-    const source =
-        \\stateDiagram-v2
-        \\    direction LR
-        \\    [*] --> A
-        \\    A --> [*]
-    ;
-
-    var diagram = try parse(testing.allocator, source);
-    defer diagram.deinit();
-
-    try testing.expectEqual(Direction.LR, diagram.direction);
 }

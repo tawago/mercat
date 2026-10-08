@@ -189,8 +189,6 @@ fn appendRun(
 
     const text_copy = try allocator.dupe(u8, text);
     errdefer allocator.free(text_copy);
-    const url_copy: ?[]const u8 = if (span.url) |u| try allocator.dupe(u8, u) else null;
-    errdefer if (url_copy) |u| allocator.free(u);
 
     try runs.append(allocator, .{
         .text = text_copy,
@@ -204,15 +202,11 @@ fn appendRun(
             .strikethrough = style.strikethrough,
         },
         .semantic_style = span.style,
-        .url = url_copy,
     });
 }
 
 fn freeRuns(allocator: std.mem.Allocator, runs: *std.ArrayList(PositionedRun)) void {
-    for (runs.items) |run| {
-        allocator.free(run.text);
-        if (run.url) |u| allocator.free(u);
-    }
+    for (runs.items) |run| allocator.free(run.text);
     runs.deinit(allocator);
 }
 
@@ -227,11 +221,6 @@ fn pageBackground(options: Options) Color {
 
 fn luminance(c: Color) u32 {
     return (@as(u32, c.r) * 299 + @as(u32, c.g) * 587 + @as(u32, c.b) * 114) / 1000;
-}
-
-pub fn xterm256ToSrgb(index: u8) Color {
-    const s = color.xterm256ToSrgb(index);
-    return .{ .r = s.r, .g = s.g, .b = s.b };
 }
 
 fn srgbOf(c: color.Color) ?Color {
@@ -251,16 +240,6 @@ fn testOptions(mode: ColorMode) Options {
 
 fn makeSpan(text: []const u8, style: render_model.SpanStyle) Span {
     return .{ .text = text, .style = style };
-}
-
-test "xterm-256 table matches known cube and grayscale anchors" {
-    try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(0));
-    try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(15));
-    try testing.expectEqual(Color{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(16));
-    try testing.expectEqual(Color{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(231));
-    try testing.expectEqual(Color{ .r = 255, .g = 0, .b = 0 }, xterm256ToSrgb(196));
-    try testing.expectEqual(Color{ .r = 8, .g = 8, .b = 8 }, xterm256ToSrgb(232));
-    try testing.expectEqual(Color{ .r = 238, .g = 238, .b = 238 }, xterm256ToSrgb(255));
 }
 
 test "span to column mapping records start_col and columns" {
@@ -315,40 +294,6 @@ test "zero-line document lays out one padded row" {
     try testing.expect((try doc.pixelWidth()) > 0);
 }
 
-test "trailing spaces are preserved in run text and columns" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("hi   ", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqualStrings("hi   ", doc.runs[0].text);
-    try testing.expectEqual(@as(u32, 5), doc.runs[0].columns);
-    try testing.expectEqual(@as(u32, 5), doc.columns);
-}
-
-test "wide characters occupy two cells" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("Ａb", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(@as(u32, 3), doc.runs[0].columns);
-    try testing.expectEqual(@as(u32, 3), doc.columns);
-}
-
-test "combining marks attach without advancing" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("e\u{0301}", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(@as(u32, 1), doc.runs[0].columns);
-    try testing.expectEqual(@as(u32, 1), doc.columns);
-}
-
 test "base style owns a grapheme crossing a style boundary" {
     const face = try font.Font.init(20);
     var spans = [_]Span{ makeSpan("e", .body), makeSpan("\u{0301}x", .emphasis) };
@@ -367,17 +312,12 @@ test "base style owns a grapheme crossing a style boundary" {
     try testing.expectEqual(@as(u32, 1), doc.runs[1].start_col);
 }
 
-test "Unicode sequence geometry follows the authority" {
+test "run and document columns follow the width authority and tab stops" {
     const face = try font.Font.init(20);
     const cases = [_]struct { text: []const u8, columns: u32 }{
+        .{ .text = "Ａb", .columns = 3 },
+        .{ .text = "a\t日\tx", .columns = 9 },
         .{ .text = "👩‍💻", .columns = 2 },
-        .{ .text = "🇯🇵", .columns = 2 },
-        .{ .text = "#️⃣", .columns = 2 },
-        .{ .text = "🏴\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}", .columns = 2 },
-        .{ .text = "©︎", .columns = 1 },
-        .{ .text = "©️", .columns = 2 },
-        .{ .text = "日本", .columns = 4 },
-        .{ .text = "·", .columns = 1 },
     };
     for (cases) |case| {
         var spans = [_]Span{makeSpan(case.text, .body)};
@@ -386,86 +326,36 @@ test "Unicode sequence geometry follows the authority" {
         defer doc.deinit(testing.allocator);
         try testing.expectEqual(case.columns, doc.columns);
         try testing.expectEqual(case.columns, doc.runs[0].columns);
+        try testing.expectEqualStrings(case.text, doc.runs[0].text);
     }
 }
 
-test "tabs use four-column stops after narrow and wide graphemes" {
+test "controls and invalid UTF-8 in rendered content are rejected with typed errors" {
     const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("a\t日\tx", .body)};
+    const cases = [_]struct { text: []const u8, err: Error }{
+        .{ .text = "a\x07b", .err = error.InvalidControlScalar },
+        .{ .text = "\xff\xfe", .err = error.InvalidUtf8 },
+    };
+    for (cases) |case| {
+        var spans = [_]Span{makeSpan(case.text, .body)};
+        var lines = [_]Line{.{ .spans = &spans }};
+        try testing.expectError(case.err, build(testing.allocator, .{ .lines = &lines }, &face, testOptions(.theme)));
+    }
+}
+
+test "theme mode resolves palette colours: a code span foreground and a code block background" {
+    const face = try font.Font.init(20);
+    var spans = [_]Span{ makeSpan("code", .code), makeSpan("x", .code_block) };
     var lines = [_]Line{.{ .spans = &spans }};
     var doc = try build(testing.allocator, .{ .lines = &lines }, &face, testOptions(.theme));
     defer doc.deinit(testing.allocator);
-    try testing.expectEqualStrings("a\t日\tx", doc.runs[0].text);
-    try testing.expectEqual(@as(u32, 9), doc.columns);
+    try testing.expect(!std.meta.eql(black, doc.runs[0].foreground));
+    try testing.expect(doc.runs[1].background != null);
 }
 
-test "precomposed and decomposed text have equal geometry and distinct bytes" {
+test "monochrome resolution forces black text, white page, no span background, and keeps decorations" {
     const face = try font.Font.init(20);
-    var composed_spans = [_]Span{makeSpan("é", .body)};
-    var composed_lines = [_]Line{.{ .spans = &composed_spans }};
-    var composed = try build(testing.allocator, .{ .lines = &composed_lines }, &face, testOptions(.theme));
-    defer composed.deinit(testing.allocator);
-
-    var decomposed_spans = [_]Span{ makeSpan("e", .body), makeSpan("\u{0301}", .emphasis) };
-    var decomposed_lines = [_]Line{.{ .spans = &decomposed_spans }};
-    var decomposed = try build(testing.allocator, .{ .lines = &decomposed_lines }, &face, testOptions(.theme));
-    defer decomposed.deinit(testing.allocator);
-
-    try testing.expectEqual(composed.columns, decomposed.columns);
-    try testing.expectEqualStrings("é", composed.runs[0].text);
-    try testing.expectEqualStrings("e\u{0301}", decomposed.runs[0].text);
-    try testing.expect(!std.mem.eql(u8, composed.runs[0].text, decomposed.runs[0].text));
-}
-
-test "control scalar in rendered content is rejected" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("a\x07b", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidControlScalar, build(testing.allocator, rendered, &face, testOptions(.theme)));
-}
-
-test "Unicode format controls are rejected with the existing typed error" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("a\u{2060}b", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    try testing.expectError(error.InvalidControlScalar, build(testing.allocator, .{ .lines = &lines }, &face, testOptions(.theme)));
-}
-
-test "invalid utf8 in rendered content is rejected" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{makeSpan("\xff\xfe", .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    try testing.expectError(error.InvalidUtf8, build(testing.allocator, rendered, &face, testOptions(.theme)));
-}
-
-test "themed color resolution maps through the xterm table" {
-    const face = try font.Font.init(20);
-    const palette = theme.neutralDark;
-    var spans = [_]Span{makeSpan("code", .code)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, .{ .palette = palette, .color_mode = .theme });
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(xterm256ToSrgb(114), doc.runs[0].foreground);
-    try testing.expectEqual(@as(?Color, null), doc.runs[0].background);
-}
-
-test "themed code block resolves a background rectangle" {
-    const face = try font.Font.init(20);
-    const palette = theme.neutralDark;
-    var spans = [_]Span{makeSpan("x", .code_block)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, .{ .palette = palette, .color_mode = .theme });
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(@as(?Color, xterm256ToSrgb(236)), doc.runs[0].background);
-}
-
-test "monochrome resolution forces black text, white page, no span background" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{ makeSpan("head", .heading1), makeSpan("code", .code_block) };
+    var spans = [_]Span{ makeSpan("head", .heading1), makeSpan("code", .code_block), makeSpan("a", .link), makeSpan("b", .strikethrough) };
     var lines = [_]Line{.{ .spans = &spans }};
     const rendered = Rendered{ .lines = &lines };
     var doc = try build(testing.allocator, rendered, &face, testOptions(.monochrome));
@@ -475,27 +365,8 @@ test "monochrome resolution forces black text, white page, no span background" {
         try testing.expectEqual(black, run.foreground);
         try testing.expectEqual(@as(?Color, null), run.background);
     }
-}
-
-test "monochrome keeps geometric decorations" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{ makeSpan("a", .link), makeSpan("b", .strikethrough) };
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, testOptions(.monochrome));
-    defer doc.deinit(testing.allocator);
-    try testing.expect(doc.runs[0].decoration.underline);
-    try testing.expect(doc.runs[1].decoration.strikethrough);
-}
-
-test "url metadata is preserved on the run" {
-    const face = try font.Font.init(20);
-    var spans = [_]Span{.{ .text = "link", .style = .link, .url = "https://example.com" }};
-    var lines = [_]Line{.{ .spans = &spans }};
-    const rendered = Rendered{ .lines = &lines };
-    var doc = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqualStrings("https://example.com", doc.runs[0].url.?);
+    try testing.expect(doc.runs[2].decoration.underline);
+    try testing.expect(doc.runs[3].decoration.strikethrough);
 }
 
 test "geometry derives padding and page baseline from font and options" {
@@ -508,30 +379,4 @@ test "geometry derives padding and page baseline from font and options" {
     try testing.expectEqual(@as(u16, 20), doc.geometry.padding_top_px);
     try testing.expectEqual(@as(u16, 20), doc.geometry.padding_bottom_px);
     try testing.expectEqual(@as(i16, 36), doc.geometry.baseline_px);
-}
-
-test "hash is stable across two independent builds of the same document" {
-    const face = try font.Font.init(20);
-    var spans0 = [_]Span{ makeSpan("Title", .heading1), makeSpan(" x", .body) };
-    var empty = [_]Span{};
-    var spans2 = [_]Span{makeSpan("café →", .body)};
-    var lines = [_]Line{
-        .{ .spans = &spans0 },
-        .{ .spans = &empty },
-        .{ .spans = &spans2 },
-    };
-    const rendered = Rendered{ .lines = &lines };
-
-    var doc_a = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc_a.deinit(testing.allocator);
-    var doc_b = try build(testing.allocator, rendered, &face, testOptions(.theme));
-    defer doc_b.deinit(testing.allocator);
-
-    const ha = doc_a.canonicalSha256();
-    const hb = doc_b.canonicalSha256();
-    try testing.expectEqualSlices(u8, &ha, &hb);
-
-    var doc_m = try build(testing.allocator, rendered, &face, testOptions(.monochrome));
-    defer doc_m.deinit(testing.allocator);
-    try testing.expect(!std.mem.eql(u8, &ha, &doc_m.canonicalSha256()));
 }

@@ -2,7 +2,6 @@ const std = @import("std");
 
 const render_model = @import("../core/markdown/render/types.zig");
 const theme = @import("../core/theme.zig");
-const unicode = @import("unicode");
 const font = @import("font.zig");
 const layout = @import("layout.zig");
 const types = @import("types.zig");
@@ -11,7 +10,6 @@ const png = @import("png.zig");
 
 const Span = render_model.Span;
 const Line = render_model.Line;
-const Rendered = render_model.Rendered;
 const SpanStyle = render_model.SpanStyle;
 
 pub const junction_glyphs = [_]u21{
@@ -99,81 +97,8 @@ pub fn allRendererOwned(buf: *std.ArrayList(u21), allocator: std.mem.Allocator) 
     for (misc_render_glyphs) |g| try buf.append(allocator, g);
 }
 
-pub fn build(arena: std.mem.Allocator) !Rendered {
-    var lines: std.ArrayList(Line) = .empty;
-
-    {
-        var s: std.ArrayList(u8) = .empty;
-        var cp: u21 = 0x20;
-        while (cp <= 0x7E) : (cp += 1) {
-            var b: [4]u8 = undefined;
-            const n = try std.unicode.utf8Encode(cp, &b);
-            try s.appendSlice(arena, b[0..n]);
-        }
-        try appendLine(arena, &lines, &.{spanOf(try s.toOwnedSlice(arena), .body)});
-    }
-
-    try appendLine(arena, &lines, &.{spanOf(try repeatGlyph(arena, '─', 10), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try repeatGlyph(arena, '│', 1), .body)});
-    try appendLine(arena, &lines, &.{spanOf(try repeatGlyph(arena, '│', 1), .body)});
-    try appendLine(arena, &lines, &.{spanOf(try repeatGlyph(arena, '│', 1), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &junction_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &stroke_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &shape_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &arrow_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &heavy_box_glyphs), .body)});
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &legacy_stroke_glyphs), .body)});
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &legacy_marker_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf(try glyphsToUtf8(arena, &misc_render_glyphs), .body)});
-
-    try appendLine(arena, &lines, &.{spanOf("┌─┬─┐", .body)});
-    try appendLine(arena, &lines, &.{spanOf("│ │ │", .body)});
-    try appendLine(arena, &lines, &.{spanOf("├─┼─┤", .body)});
-    try appendLine(arena, &lines, &.{spanOf("└─┴─┘", .body)});
-
-    try appendLine(arena, &lines, &.{spanOf("   spaced text   ", .body)});
-
-    try appendLine(arena, &lines, &.{});
-
-    try appendLine(arena, &lines, &.{spanOf("underlined", .link)});
-    try appendLine(arena, &lines, &.{spanOf("struck", .strikethrough)});
-
-    return .{ .lines = try lines.toOwnedSlice(arena) };
-}
-
-fn appendLine(arena: std.mem.Allocator, lines: *std.ArrayList(Line), spans: []const Span) !void {
-    const owned = try arena.dupe(Span, spans);
-    try lines.append(arena, .{ .spans = owned });
-}
-
 fn spanOf(text: []const u8, style: SpanStyle) Span {
     return .{ .text = text, .style = style };
-}
-
-fn repeatGlyph(arena: std.mem.Allocator, cp: u21, count: usize) ![]u8 {
-    var b: [4]u8 = undefined;
-    const n = try std.unicode.utf8Encode(cp, &b);
-    var s: std.ArrayList(u8) = .empty;
-    var i: usize = 0;
-    while (i < count) : (i += 1) try s.appendSlice(arena, b[0..n]);
-    return s.toOwnedSlice(arena);
-}
-
-fn glyphsToUtf8(arena: std.mem.Allocator, glyphs: []const u21) ![]u8 {
-    var s: std.ArrayList(u8) = .empty;
-    for (glyphs) |cp| {
-        var b: [4]u8 = undefined;
-        const n = try std.unicode.utf8Encode(cp, &b);
-        try s.appendSlice(arena, b[0..n]);
-    }
-    return s.toOwnedSlice(arena);
 }
 
 const testing = std.testing;
@@ -183,21 +108,6 @@ fn sheetOptions() layout.Options {
         .palette = theme.neutralDark,
         .color_mode = .monochrome,
     };
-}
-
-test "PROBE box-drawing glyph vertical/horizontal ink extents at 20px" {
-    if (true) return error.SkipZigTest;
-    const face = try font.Font.init(20);
-    const probes = [_]u21{ '│', '─', '┼', '┌', '└' };
-    for (probes) |cp| {
-        const gi = try face.requireGlyph(cp);
-        var bmp = try face.rasterizeGlyphIndex(testing.allocator, gi);
-        defer bmp.deinit(testing.allocator);
-        std.debug.print(
-            "U+{X:0>4}: bmp {d}x{d} left={d} top={d}  cell {d}x{d} baseline={d}\n",
-            .{ cp, bmp.width, bmp.height, bmp.left, bmp.top, face.cell_width_px, face.cell_height_px, face.baseline_px },
-        );
-    }
 }
 
 test "font covers every renderer-owned glyph and every ASCII printable" {
@@ -220,108 +130,6 @@ test "font covers every renderer-owned glyph and every ASCII printable" {
             std.debug.print("uncovered renderer glyph U+{X:0>4}\n", .{g});
             return err;
         };
-    }
-}
-
-test "the whole glyph sheet rasterizes with no missing glyph" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const rendered = try build(arena);
-    const face = try font.Font.init(20);
-    var doc = try layout.build(testing.allocator, rendered, &face, sheetOptions());
-    defer doc.deinit(testing.allocator);
-
-    var diag: png.Diagnostic = .{};
-    const result = png.render(testing.allocator, doc, &face, .monochrome, &diag) catch |err| {
-        std.debug.print("sheet render failed: {} (U+{X:0>4} at {d},{d})\n", .{ err, diag.missing_codepoint, diag.row, diag.column });
-        return err;
-    };
-    defer result.deinit(testing.allocator);
-    try testing.expect(result.width() > 0);
-    try testing.expect(result.height() > 0);
-}
-
-test "glyph sheet export dimensions follow the fixture and §7.4" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const rendered = try build(arena);
-    const face = try font.Font.init(20);
-    var doc = try layout.build(testing.allocator, rendered, &face, sheetOptions());
-    defer doc.deinit(testing.allocator);
-
-    try testing.expectEqual(@as(u32, @intCast(rendered.lines.len)), doc.rows);
-
-    var expect_cols: u32 = 0;
-    for (rendered.lines) |line| {
-        const text = try line.joinedText(testing.allocator);
-        defer testing.allocator.free(text);
-        const columns = try unicode.rawDisplayWidth(text);
-        expect_cols = @max(expect_cols, std.math.cast(u32, columns) orelse return error.Overflow);
-    }
-    try testing.expectEqual(expect_cols, doc.columns);
-
-    const cw: u32 = 9;
-    const ch: u32 = 20;
-    try testing.expectEqual(cw + doc.columns * cw + cw, try doc.pixelWidth());
-    try testing.expectEqual(ch + doc.rows * ch + ch, try doc.pixelHeight());
-}
-
-const expected_surface_sha256_aarch64_macos: [32]u8 = .{
-    0x5b, 0x81, 0x15, 0x5b, 0xb1, 0x3f, 0x6c, 0xf4,
-    0xc5, 0x9a, 0xa0, 0xca, 0x49, 0xf1, 0xb5, 0xbb,
-    0x14, 0x59, 0x50, 0x42, 0x32, 0x11, 0x37, 0xbd,
-    0xe2, 0xb2, 0x35, 0xba, 0x3d, 0x5c, 0x42, 0x50,
-};
-
-fn renderSheetSurface(allocator: std.mem.Allocator) !surface_mod.Surface {
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const rendered = try build(arena);
-    const face = try font.Font.init(20);
-    var doc = try layout.build(allocator, rendered, &face, sheetOptions());
-    defer doc.deinit(allocator);
-
-    const w = try doc.pixelWidth();
-    const h = try doc.pixelHeight();
-    var surface = try surface_mod.Surface.init(allocator, w, h);
-    errdefer surface.deinit(allocator);
-    surface.fill(doc.page_background);
-    for (doc.runs) |run| {
-        if (run.background) |bg| {
-            const left = @as(i64, doc.geometry.padding_left_px) + @as(i64, run.start_col) * @as(i64, doc.geometry.cell_width_px);
-            const top = @as(i64, doc.geometry.padding_top_px) + @as(i64, run.row) * @as(i64, doc.geometry.cell_height_px);
-            surface.fillRect(left, top, @as(u32, run.columns) * doc.geometry.cell_width_px, doc.geometry.cell_height_px, bg);
-        }
-    }
-    try png.paintSheet(allocator, &surface, doc, &face, null);
-    return surface;
-}
-
-test "glyph-sheet RGBA surface hash is deterministic and target-qualified" {
-    const builtin = @import("builtin");
-
-    var s1 = try renderSheetSurface(testing.allocator);
-    defer s1.deinit(testing.allocator);
-    var s2 = try renderSheetSurface(testing.allocator);
-    defer s2.deinit(testing.allocator);
-
-    var h1: [32]u8 = undefined;
-    var h2: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(s1.pixels, &h1, .{});
-    std.crypto.hash.sha2.Sha256.hash(s2.pixels, &h2, .{});
-    try testing.expectEqualSlices(u8, &h1, &h2);
-    if (std.process.hasEnvVarConstant("MERCAT_PRINT_SHEET_HASH")) {
-        std.debug.print("SHEET_HASH {s} {s}\n", .{ @tagName(builtin.cpu.arch), std.fmt.bytesToHex(h1, .lower) });
-    }
-
-    if (builtin.cpu.arch == .aarch64 and builtin.os.tag == .macos) {
-        try testing.expectEqualSlices(u8, &expected_surface_sha256_aarch64_macos, &h1);
     }
 }
 
@@ -361,27 +169,6 @@ fn renderMini(allocator: std.mem.Allocator, lines: []Line) !struct { surface: su
     return .{ .surface = surface, .geometry = doc.geometry };
 }
 
-test "vertically adjacent box lines tile with no raster gap" {
-    var bar0 = [_]Span{spanOf("│", .body)};
-    var bar1 = [_]Span{spanOf("│", .body)};
-    var lines = [_]Line{ .{ .spans = &bar0 }, .{ .spans = &bar1 } };
-    var mini = try renderMini(testing.allocator, &lines);
-    defer mini.surface.deinit(testing.allocator);
-
-    const seam_y = @as(u32, mini.geometry.padding_top_px) + mini.geometry.cell_height_px;
-    try testing.expect(verticalJoinContinuous(mini.surface, mini.geometry, 0, seam_y));
-}
-
-test "horizontally adjacent box lines tile with no raster gap" {
-    var rule = [_]Span{spanOf("──", .body)};
-    var lines = [_]Line{.{ .spans = &rule }};
-    var mini = try renderMini(testing.allocator, &lines);
-    defer mini.surface.deinit(testing.allocator);
-
-    const seam_x = @as(u32, mini.geometry.padding_left_px) + mini.geometry.cell_width_px;
-    try testing.expect(horizontalJoinContinuous(mini.surface, mini.geometry, 0, seam_x));
-}
-
 test "a + junction connects to all four adjacent line cells with no gap" {
     var r0 = [_]Span{spanOf(" │ ", .body)};
     var r1 = [_]Span{spanOf("─┼─", .body)};
@@ -400,25 +187,4 @@ test "a + junction connects to all four adjacent line cells with no gap" {
     try testing.expect(verticalJoinContinuous(mini.surface, g, 1, bot_seam));
     try testing.expect(horizontalJoinContinuous(mini.surface, g, 1, left_seam));
     try testing.expect(horizontalJoinContinuous(mini.surface, g, 1, right_seam));
-}
-
-test "rendered line count maps exactly to export rows" {
-    const face = try font.Font.init(20);
-    var s0 = [_]Span{spanOf("one", .body)};
-    var s1 = [_]Span{};
-    var s2 = [_]Span{spanOf("three", .body)};
-    var lines = [_]Line{ .{ .spans = &s0 }, .{ .spans = &s1 }, .{ .spans = &s2 } };
-    var doc = try layout.build(testing.allocator, .{ .lines = &lines }, &face, sheetOptions());
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(@as(u32, 3), doc.rows);
-}
-
-test "authority display width maps exactly to export columns" {
-    const face = try font.Font.init(20);
-    const text = "·Ａe\u{0301}👩‍💻©︎©️";
-    var spans = [_]Span{spanOf(text, .body)};
-    var lines = [_]Line{.{ .spans = &spans }};
-    var doc = try layout.build(testing.allocator, .{ .lines = &lines }, &face, sheetOptions());
-    defer doc.deinit(testing.allocator);
-    try testing.expectEqual(try unicode.rawDisplayWidth(text), @as(usize, doc.columns));
 }

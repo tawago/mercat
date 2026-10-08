@@ -5,14 +5,12 @@
 # are not `//`, so doc comments and blank lines are free. The cap applies to
 # every Zig source under src/ except `*_test*.zig` files (tests are extracted
 # into sibling files to keep their module small; test length is not tracked).
-# The flowchart engine lint (tools/lint_imports.zig, `zig build lint`) applies the
-# same rule, counted the same way, to its tree.
+# This script is the only implementation of the cap.
 set -euo pipefail
 
 limit=1000
 
-# Count lines that are neither blank nor `//`-prefixed after leading whitespace,
-# exactly as tools/lint_imports.zig counts them.
+# Count lines that are neither blank nor `//`-prefixed after leading whitespace.
 code_lines() {
   awk '{ t = $0; sub(/^[ \t\r]+/, "", t) } t != "" && t !~ /^\/\// { c++ } END { print c + 0 }' "$1"
 }

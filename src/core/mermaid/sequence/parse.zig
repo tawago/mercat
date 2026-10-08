@@ -264,20 +264,23 @@ fn nth(diagram: *const SequenceDiagram, comptime kind: Element, index: usize) st
     unreachable;
 }
 
-test "parse simple sequence diagram" {
+test "parse simple sequence diagram with a self message and a direction" {
     const testing = std.testing;
 
     const source =
         \\sequenceDiagram
+        \\    direction LR
         \\    Alice->>Bob: Hello Bob
         \\    Bob-->>Alice: Hi Alice
+        \\    Alice->>Alice: Talk to self
     ;
 
     var diagram = try parse(testing.allocator, source);
     defer diagram.deinit();
 
+    try testing.expectEqual(Direction.LR, diagram.direction);
     try testing.expectEqual(@as(usize, 2), diagram.participants.items.len);
-    try testing.expectEqual(@as(usize, 2), count(&diagram, .message));
+    try testing.expectEqual(@as(usize, 3), count(&diagram, .message));
 
     try testing.expectEqualStrings("Alice", diagram.participants.items[0].id);
     try testing.expectEqualStrings("Bob", diagram.participants.items[1].id);
@@ -287,8 +290,10 @@ test "parse simple sequence diagram" {
     try testing.expectEqualStrings("Bob", first.to);
     try testing.expectEqualStrings("Hello Bob", first.text);
     try testing.expectEqual(SequenceArrowType.solid_arrow, first.arrow_type);
+    try testing.expect(!first.is_self_message);
 
     try testing.expectEqual(SequenceArrowType.dashed_arrow, nth(&diagram, .message, 1).arrow_type);
+    try testing.expect(nth(&diagram, .message, 2).is_self_message);
 }
 
 test "parse sequence with explicit participants" {
@@ -336,21 +341,6 @@ test "parse sequence arrow types" {
     try testing.expectEqual(SequenceArrowType.dashed_cross, nth(&diagram, .message, 5).arrow_type);
 }
 
-test "parse self message" {
-    const testing = std.testing;
-
-    const source =
-        \\sequenceDiagram
-        \\    Alice->>Alice: Talk to self
-    ;
-
-    var diagram = try parse(testing.allocator, source);
-    defer diagram.deinit();
-
-    try testing.expectEqual(@as(usize, 1), count(&diagram, .message));
-    try testing.expect(nth(&diagram, .message, 0).is_self_message);
-}
-
 test "parse sequence diagram with notes" {
     const testing = std.testing;
 
@@ -379,19 +369,4 @@ test "parse sequence diagram with notes" {
     try testing.expectEqualStrings("Alice", second.participant1);
     try testing.expectEqualStrings("Bob", second.participant2.?);
     try testing.expectEqualStrings("They greet", second.text);
-}
-
-test "parse sequence diagram direction" {
-    const testing = std.testing;
-
-    const source =
-        \\sequenceDiagram
-        \\    direction LR
-        \\    Alice->>Bob: Hello
-    ;
-
-    var diagram = try parse(testing.allocator, source);
-    defer diagram.deinit();
-
-    try testing.expectEqual(Direction.LR, diagram.direction);
 }
