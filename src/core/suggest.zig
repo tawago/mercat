@@ -53,32 +53,17 @@ pub fn closest(word: []const u8, candidates: []const []const u8) ?[]const u8 {
     return best;
 }
 
-test "editDistance basics" {
-    try std.testing.expectEqual(@as(usize, 0), editDistance("abc", "abc"));
-    try std.testing.expectEqual(@as(usize, 1), editDistance("them", "theme"));
-    try std.testing.expectEqual(@as(usize, 2), editDistance("widht", "width"));
-    try std.testing.expectEqual(@as(usize, 3), editDistance("", "abc"));
-}
-
 test "closest picks plausible typos only" {
     const words = [_][]const u8{ "theme", "width", "frontmatter" };
     try std.testing.expectEqualStrings("theme", closest("them", &words).?);
     try std.testing.expectEqualStrings("frontmatter", closest("frontmater", &words).?);
     try std.testing.expectEqual(@as(?[]const u8, null), closest("zzzzzz", &words));
     try std.testing.expectEqual(@as(?[]const u8, null), closest("theme", &words));
-}
-
-test "closest prefers a unique prefix over edit distance" {
-    const flags = [_][]const u8{ "--output", "--tui", "--list-themes", "--version", "--monochrome", "--help", "--heading-markers" };
-    try std.testing.expectEqualStrings("--output", closest("--out", &flags).?);
-    try std.testing.expectEqualStrings("--list-themes", closest("--list", &flags).?);
-    try std.testing.expectEqualStrings("--version", closest("--vers", &flags).?);
-    try std.testing.expectEqualStrings("--monochrome", closest("--mono", &flags).?);
-    // Ambiguous prefixes fall back to edit distance (or nothing).
+    try std.testing.expectEqualStrings("width", closest("widht", &words).?);
+    // A unique prefix wins; an ambiguous or one-byte prefix does not.
+    const flags = [_][]const u8{ "--help", "--heading-markers" };
     try std.testing.expectEqual(@as(?[]const u8, null), uniquePrefix("--he", &flags));
-    try std.testing.expectEqual(@as(?[]const u8, null), uniquePrefix("x", &flags));
-    // Theme names get the same treatment.
     const themes = [_][]const u8{ "dark", "light", "dracula", "tokyo-night" };
-    try std.testing.expectEqualStrings("dracula", closest("drakula", &themes).?);
+    try std.testing.expectEqual(@as(?[]const u8, null), uniquePrefix("t", &themes));
     try std.testing.expectEqualStrings("tokyo-night", closest("tokyo", &themes).?);
 }

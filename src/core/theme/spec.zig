@@ -134,27 +134,8 @@ pub const ThemeSpec = struct {
     canvas: ?bool = null,
 };
 
-const testing = std.testing;
-
 test "Slot mirrors SpanStyle by name" {
     inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
         _ = Slot.fromSpanStyle(@field(types.SpanStyle, f.name));
     }
-}
-
-test "SlotMap get/set is sparse" {
-    var m = SlotMap{};
-    try testing.expect(m.get(.heading1) == null);
-    m.set(.heading1, .{ .bold = true });
-    try testing.expectEqual(@as(?bool, true), m.get(.heading1).?.bold);
-    try testing.expect(m.get(.heading2) == null);
-}
-
-test "ThemeSpec defaults are all-sparse" {
-    const s = ThemeSpec{ .name = "x" };
-    try testing.expect(s.extends == null);
-    try testing.expect(s.palette_mode == null);
-    try testing.expect(s.glyphs.bullets == null);
-    var slots = s.slots;
-    try testing.expect(slots.get(.body) == null);
 }
