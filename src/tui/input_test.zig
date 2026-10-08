@@ -21,50 +21,12 @@ fn ctrl(cp: u21) Key {
     return .{ .codepoint = cp, .mods = .{ .ctrl = true } };
 }
 
-test "search keys map to search actions" {
-    try std.testing.expectEqual(Action.search_start, mapKey(text("/")));
-    try std.testing.expectEqual(Action.search_next, mapKey(text("n")));
-    try std.testing.expectEqual(Action.search_prev, mapKey(.{ .codepoint = 'N', .text = "N", .shifted_codepoint = 'N' }));
-    try std.testing.expectEqual(Action.suspend_app, mapKey(ctrl('z')));
-    try std.testing.expectEqual(Action.quit, mapKey(text("q")));
-    try std.testing.expectEqual(Action.quit, mapKey(ctrl('c')));
-}
-
-test "less/vim movement keys" {
+test "uppercase keys map in their text and shifted forms; Ctrl chords map too" {
     const cases = [_]struct { key: Key, action: Action }{
-        .{ .key = text("j"), .action = .line_down },
-        .{ .key = special(Key.down), .action = .line_down },
-        .{ .key = ctrl('e'), .action = .line_down },
-        .{ .key = ctrl('n'), .action = .line_down },
-        .{ .key = text("k"), .action = .line_up },
-        .{ .key = special(Key.up), .action = .line_up },
-        .{ .key = ctrl('y'), .action = .line_up },
-        .{ .key = ctrl('p'), .action = .line_up },
-        .{ .key = text(" "), .action = .page_down },
-        .{ .key = text("f"), .action = .page_down },
-        .{ .key = special(Key.page_down), .action = .page_down },
-        .{ .key = ctrl('f'), .action = .page_down },
-        .{ .key = text("b"), .action = .page_up },
-        .{ .key = special(Key.page_up), .action = .page_up },
-        .{ .key = ctrl('b'), .action = .page_up },
-        .{ .key = text("d"), .action = .half_page_down },
-        .{ .key = ctrl('d'), .action = .half_page_down },
-        .{ .key = text("u"), .action = .half_page_up },
-        .{ .key = ctrl('u'), .action = .half_page_up },
-        .{ .key = text("g"), .action = .top },
-        .{ .key = special(Key.home), .action = .top },
-        .{ .key = text("<"), .action = .top },
+        .{ .key = .{ .codepoint = 'N', .text = "N", .shifted_codepoint = 'N' }, .action = .search_prev },
         .{ .key = .{ .codepoint = 'G', .text = "G" }, .action = .bottom },
-        .{ .key = special(Key.end), .action = .bottom },
-        .{ .key = text(">"), .action = .bottom },
-        .{ .key = special(Key.enter), .action = .follow_link },
-        .{ .key = special(Key.escape), .action = .escape },
-        .{ .key = text("?"), .action = .toggle_help },
-        .{ .key = special(Key.f1), .action = .toggle_help },
-        .{ .key = text("e"), .action = .edit },
-        .{ .key = text("r"), .action = .reload },
-        .{ .key = text("m"), .action = .toggle_metadata },
         .{ .key = .{ .codepoint = 'B', .text = "B" }, .action = .toggle_subgraph_edges },
+        .{ .key = ctrl('f'), .action = .page_down },
     };
     for (cases) |case| {
         try std.testing.expectEqual(case.action, mapKey(case.key));

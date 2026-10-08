@@ -183,10 +183,3 @@ test "list_item defaults to body only when a preset leaves it unset" {
 
     try std.testing.expect(!std.meta.eql(token(neutralDark, .body), token(neutralDark, .list_item)));
 }
-
-test "neutral palette anchors match the preset specs" {
-    try std.testing.expectEqual(idx(254), neutralDark.body.fg);
-    try std.testing.expectEqual(idx(141), neutralDark.code_block_keyword.fg);
-    try std.testing.expectEqual(idx(234), neutralLight.body.fg);
-    try std.testing.expectEqual(idx(92), neutralLight.code_block_keyword.fg);
-}

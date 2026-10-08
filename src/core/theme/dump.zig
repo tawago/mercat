@@ -146,155 +146,51 @@ fn writeTokens(w: anytype, t: spec.TokenColors) !void {
 const testing = std.testing;
 const resolve = @import("resolve.zig");
 const loadfile = @import("loadfile.zig");
+const presets = @import("presets.zig");
 
-fn roundTrip(name: []const u8) !void {
-    const alloc = testing.allocator;
-    var reg = resolve.Registry.init(alloc);
-    defer reg.deinit();
+/// Dumps `name`, reloads the dump as a user theme and checks the reload
+/// resolves to the same theme: every style, every Decor field (slices by
+/// content), accent, base_bg and canvas.
+fn roundTrip(alloc: std.mem.Allocator, reg: *resolve.Registry, name: []const u8) !void {
     var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-
     const merged = reg.mergedSpec(name, &diag).?;
     var buf = std.ArrayList(u8).empty;
-    defer buf.deinit(alloc);
     try write(buf.writer(alloc), name, &merged);
 
-    var tables = try loadfile.parseThemeTables(alloc, buf.items);
-    defer tables.deinit(alloc);
-    var user = resolve.specFromRaw(alloc, tables.view(), &diag);
-    user.name = "dumped";
-    try reg.insertUserSpec(&user);
+    const tables = try loadfile.parseThemeTables(alloc, buf.items);
+    const dumped = try alloc.create(ThemeSpec);
+    dumped.* = resolve.specFromRaw(alloc, tables.view(), &diag);
+    dumped.name = try std.fmt.allocPrint(alloc, "{s}_rt", .{name});
+    try reg.insertUserSpec(dumped);
 
     const original = try reg.resolve(name, .default, null, &diag);
-    const dumped = try reg.resolve("dumped", .default, null, &diag);
-
+    const reloaded = try reg.resolve(dumped.name, .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    inline for (@typeInfo(resolve.StyleMap).@"struct".fields) |f| {
-        try testing.expect(std.meta.eql(@field(original.styles, f.name), @field(dumped.styles, f.name)));
-    }
-    try testing.expectEqualStrings(original.decor.glyphs.quote_bar, dumped.decor.glyphs.quote_bar);
-    try testing.expectEqualStrings(original.decor.slot(.heading1).prefix, dumped.decor.slot(.heading1).prefix);
-    try testing.expectEqual(original.canvas, dumped.canvas);
+    try testing.expectEqualDeep(original, reloaded);
 }
 
-test "dump-theme round-trips dark through the loadfile parser" {
-    try roundTrip("dark");
-}
-
-test "dump-theme round-trips light" {
-    try roundTrip("light");
-}
-
-test "dump-theme round-trips dracula (glyphs + tokens + code_frame)" {
-    try roundTrip("dracula");
-}
-
-test "dump-theme round-trips tokyo-night and pink" {
-    try roundTrip("tokyo-night");
-    try roundTrip("pink");
-}
-
-test "underline_row + underline_glyph round-trip through dump + loadfile" {
-    const alloc = testing.allocator;
+test "every preset and a structural user theme round-trip through dump + loadfile" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
     var reg = resolve.Registry.init(alloc);
     defer reg.deinit();
+
+    for (presets.ALL) |p| try roundTrip(alloc, &reg, p.name);
+
     var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-
-    var raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n[theme.heading1]\nunderline_row = true\nunderline_glyph = \"\u{2550}\"\n");
-    defer raw.deinit(alloc);
-    var user = resolve.specFromRaw(alloc, raw.view(), &diag);
-    user.name = "uline";
-    try reg.insertUserSpec(&user);
-
-    const merged = reg.mergedSpec("uline", &diag).?;
-    var buf = std.ArrayList(u8).empty;
-    defer buf.deinit(alloc);
-    try write(buf.writer(alloc), "uline", &merged);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "underline_row = true") != null);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "underline_glyph = \"\u{2550}\"") != null);
-
-    var tables = try loadfile.parseThemeTables(alloc, buf.items);
-    defer tables.deinit(alloc);
-    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
-    dumped.name = "uline_rt";
-    try reg.insertUserSpec(&dumped);
-
-    const rt = try reg.resolve("uline_rt", .default, null, &diag);
-    try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expect(rt.decor.slot(.heading1).underline_row);
-    try testing.expectEqualStrings("\u{2550}", rt.decor.slot(.heading1).underline_glyph);
-}
-
-test "re-added structural slots + widened table_style round-trip through dump + loadfile" {
-    const alloc = testing.allocator;
-    var reg = resolve.Registry.init(alloc);
-    defer reg.deinit();
-    var diag = resolve.Diagnostics.init(alloc);
-    defer diag.deinit();
-
-    var raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n" ++
+    const raw = try loadfile.parseThemeTables(alloc, "extends = \"dark\"\n" ++
+        "[theme.heading1]\nunderline_row = true\nunderline_glyph = \"\u{2550}\"\n" ++
         "[theme.hr]\nfg = \"202\"\n" ++
         "[theme.table_border]\nfg = \"45\"\n" ++
         "[theme.table_header]\nfg = \"213\"\nbold = true\n" ++
         "[theme.code_fence_banner]\nfg = \"99\"\n" ++
         "[theme.glyphs]\ntable_style = \"heavy\"\n");
-    defer raw.deinit(alloc);
     var user = resolve.specFromRaw(alloc, raw.view(), &diag);
     user.name = "structural";
     try reg.insertUserSpec(&user);
-
-    const merged = reg.mergedSpec("structural", &diag).?;
-    var buf = std.ArrayList(u8).empty;
-    defer buf.deinit(alloc);
-    try write(buf.writer(alloc), "structural", &merged);
-
-    try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.hr]") != null);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.table_border]") != null);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.table_header]") != null);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "[theme.code_fence_banner]") != null);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "table_style = \"heavy\"") != null);
-
-    var tables = try loadfile.parseThemeTables(alloc, buf.items);
-    defer tables.deinit(alloc);
-    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
-    dumped.name = "structural_rt";
-    try reg.insertUserSpec(&dumped);
-
-    const rt = try reg.resolve("structural_rt", .default, null, &diag);
     try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expect(std.meta.eql(rt.styles.hr.fg, Color{ .index = 202 }));
-    try testing.expect(std.meta.eql(rt.styles.table_border.fg, Color{ .index = 45 }));
-    try testing.expect(std.meta.eql(rt.styles.table_header.fg, Color{ .index = 213 }));
-    try testing.expect(rt.styles.table_header.bold);
-    try testing.expect(std.meta.eql(rt.styles.code_fence_banner.fg, Color{ .index = 99 }));
-    try testing.expectEqual(spec.TableStyle.heavy, rt.decor.glyphs.table_style);
-}
-
-test "markview's custom bullets survive dump -> reload" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
-
-    var reg = resolve.Registry.init(alloc);
-    defer reg.deinit();
-    var diag = resolve.Diagnostics.init(alloc);
-
-    const merged = reg.mergedSpec("markview", &diag).?;
-    var buf = std.ArrayList(u8).empty;
-    try write(buf.writer(alloc), "markview", &merged);
-    try testing.expect(std.mem.indexOf(u8, buf.items, "bullets = [\"\u{25CF}\"]") != null);
-
-    const tables = try loadfile.parseThemeTables(alloc, buf.items);
-    var dumped = resolve.specFromRaw(alloc, tables.view(), &diag);
-    dumped.name = "markview_rt";
-    try reg.insertUserSpec(&dumped);
-
-    const original = try reg.resolve("markview", .default, null, &diag);
-    const rt = try reg.resolve("markview_rt", .default, null, &diag);
-    try testing.expectEqual(@as(usize, 0), diag.count());
-    try testing.expectEqualStrings(original.decor.glyphs.bulletAt(0), rt.decor.glyphs.bulletAt(0));
-    try testing.expectEqualStrings("\u{25CF}", rt.decor.glyphs.bulletAt(2));
+    try roundTrip(alloc, &reg, "structural");
 }
 
 test "glyphs containing quotes and backslashes round-trip through dump + loadfile" {
@@ -332,7 +228,7 @@ test "glyphs containing quotes and backslashes round-trip through dump + loadfil
     try testing.expectEqualStrings("\\", rt.decor.glyphs.bulletAt(1));
 }
 
-test "dumped dark contains the expected round-trip keys" {
+test "a dump is self-contained and pins canvas explicitly" {
     const alloc = testing.allocator;
     var reg = resolve.Registry.init(alloc);
     defer reg.deinit();
@@ -342,12 +238,6 @@ test "dumped dark contains the expected round-trip keys" {
     var buf = std.ArrayList(u8).empty;
     defer buf.deinit(alloc);
     try write(buf.writer(alloc), "dark", &merged);
-    const s = buf.items;
-    try testing.expect(std.mem.indexOf(u8, s, "base_bg = \"#1c1c1c\"") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "canvas = false") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "[theme.heading1]") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "fg = \"81\"") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "prefix = \"# \"") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "quote_bar =") != null);
-    try testing.expect(std.mem.indexOf(u8, s, "extends") == null);
+    try testing.expect(std.mem.indexOf(u8, buf.items, "canvas = false") != null);
+    try testing.expect(std.mem.indexOf(u8, buf.items, "extends") == null);
 }

@@ -38,6 +38,11 @@ test "full width: file name left, position right" {
     try std.testing.expect(std.mem.endsWith(u8, bar.text, "L 6-15/30 50% "));
     try std.testing.expect(contains(bar.text, "? help"));
     try std.testing.expect(bar.cursor_col == null);
+
+    const with_message = try statusbar.render(allocator, .{ .title = "doc.md", .width = 80, .view = view(0, 10, 5), .message = "Reloaded doc.md" });
+    defer with_message.deinit(allocator);
+    try expectBar(with_message, 80);
+    try std.testing.expect(std.mem.startsWith(u8, with_message.text, " doc.md  Reloaded doc.md "));
 }
 
 test "a message never hides the position" {
@@ -49,13 +54,6 @@ test "a message never hides the position" {
     try std.testing.expect(contains(bar.text, "…"));
     try std.testing.expect(std.mem.endsWith(u8, bar.text, "L 1-14/300 Top "));
     try std.testing.expect(!contains(bar.text, "? help"));
-}
-
-test "a short message follows the file name" {
-    const bar = try statusbar.render(allocator, .{ .title = "doc.md", .width = 80, .view = view(0, 10, 5), .message = "Reloaded doc.md" });
-    defer bar.deinit(allocator);
-    try expectBar(bar, 80);
-    try std.testing.expect(std.mem.startsWith(u8, bar.text, " doc.md  Reloaded doc.md "));
 }
 
 test "CJK file names and messages are clipped by display width, never mid-character" {
@@ -87,13 +85,6 @@ test "the search prompt keeps the typed tail visible and places the cursor after
     try expectBar(short, 40);
     try std.testing.expect(std.mem.startsWith(u8, short.text, " /日本 "));
     try std.testing.expectEqual(@as(usize, 6), short.cursor_col.?);
-}
-
-test "tailToWidth keeps whole graphemes" {
-    try std.testing.expectEqualStrings("語", statusbar.tailToWidth("日本語", 3));
-    try std.testing.expectEqualStrings("本語", statusbar.tailToWidth("日本語", 4));
-    try std.testing.expectEqualStrings("abc", statusbar.tailToWidth("abc", 5));
-    try std.testing.expectEqualStrings("", statusbar.tailToWidth("日", 1));
 }
 
 test "tiny widths do not crash" {

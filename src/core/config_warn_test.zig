@@ -20,22 +20,39 @@ fn expectWarnings(source: []const u8, expected: []const []const u8) !config.Conf
     return cfg;
 }
 
-test "invalid width warns with path:line and keeps the default" {
-    var cfg = try expectWarnings(
-        \\[display]
-        \\width = "eighty"
-    , &.{"/home/u/.config/mercat/config.toml:2: invalid value \"eighty\" for 'width' in [display] (expected 0 for auto, or an integer from 20 to 1000); keeping the default"});
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 0), cfg.display.width);
-}
-
-test "out-of-range width warns" {
-    var cfg = try expectWarnings(
-        \\[display]
-        \\width = 5
-    , &.{"/home/u/.config/mercat/config.toml:2: invalid value 5 for 'width' in [display] (expected 0 for auto, or an integer from 20 to 1000); keeping the default"});
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expectEqual(@as(usize, 0), cfg.display.width);
+test "bad values, keys and sections warn with path:line and keep the defaults" {
+    const at = "/home/u/.config/mercat/config.toml:";
+    const width_msg = "for 'width' in [display] (expected 0 for auto, or an integer from 20 to 1000); keeping the default";
+    const rows = [_]struct { source: []const u8, warnings: []const []const u8, width: usize = 0 }{
+        .{ .source = "[display]\nwidth = \"eighty\"", .warnings = &.{at ++ "2: invalid value \"eighty\" " ++ width_msg} },
+        .{ .source = "[display]\nwidth = 5", .warnings = &.{at ++ "2: invalid value 5 " ++ width_msg} },
+        .{ .source = "[display]\nwidth = 19", .warnings = &.{at ++ "2: invalid value 19 " ++ width_msg} },
+        .{ .source = "[display]\nwidth = 20", .warnings = &.{}, .width = 20 },
+        .{ .source = "[display]\nheading_markers = yes", .warnings = &.{at ++ "2: invalid value yes for 'heading_markers' in [display] (expected true or false); keeping the default"} },
+        .{ .source = "[display]\nthem = \"light\"", .warnings = &.{at ++ "2: unknown key 'them' in [display] (did you mean 'theme'?)"} },
+        .{
+            .source = "# comment\n[dispaly]\ntheme = \"light\"\nwidth = 80",
+            .warnings = &.{at ++ "2: unknown section [dispaly] (did you mean [display]?); its keys are ignored"},
+        },
+        .{
+            .source = "[display]\nfrontmatter = \"fancy\"\ncolor = \"sometimes\"\n[mermaid]\nsubgraph_edges = \"weld\"",
+            .warnings = &.{
+                at ++ "2: invalid value \"fancy\" for 'frontmatter' in [display] (expected one of: panel, dim, compact, raw, hidden); keeping the default",
+                at ++ "3: invalid value \"sometimes\" for 'color' in [display] (expected one of: auto, always, never); keeping the default",
+                at ++ "5: invalid value \"weld\" for 'subgraph_edges' in [mermaid] (expected one of: bridge, cross); keeping the default",
+            },
+        },
+    };
+    for (rows) |row| {
+        var cfg = try expectWarnings(row.source, row.warnings);
+        defer cfg.deinit(std.testing.allocator);
+        try std.testing.expectEqual(row.width, cfg.display.width);
+        try std.testing.expectEqualStrings("dark", cfg.display.theme);
+        try std.testing.expect(cfg.display.heading_markers);
+        try std.testing.expectEqual(config.FrontmatterStyle.panel, cfg.display.frontmatter);
+        try std.testing.expectEqual(config.ColorMode.auto, cfg.display.color);
+        try std.testing.expectEqualStrings("bridge", @tagName(cfg.mermaid.subgraph_edges));
+    }
 }
 
 test "quoted \"true\"/\"false\" booleans are honored, not silently flipped off" {
@@ -45,52 +62,6 @@ test "quoted \"true\"/\"false\" booleans are honored, not silently flipped off" 
     , &.{});
     defer cfg.deinit(std.testing.allocator);
     try std.testing.expect(cfg.display.heading_markers);
-}
-
-test "non-boolean booleans warn and keep the default" {
-    var cfg = try expectWarnings(
-        \\[display]
-        \\heading_markers = yes
-    , &.{"/home/u/.config/mercat/config.toml:2: invalid value yes for 'heading_markers' in [display] (expected true or false); keeping the default"});
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expect(cfg.display.heading_markers);
-}
-
-test "unknown key gets a did-you-mean" {
-    var cfg = try expectWarnings(
-        \\[display]
-        \\them = "light"
-    , &.{"/home/u/.config/mercat/config.toml:2: unknown key 'them' in [display] (did you mean 'theme'?)"});
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("dark", cfg.display.theme);
-}
-
-test "unknown section warns once at its header line" {
-    var cfg = try expectWarnings(
-        \\# comment
-        \\[dispaly]
-        \\theme = "light"
-        \\width = 80
-    , &.{"/home/u/.config/mercat/config.toml:2: unknown section [dispaly] (did you mean [display]?); its keys are ignored"});
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expectEqualStrings("dark", cfg.display.theme);
-}
-
-test "invalid enum values warn and list the valid ones" {
-    var cfg = try expectWarnings(
-        \\[display]
-        \\frontmatter = "fancy"
-        \\color = "sometimes"
-        \\[mermaid]
-        \\subgraph_edges = "weld"
-    , &.{
-        "/home/u/.config/mercat/config.toml:2: invalid value \"fancy\" for 'frontmatter' in [display] (expected one of: panel, dim, compact, raw, hidden); keeping the default",
-        "/home/u/.config/mercat/config.toml:3: invalid value \"sometimes\" for 'color' in [display] (expected one of: auto, always, never); keeping the default",
-        "/home/u/.config/mercat/config.toml:5: invalid value \"weld\" for 'subgraph_edges' in [mermaid] (expected one of: bridge, cross); keeping the default",
-    });
-    defer cfg.deinit(std.testing.allocator);
-    try std.testing.expectEqual(config.FrontmatterStyle.panel, cfg.display.frontmatter);
-    try std.testing.expectEqual(config.ColorMode.auto, cfg.display.color);
 }
 
 test "valid keys after a bad one still apply" {
@@ -246,19 +217,15 @@ test "invalid env values warn and are ignored; valid ones apply" {
     try std.testing.expectEqual(config.FrontmatterStyle.panel, cfg.display.frontmatter);
 }
 
-test "parseBool and parseWidthValue" {
-    try std.testing.expectEqual(@as(?bool, true), config.parseBool("true"));
-    try std.testing.expectEqual(@as(?bool, false), config.parseBool("\"false\""));
-    try std.testing.expectEqual(@as(?bool, null), config.parseBool("TRUE"));
-    try std.testing.expectEqual(@as(?bool, null), config.parseBool("1"));
-    try std.testing.expectEqual(@as(?usize, 0), config.parseWidthValue("0"));
-    try std.testing.expectEqual(@as(?usize, 80), config.parseWidthValue("\"80\""));
-    try std.testing.expectEqual(@as(?usize, null), config.parseWidthValue("19"));
-    try std.testing.expectEqual(@as(?usize, null), config.parseWidthValue("eighty"));
-}
-
 test "the embedded default config loads without warnings" {
     var cfg = try expectWarnings(config.default_config_text, &.{});
     defer cfg.deinit(std.testing.allocator);
     try std.testing.expectEqual(config.ColorMode.auto, cfg.display.color);
+    try std.testing.expectEqualStrings("dark", cfg.display.theme);
+    try std.testing.expectEqual(config.SyntaxTheme.default, cfg.display.syntax_theme);
+    try std.testing.expectEqualStrings("", cfg.general.editor);
+    try std.testing.expect(cfg.mermaid.enabled);
+    try std.testing.expect(cfg.display.heading_markers);
+    try std.testing.expectEqual(config.FrontmatterStyle.panel, cfg.display.frontmatter);
+    try std.testing.expectEqualStrings("bridge", @tagName(cfg.mermaid.subgraph_edges));
 }

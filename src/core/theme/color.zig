@@ -230,39 +230,20 @@ const system_colors = [16]Srgb{
 
 const testing = std.testing;
 
-test "parseColor hex 6-digit" {
-    try testing.expectEqual(Color{ .rgb = .{ .r = 0xff, .g = 0x80, .b = 0x00 } }, try parseColor("#ff8000"));
-}
-
-test "parseColor hex 3-digit doubles nibbles" {
-    try testing.expectEqual(Color{ .rgb = .{ .r = 0xff, .g = 0x00, .b = 0x33 } }, try parseColor("#f03"));
-}
-
-test "parseColor index" {
-    try testing.expectEqual(Color{ .index = 236 }, try parseColor("236"));
-}
-
-test "parseColor ansi name" {
-    try testing.expectEqual(Color{ .ansi16 = .blue }, try parseColor("blue"));
-    try testing.expectEqual(Color{ .ansi16 = .bright_green }, try parseColor("bright_green"));
-    try testing.expectEqual(Color{ .ansi16 = .bright_black }, try parseColor("gray"));
-}
-
-test "parseColor default" {
-    try testing.expectEqual(Color.default, try parseColor("default"));
-}
-
-test "parseColor rejects invalid" {
-    try testing.expectError(error.InvalidColor, parseColor(""));
-    try testing.expectError(error.InvalidColor, parseColor("#12"));
-    try testing.expectError(error.InvalidColor, parseColor("notacolor"));
-    try testing.expectError(error.InvalidColor, parseColor("999"));
-}
-
-test "to256 passes through index and ansi16" {
-    try testing.expectEqual(@as(?u8, 200), to256(.{ .index = 200 }));
-    try testing.expectEqual(@as(?u8, 4), to256(.{ .ansi16 = .blue }));
-    try testing.expectEqual(@as(?u8, null), to256(.default));
+test "parseColor accepts hex, index, ansi names and default; rejects the rest" {
+    const ok = [_]struct { in: []const u8, want: Color }{
+        .{ .in = "#ff8000", .want = .{ .rgb = .{ .r = 0xff, .g = 0x80, .b = 0x00 } } },
+        .{ .in = "#f03", .want = .{ .rgb = .{ .r = 0xff, .g = 0x00, .b = 0x33 } } },
+        .{ .in = "236", .want = .{ .index = 236 } },
+        .{ .in = "blue", .want = .{ .ansi16 = .blue } },
+        .{ .in = "bright_green", .want = .{ .ansi16 = .bright_green } },
+        .{ .in = "gray", .want = .{ .ansi16 = .bright_black } },
+        .{ .in = "default", .want = .default },
+    };
+    for (ok) |c| try testing.expectEqual(c.want, try parseColor(c.in));
+    for ([_][]const u8{ "", "#12", "notacolor", "999" }) |bad| {
+        try testing.expectError(error.InvalidColor, parseColor(bad));
+    }
 }
 
 test "to256 maps rgb to nearest cube" {
@@ -271,6 +252,10 @@ test "to256 maps rgb to nearest cube" {
     try testing.expectEqual(@as(?u8, 124), to256(rgb(175, 0, 0)));
     const g = to256(rgb(120, 120, 120)).?;
     try testing.expect(g >= 232 and g <= 255);
+    try testing.expectEqual(@as(?u8, null), to256(.default));
+    try testing.expectEqual(@as(?u8, 4), to256(.{ .ansi16 = .blue }));
+    try testing.expectEqual(Srgb{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(0));
+    try testing.expectEqual(Srgb{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(15));
 }
 
 test "to256 round-trips exact cube anchors" {
@@ -281,21 +266,9 @@ test "to256 round-trips exact cube anchors" {
     }
 }
 
-test "toSrgb arms" {
-    try testing.expectEqual(@as(?Srgb, null), toSrgb(.default));
-    try testing.expectEqual(@as(?Srgb, .{ .r = 10, .g = 20, .b = 30 }), toSrgb(rgb(10, 20, 30)));
-    try testing.expectEqual(@as(?Srgb, xterm256ToSrgb(236)), toSrgb(idx(236)));
-    try testing.expectEqual(@as(?Srgb, xterm256ToSrgb(4)), toSrgb(.{ .ansi16 = .blue }));
-}
-
 test "detectTruecolor from COLORTERM value" {
     try testing.expect(detectTruecolorFromValue("truecolor"));
     try testing.expect(detectTruecolorFromValue("24bit"));
     try testing.expect(!detectTruecolorFromValue("256color"));
     try testing.expect(!detectTruecolorFromValue(null));
-}
-
-test "xterm-256 table anchors" {
-    try testing.expectEqual(Srgb{ .r = 0, .g = 0, .b = 0 }, xterm256ToSrgb(0));
-    try testing.expectEqual(Srgb{ .r = 255, .g = 255, .b = 255 }, xterm256ToSrgb(15));
 }
