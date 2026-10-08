@@ -2,6 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
+const prim = @import("prim");
 
 const testing = std.testing;
 
@@ -49,8 +50,11 @@ test "single horizontal segment writes interior cells with E+W bits" {
     defer a.free(lat.cells);
 
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
-    const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+    var e = makeEdge(1, &pts, .none, .none);
+    e.role = .back_edge;
+    const es = [_]sketch.EdgePath{e};
+    const report = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+    try testing.expectEqual(@as(u32, 0), report.cells_lost);
 
     try testing.expect(switch (lat.atConst(2, 2).occupant) {
         .empty => true,
@@ -65,7 +69,7 @@ test "single horizontal segment writes interior cells with E+W bits" {
     while (x <= 5) : (x += 1) {
         const cell = lat.atConst(x, 2);
         try testing.expect(switch (cell.occupant) {
-            .edge_segment => |seg| seg.edge == 1,
+            .edge_segment => |seg| seg.edge == 1 and seg.role == .back_edge,
             else => false,
         });
         try testing.expectEqual(
@@ -111,30 +115,6 @@ test "length-1 final segment after a corner points the terminal arrowhead into t
     });
 }
 
-test "two foreign crossing edges read as a transversal, not a junction" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 10);
-    defer a.free(lat.cells);
-
-    const pts_h = [_]sketch.Point{ .{ .x = 1, .y = 5 }, .{ .x = 10, .y = 5 } };
-    const pts_v = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 9 } };
-    const es = [_]sketch.EdgePath{
-        makeEdge(1, &pts_h, .none, .none),
-        makeEdge(2, &pts_v, .none, .none),
-    };
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-
-    const cell = lat.atConst(5, 5);
-    try testing.expect(switch (cell.occupant) {
-        .edge_segment => true,
-        else => false,
-    });
-    try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        cell.neighbours.toMask(),
-    );
-}
-
 test "a co-member's corner arm into a head is refused" {
     const a = testing.allocator;
     const members = [_]u32{ 1, 2 };
@@ -163,57 +143,23 @@ test "a co-member's corner arm into a head is refused" {
     }
 }
 
-test "degenerate polyline with < 2 points is skipped" {
+test "degenerate polylines: a lone point and an all-duplicate run paint nothing; a duplicate point is skipped" {
     const a = testing.allocator;
-    var lat = try makeLattice(a, 4, 4);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{.{ .x = 1, .y = 1 }};
-    const es = [_]sketch.EdgePath{makeEdge(99, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-    for (lat.cells) |c| try testing.expect(c.occupant == .empty);
-}
-
-test "EdgeRole round-trips from EdgePath into Cell.edge_segment.role" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 10, 4);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 1, .y = 1 }, .{ .x = 7, .y = 1 } };
-    var e = makeEdge(11, &pts, .none, .none);
-    e.role = .back_edge;
-    const es = [_]sketch.EdgePath{e};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-
-    var x: u32 = 2;
-    while (x <= 6) : (x += 1) {
-        const cell = lat.atConst(x, 1);
-        try testing.expect(switch (cell.occupant) {
-            .edge_segment => |seg| seg.role == .back_edge and seg.edge == 11,
-            else => false,
-        });
-    }
-}
-
-test "zero-length intermediate point is skipped" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 10, 4);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{
-        .{ .x = 1, .y = 1 },
-        .{ .x = 1, .y = 1 },
-        .{ .x = 5, .y = 1 },
-    };
-    const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-
-    var x: u32 = 2;
-    while (x <= 4) : (x += 1) {
-        try testing.expect(switch (lat.atConst(x, 1).occupant) {
-            .edge_segment => |seg| seg.edge == 3,
-            else => false,
-        });
+    const lone = [_]sketch.Point{.{ .x = 1, .y = 1 }};
+    const dups = [_]sketch.Point{ .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 1 } };
+    const mid = [_]sketch.Point{ .{ .x = 1, .y = 1 }, .{ .x = 1, .y = 1 }, .{ .x = 5, .y = 1 } };
+    for ([_][]const sketch.Point{ &lone, &dups, &mid }) |pts| {
+        var lat = try makeLattice(a, 10, 4);
+        defer a.free(lat.cells);
+        const es = [_]sketch.EdgePath{makeEdge(3, pts, .none, .none)};
+        _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
+        var painted: u32 = 0;
+        for (lat.cells) |c| painted += @intFromBool(c.occupant != .empty);
+        try testing.expectEqual(@as(u32, if (pts.len == 3) 3 else 0), painted);
+        if (pts.len == 3) {
+            var x: u32 = 2;
+            while (x <= 4) : (x += 1) try testing.expectEqual(@as(u32, 3), lat.atConst(x, 1).occupant.edge_segment.edge);
+        }
     }
 }
 
@@ -238,17 +184,6 @@ test "edge cells colliding with node-owned cells are counted as lost" {
     try testing.expect(lat.atConst(4, 2).occupant == .node_interior);
 }
 
-test "collision-free edge reports zero cells lost" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 10, 10);
-    defer a.free(lat.cells);
-
-    const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 6, .y = 2 } };
-    const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .filled)};
-    const report = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-    try testing.expectEqual(@as(u32, 0), report.cells_lost);
-}
-
 fn stampBorder(lat: *lattice.Lattice, x: u32, y: u32, mask: lattice.Neighbours) void {
     lat.at(x, y).* = .{
         .occupant = .{ .cluster_border = .{ .cluster = 0, .role = .edge_s } },
@@ -256,30 +191,36 @@ fn stampBorder(lat: *lattice.Lattice, x: u32, y: u32, mask: lattice.Neighbours) 
     };
 }
 
-test "through-crossing bridges a subgraph frame border" {
+test "a subgraph frame border: bridge mode keeps it under a through-crossing and refuses a corner arm; cross mode welds both" {
     const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 12);
-    defer a.free(lat.cells);
-
-    stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
-    const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
-    const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-
-    const border = lat.atConst(5, 5).*;
-    try testing.expect(border.occupant == .cluster_border);
-    try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        border.neighbours.toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        lat.atConst(5, 4).neighbours.toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        lat.atConst(5, 6).neighbours.toMask(),
-    );
+    const N = lattice.Neighbours;
+    const through = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
+    const corner = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
+    const Row = struct { mode: prim.SubgraphEdges, pts: []const sketch.Point, bx: u32, border: N, welded: bool, want: N };
+    const rows = [_]Row{
+        .{ .mode = .bridge, .pts = &through, .bx = 5, .border = .{ .e = true, .w = true }, .welded = false, .want = .{ .e = true, .w = true } },
+        .{ .mode = .bridge, .pts = &corner, .bx = 6, .border = .{ .n = true, .s = true }, .welded = false, .want = .{ .n = true, .s = true } },
+        .{ .mode = .cross, .pts = &through, .bx = 5, .border = .{ .e = true, .w = true }, .welded = true, .want = .{ .n = true, .e = true, .s = true, .w = true } },
+        .{ .mode = .cross, .pts = &corner, .bx = 6, .border = .{ .n = true, .s = true }, .welded = true, .want = .{ .w = true, .s = true } },
+    };
+    for (rows) |r| {
+        var lat = try makeLattice(a, 12, 12);
+        defer a.free(lat.cells);
+        stampBorder(&lat, r.bx, 5, r.border);
+        const es = [_]sketch.EdgePath{makeEdge(1, r.pts, .none, .none)};
+        _ = edges.rasterizeEdges(&lat, makeSketch(&es), r.mode);
+        const cell = lat.atConst(r.bx, 5).*;
+        if (r.welded) {
+            try testing.expectEqual(@as(u32, 1), cell.occupant.edge_segment.edge);
+        } else {
+            try testing.expect(cell.occupant == .cluster_border);
+        }
+        try testing.expectEqual(r.want.toMask(), cell.neighbours.toMask());
+        if (r.mode == .bridge and r.bx == 5) {
+            try testing.expectEqual((N{ .n = true, .s = true }).toMask(), lat.atConst(5, 4).neighbours.toMask());
+            try testing.expectEqual((N{ .n = true, .s = true }).toMask(), lat.atConst(5, 6).neighbours.toMask());
+        }
+    }
 }
 
 test "terminal segment cell on a frame border keeps today's merge" {
@@ -318,66 +259,6 @@ test "an arrowhead terminating on a frame border is stamped (arrival AT the clus
         .arrowhead => |ah| ah.dir == .south and ah.edge == 9,
         else => false,
     });
-}
-
-test "corner arm onto a subgraph frame border is refused" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 12);
-    defer a.free(lat.cells);
-
-    stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
-    const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
-    const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .bridge);
-
-    const border = lat.atConst(6, 5).*;
-    try testing.expect(border.occupant == .cluster_border);
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        border.neighbours.toMask(),
-    );
-}
-
-test "cross mode: through-crossing welds the frame border (pre-slice-1)" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 12);
-    defer a.free(lat.cells);
-
-    stampBorder(&lat, 5, 5, .{ .e = true, .w = true });
-    const pts = [_]sketch.Point{ .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 8 } };
-    const es = [_]sketch.EdgePath{makeEdge(1, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .cross);
-
-    const border = lat.atConst(5, 5).*;
-    try testing.expect(switch (border.occupant) {
-        .edge_segment => |seg| seg.edge == 1,
-        else => false,
-    });
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .e = true, .s = true, .w = true }).toMask(),
-        border.neighbours.toMask(),
-    );
-}
-
-test "cross mode: corner arm onto a subgraph frame border welds a tee (pre-slice-1)" {
-    const a = testing.allocator;
-    var lat = try makeLattice(a, 12, 12);
-    defer a.free(lat.cells);
-
-    stampBorder(&lat, 6, 5, .{ .n = true, .s = true });
-    const pts = [_]sketch.Point{ .{ .x = 2, .y = 5 }, .{ .x = 6, .y = 5 }, .{ .x = 6, .y = 9 } };
-    const es = [_]sketch.EdgePath{makeEdge(3, &pts, .none, .none)};
-    _ = edges.rasterizeEdges(&lat, makeSketch(&es), .cross);
-
-    const border = lat.atConst(6, 5).*;
-    try testing.expect(switch (border.occupant) {
-        .edge_segment => |seg| seg.edge == 3,
-        else => false,
-    });
-    try testing.expectEqual(
-        (lattice.Neighbours{ .w = true, .s = true }).toMask(),
-        border.neighbours.toMask(),
-    );
 }
 
 test "a member stroke paints neither port nor head at its rail end and both at a private end" {

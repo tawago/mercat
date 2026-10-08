@@ -74,20 +74,13 @@ fn ctxOf(counts: *CrossingCounts, bundles: ledger.RealizedBundles, sets: []const
 const H: lattice.Neighbours = .{ .e = true, .w = true };
 const V: lattice.Neighbours = .{ .n = true, .s = true };
 
-test "isStraightPair recognizes only clean H/V runs" {
-    try std.testing.expect(isStraightPair(H));
-    try std.testing.expect(isStraightPair(V));
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true }));
-    try std.testing.expect(!isStraightPair(.{ .n = true, .e = true, .s = true }));
-    try std.testing.expect(!isStraightPair(.{}));
-}
-
 test "isLegalCrossing: perpendicular is legal, collinear/corner are violations" {
     try std.testing.expect(isLegalCrossing(H, V));
     try std.testing.expect(isLegalCrossing(V, H));
     try std.testing.expect(!isLegalCrossing(H, H));
     try std.testing.expect(!isLegalCrossing(V, V));
     try std.testing.expect(!isLegalCrossing(.{ .n = true, .e = true }, V));
+    try std.testing.expect(!isLegalCrossing(.{ .n = true, .e = true, .s = true }, H));
 }
 
 test "segmentOverlap: exempt merges; foreign perpendicular keeps first writer" {

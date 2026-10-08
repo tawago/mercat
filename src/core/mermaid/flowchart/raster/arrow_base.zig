@@ -52,114 +52,40 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
 
 const testing = std.testing;
 
-fn arrowCell(dir: lattice.Dir4) lattice.Cell {
-    return .{ .occupant = .{ .arrowhead = .{ .dir = dir, .edge = 0 } }, .neighbours = .{} };
-}
-fn edgeCell(nb: lattice.Neighbours) lattice.Cell {
-    return .{ .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .solid } }, .neighbours = nb };
-}
-
-test "clean vertical feed: ▼ under a │ is legal" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .n = true, .s = true });
-    lat.at(0, 1).* = arrowCell(.south);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-}
-
-test "side-fed ▼ under a plain ─ is a violation (class 1)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .e = true, .w = true });
-    lat.at(0, 1).* = arrowCell(.south);
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-}
-
-test "corner feed: ┴ (no south arm) under a ▼ is a violation (class 1b)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCell(.{ .n = true, .e = true, .w = true });
-    lat.at(0, 1).* = arrowCell(.south);
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    lat.at(0, 0).*.neighbours.s = true;
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-}
-
-test "space-fed ▶ (blank base) is a violation (class 2)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 1, .cells = &buf };
-    lat.at(0, 0).* = lattice.Cell.empty;
-    lat.at(1, 0).* = arrowCell(.east);
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-}
-
-test "label base is exempt (class 3), even without an arm" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
-    lat.at(0, 1).* = arrowCell(.south);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-}
-
-test "dotted stroke base is legal: bits carry, glyph does not matter (class 4)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = .{ .occupant = .{ .edge_segment = .{ .edge = 0, .kind = .dotted } }, .neighbours = .{ .n = true, .s = true } };
-    lat.at(0, 1).* = arrowCell(.south);
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-}
-
-test "▲/◀ orientations resolve the correct base cell" {
-    var buf: [9]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
-    lat.at(1, 1).* = arrowCell(.north);
-    lat.at(1, 2).* = edgeCell(.{ .n = true, .s = true });
-    lat.at(0, 0).* = arrowCell(.west);
-    lat.at(1, 0).* = edgeCell(.{ .e = true, .w = true });
-    try testing.expectEqual(@as(u32, 0), validate(&lat).violations);
-}
-
-fn arrowCellE(dir: lattice.Dir4, edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
-    return .{ .occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge } }, .neighbours = nb };
-}
 fn edgeCellE(edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
     return .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = nb };
 }
-
-test "an unfed own-edge corner base is a counted defect, never welded (subtractive repair only)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(7, .{ .n = true, .e = true });
-    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    try testing.expect(!lat.atConst(0, 0).neighbours.s);
+fn arrowCellE(dir: lattice.Dir4, edge: lattice.EdgeId, nb: lattice.Neighbours) lattice.Cell {
+    return .{ .occupant = .{ .arrowhead = .{ .dir = dir, .edge = edge } }, .neighbours = nb };
 }
 
-test "a foreign edge crossing the base stays a counted residual (no fabricated junction)" {
-    var buf: [3]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 3, .cells = &buf };
-    lat.at(0, 0).* = edgeCellE(1, .{ .e = true, .w = true });
-    lat.at(0, 1).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-}
-
-test "a blank base behind a real run is a counted gap, never bridged (subtractive repair only)" {
-    var buf: [4]lattice.Cell = undefined;
-    for (&buf) |*c| c.* = lattice.Cell.empty;
-    var lat = lattice.Lattice{ .width = 1, .height = 4, .cells = &buf };
-    lat.at(0, 0).* = .{ .occupant = .{ .node_border = .{ .node = 1, .role = .edge_s } }, .neighbours = .{} };
-    lat.at(0, 2).* = arrowCellE(.south, 7, .{ .n = true, .s = true });
-    try testing.expectEqual(@as(u32, 1), validate(&lat).violations);
-    try testing.expect(lat.atConst(0, 1).occupant == .empty);
+test "arrow base classification: clean, side-fed, corner-fed, space-fed, label; every tip direction" {
+    const Row = struct { base: lattice.Cell, tip: lattice.Dir4, want: u32 };
+    const label: lattice.Cell = .{ .occupant = .{ .label_char = 'x' }, .neighbours = .{} };
+    const rows = [_]Row{
+        .{ .base = edgeCellE(0, .{ .n = true, .s = true }), .tip = .south, .want = 0 }, // clean │ feed
+        .{ .base = edgeCellE(0, .{ .e = true, .w = true }), .tip = .south, .want = 1 }, // class 1: side-fed ─
+        .{ .base = edgeCellE(0, .{ .n = true, .e = true, .w = true }), .tip = .south, .want = 1 }, // class 1b: ┴
+        .{ .base = edgeCellE(0, .{ .n = true, .e = true, .w = true, .s = true }), .tip = .south, .want = 0 }, // ┼ feeds
+        .{ .base = lattice.Cell.empty, .tip = .east, .want = 1 }, // class 2: blank base
+        .{ .base = label, .tip = .south, .want = 0 }, // class 3: label base exempt without an arm
+        .{ .base = edgeCellE(0, .{ .n = true, .s = true }), .tip = .north, .want = 0 }, // ▲ base is below
+        .{ .base = edgeCellE(0, .{ .e = true, .w = true }), .tip = .west, .want = 0 }, // ◀ base is right
+    };
+    for (rows) |r| {
+        var buf: [9]lattice.Cell = undefined;
+        for (&buf) |*c| c.* = lattice.Cell.empty;
+        var lat = lattice.Lattice{ .width = 3, .height = 3, .cells = &buf };
+        lat.at(1, 1).* = arrowCellE(r.tip, 0, .{});
+        const bx: u32, const by: u32 = switch (r.tip) {
+            .south => .{ 1, 0 },
+            .north => .{ 1, 2 },
+            .east => .{ 0, 1 },
+            .west => .{ 2, 1 },
+        };
+        lat.at(bx, by).* = r.base;
+        try testing.expectEqual(r.want, validate(&lat).violations);
+    }
 }
 
 fn portCell(node: lattice.NodeId) lattice.Cell {

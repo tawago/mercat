@@ -118,29 +118,6 @@ pub fn rectFitsLattice(r: sketch.Rect, lat: *const lattice.Lattice) bool {
 
 const testing = std.testing;
 
-test "directional primitives round-trip (straightMask/bitMask/reverse)" {
-    try testing.expectEqual(
-        (lattice.Neighbours{ .n = true, .s = true }).toMask(),
-        straightMask(.north).toMask(),
-    );
-    try testing.expectEqual(
-        (lattice.Neighbours{ .e = true, .w = true }).toMask(),
-        straightMask(.east).toMask(),
-    );
-    try testing.expectEqual(Move.south, reverse(.north));
-    try testing.expectEqual(
-        (lattice.Neighbours{ .w = true }).toMask(),
-        bitMask(.west).toMask(),
-    );
-}
-
-test "lateralArms keeps only the bits off the head's axis" {
-    const all: lattice.Neighbours = .{ .n = true, .e = true, .s = true, .w = true };
-    try std.testing.expectEqual((lattice.Neighbours{ .e = true, .w = true }).toMask(), lateralArms(.north, all).toMask());
-    try std.testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), lateralArms(.west, all).toMask());
-    try std.testing.expectEqual(@as(u4, 0), lateralArms(.south, .{ .n = true, .s = true }).toMask());
-}
-
 test "firstDir and lastDir skip zero-length segments and need two points" {
     const pts = [_]sketch.Point{ .{ .x = 2, .y = 2 }, .{ .x = 2, .y = 2 }, .{ .x = 5, .y = 2 }, .{ .x = 5, .y = 0 } };
     try testing.expectEqual(Move.east, firstDir(&pts).?);

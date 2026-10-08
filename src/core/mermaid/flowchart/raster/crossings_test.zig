@@ -73,6 +73,13 @@ test "V-D-CROSS-01: two independent perpendicular edges cross as a transversal" 
 
     try testing.expectEqual(mask_ns, lat.atConst(5, 4).neighbours.toMask());
     try testing.expectEqual(mask_ns, lat.atConst(5, 6).neighbours.toMask());
+
+    // First writer wins: with the vertical written first, the crossing reads │.
+    var lat_v = try makeLattice(a, 11, 11);
+    defer a.free(lat_v.cells);
+    const es_v = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
+    _ = edges.rasterizeEdges(&lat_v, sketchWith(&es_v, independentPlan(&mems)), .bridge);
+    try testing.expectEqual(mask_ns, lat_v.atConst(5, 5).neighbours.toMask());
 }
 
 test "V-D-CROSS-01 companion: same-group perpendicular crossing keeps the ┼ (no event)" {
@@ -134,30 +141,4 @@ test "transversal-violation shape: a foreign collinear/corner overlap keeps firs
         else => return error.NotEdgeSegment,
     }
     try testing.expect(r.crossings.foreign_junction_violation >= 1);
-}
-
-test "determinism: crossing outcome is deterministic under edge-array permutation (first-writer)" {
-    const a = testing.allocator;
-
-    const h = [_]sketch.Point{ .{ .x = 0, .y = 5 }, .{ .x = 10, .y = 5 } };
-    const v = [_]sketch.Point{ .{ .x = 5, .y = 0 }, .{ .x = 5, .y = 10 } };
-    var mems = [_]ledger.RealizedEdgeMembership{
-        .{ .edge = 0, .source = null, .target = null },
-        .{ .edge = 1, .source = null, .target = null },
-    };
-
-    {
-        var lat = try makeLattice(a, 11, 11);
-        defer a.free(lat.cells);
-        const es = [_]sketch.EdgePath{ edge(0, &h, .none), edge(1, &v, .none) };
-        _ = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
-        try testing.expectEqual(mask_hw, lat.atConst(5, 5).neighbours.toMask());
-    }
-    {
-        var lat = try makeLattice(a, 11, 11);
-        defer a.free(lat.cells);
-        const es = [_]sketch.EdgePath{ edge(1, &v, .none), edge(0, &h, .none) };
-        _ = edges.rasterizeEdges(&lat, sketchWith(&es, independentPlan(&mems)), .bridge);
-        try testing.expectEqual(mask_ns, lat.atConst(5, 5).neighbours.toMask());
-    }
 }
