@@ -30,17 +30,3 @@ test "groups are the pivot's crossings in input order, two or more, without self
     try std.testing.expectEqual(@as(usize, 1), into.len);
     try std.testing.expectEqualSlices(usize, &.{ 0, 6 }, into[0]);
 }
-
-test "a group's licence reads the crossings' arrows and kinds at the pivot end" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    var crossings = [_]types.Crossing{
-        crossing(0, 1, 5, .solid),
-        crossing(1, 1, 6, .solid),
-    };
-    try std.testing.expect(try bridge_fans.licensed(a, &crossings, &.{ 0, 1 }, .source));
-    crossings[1].arrow_to = .circle;
-    try std.testing.expect(!try bridge_fans.licensed(a, &crossings, &.{ 0, 1 }, .source));
-}

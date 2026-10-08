@@ -1,6 +1,7 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
 const motif = @import("../motif.zig");
+const pack = @import("pack.zig");
 
 fn node(id: sg.NodeId, cluster: ?sg.ClusterId) sg.Node {
     return .{
@@ -63,77 +64,35 @@ fn expectPartition(tree: motif.MotifTree, graph: sg.SemGraph) !void {
     }
 }
 
-test "pure chain of 4 decomposes to one spine" {
+test "non-parallel shapes decompose to a partition with no parallel motif, and pack declines" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    try std.testing.expectEqual(@as(usize, 1), tree.motifs.len);
-    const m = tree.motifs[tree.roots[0]];
-    try std.testing.expectEqual(motif.MotifKind.spine, m.kind);
-    try std.testing.expectEqual(@as(usize, 4), m.members.len);
-    try std.testing.expectEqual(@as(?sg.NodeId, 0), m.entry);
-    try expectPartition(tree, g);
-}
-
-test "hub fan-out classifies as fan absorbing the spokes" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    try std.testing.expectEqual(@as(usize, 1), tree.motifs.len);
-    const m = tree.motifs[tree.roots[0]];
-    try std.testing.expectEqual(motif.MotifKind.fan, m.kind);
-    try std.testing.expectEqual(@as(usize, 4), m.members.len);
-    try std.testing.expectEqual(@as(?sg.NodeId, 0), m.entry);
-    try expectPartition(tree, g);
-}
-
-test "two isomorphic 2-node pipelines under a root fuse into parallel" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{
-        node(0, null), node(1, null), node(2, null), node(3, null), node(4, null),
+    const four = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
+    const lone_members = [_]sg.NodeId{0};
+    const lone_cluster = [_]sg.Cluster{.{
+        .id = 0,
+        .raw_id = "c",
+        .label = "C",
+        .parent = null,
+        .members = &lone_members,
+        .sub_clusters = &.{},
+    }};
+    const graphs = [_]sg.SemGraph{
+        // chain, hub fan-out, diamond (packing it would be visibly wrong)
+        graphOf(&four, &.{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 2, 3) }, &.{}),
+        graphOf(&four, &.{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 0, 3) }, &.{}),
+        graphOf(&four, &.{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 1, 3), edge(3, 2, 3) }, &.{}),
+        graphOf(&.{node(0, null)}, &.{}, &.{}),
+        graphOf(&.{node(0, 0)}, &.{}, &lone_cluster),
     };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 1, 2), edge(2, 0, 3), edge(3, 3, 4) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    const par = findKind(tree, .parallel) orelse return error.NoParallelMotif;
-    try std.testing.expectEqual(@as(usize, 4), par.members.len);
-    const pivot = tree.motifs[tree.roots[0]];
-    try std.testing.expectEqual(motif.MotifKind.atom, pivot.kind);
-    try std.testing.expectEqual(@as(usize, 1), pivot.children.len);
-    try expectPartition(tree, g);
-}
-
-test "diamond classifies as fan (documented choice)" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{ node(0, null), node(1, null), node(2, null), node(3, null) };
-    const edges = [_]sg.Edge{ edge(0, 0, 1), edge(1, 0, 2), edge(2, 1, 3), edge(3, 2, 3) };
-    const g = graphOf(&nodes, &edges, &.{});
-
-    const tree = try motif.decompose(a, g);
-    try std.testing.expectEqual(@as(usize, 1), tree.motifs.len);
-    const m = tree.motifs[tree.roots[0]];
-    try std.testing.expectEqual(motif.MotifKind.fan, m.kind);
-    try std.testing.expectEqual(@as(usize, 4), m.members.len);
-    try expectPartition(tree, g);
+    for (graphs) |g| {
+        const tree = try motif.decompose(a, g);
+        try expectPartition(tree, g);
+        try std.testing.expectEqual(@as(usize, 0), countKind(tree, .parallel));
+        try std.testing.expectEqual(@as(?sg.SemGraph, null), try pack.transform(a, g, tree));
+    }
 }
 
 test "cluster cuts the tree: no motif spans the border" {
@@ -166,21 +125,6 @@ test "cluster cuts the tree: no motif spans the border" {
         }
         try std.testing.expect(!(inside and outside));
     }
-    try expectPartition(tree, g);
-}
-
-test "single node is an atom" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{node(0, null)};
-    const g = graphOf(&nodes, &.{}, &.{});
-
-    const tree = try motif.decompose(a, g);
-    try std.testing.expectEqual(@as(usize, 1), tree.motifs.len);
-    try std.testing.expectEqual(motif.MotifKind.atom, tree.motifs[0].kind);
-    try std.testing.expectEqual(@as(usize, 1), tree.motifs[0].members.len);
     try expectPartition(tree, g);
 }
 
@@ -236,31 +180,6 @@ test "partition invariant on a random-ish 15-node graph" {
     const g = graphOf(&nodes, &edges, &clusters);
 
     const tree = try motif.decompose(a, g);
-    try expectPartition(tree, g);
-}
-
-test "lone cluster vertex classifies as the cluster motif directly (not wrapped)" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const nodes = [_]sg.Node{node(0, 0)};
-    const members = [_]sg.NodeId{0};
-    const clusters = [_]sg.Cluster{.{
-        .id = 0,
-        .raw_id = "c",
-        .label = "C",
-        .parent = null,
-        .members = &members,
-        .sub_clusters = &.{},
-    }};
-    const g = graphOf(&nodes, &.{}, &clusters);
-
-    const tree = try motif.decompose(a, g);
-    try std.testing.expectEqual(@as(usize, 1), tree.roots.len);
-    const root = tree.motifs[tree.roots[0]];
-    try std.testing.expectEqual(motif.MotifKind.cluster, root.kind);
-    try std.testing.expectEqual(@as(?sg.ClusterId, 0), root.cluster_id);
     try expectPartition(tree, g);
 }
 

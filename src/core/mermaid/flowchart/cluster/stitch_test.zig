@@ -5,22 +5,17 @@ const bundle_mod = @import("../base/bundle.zig");
 const stitch = @import("stitch.zig");
 const stitch_sharing = @import("stitch_sharing.zig");
 
-test "superSize wraps child bbox with frame padding (scale 0 = full inset)" {
-    const sz = stitch.superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, false);
-    try std.testing.expectEqual(@as(u32, 28), sz.w);
-    try std.testing.expectEqual(@as(u32, 12), sz.h);
-}
-
-test "superSize shrinks x inset under pressure (scale > 0), y unchanged" {
-    const sz = stitch.superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 1, false);
-    try std.testing.expectEqual(@as(u32, 24), sz.w);
-    try std.testing.expectEqual(@as(u32, 12), sz.h);
-}
-
-test "superSize for a synthetic packing cluster is exactly the child bbox" {
-    const sz = stitch.superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, 0, true);
-    try std.testing.expectEqual(@as(u32, 20), sz.w);
-    try std.testing.expectEqual(@as(u32, 8), sz.h);
+test "superSize wraps the child bbox in frame padding, shrinks x inset under pressure, and adds none for a synthetic cluster" {
+    const rows = [_]struct { scale: u32, synthetic: bool, w: u32, h: u32 }{
+        .{ .scale = 0, .synthetic = false, .w = 28, .h = 12 },
+        .{ .scale = 1, .synthetic = false, .w = 24, .h = 12 },
+        .{ .scale = 0, .synthetic = true, .w = 20, .h = 8 },
+    };
+    for (rows) |row| {
+        const sz = stitch.superSize(.{ .x = 0, .y = 0, .w = 20, .h = 8 }, row.scale, row.synthetic);
+        try std.testing.expectEqual(row.w, sz.w);
+        try std.testing.expectEqual(row.h, sz.h);
+    }
 }
 
 test "shiftSet carries a port-share set's cell scope and pairwise table across the id shift" {

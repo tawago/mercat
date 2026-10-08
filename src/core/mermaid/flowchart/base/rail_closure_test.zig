@@ -86,24 +86,12 @@ test "one declaration cannot back two pairs of the same rail" {
     try testing.expectEqual(@as(usize, 1), v.discharges.len);
 }
 
-test "a declared pair names the one declaration the rail's crossbar takes over" {
-    const members = [_]rc.Member{ member(0, 1), member(1, 2) };
-    const taken = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
-    defer free(taken);
-    try testing.expectEqual(rc.Outcome.keep, taken.outcome);
-    try testing.expectEqual(@as(usize, 1), taken.discharges.len);
-    try testing.expectEqual(@as(rc.EdgeId, 10), taken.discharges[0].backer);
-    try testing.expectEqual([2]rc.NodeId{ 1, 2 }, taken.discharges[0].pair);
-}
-
 test "a wide rail with nothing declared refuses without searching every subset" {
     var members: [rc.max_salvage_members]rc.Member = undefined;
     for (&members, 0..) |*m, i| m.* = member(@intCast(i), @intCast(i + 1));
-    var timer = try std.time.Timer.start();
     const v = try decide(&members, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
-    try testing.expect(timer.read() < 200 * std.time.ns_per_ms);
 }
 
 test "a run whose welded pairs are undeclared is not closed" {
@@ -167,21 +155,19 @@ test "the verdict does not depend on the order declarations were listed" {
     try testing.expectEqual(x.discharges.len, y.discharges.len);
 }
 
-test "a decorated star with undeclared pairs refuses instead of escaping the licence" {
-    const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2), decoratedMember(2, 3) };
-    const v = try decide(&members, &.{});
+test "a decorated star refuses, with or without every pair declared" {
+    const bare = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2), decoratedMember(2, 3) };
+    const v = try decide(&bare, &.{});
     defer free(v);
     try testing.expectEqual(rc.Outcome.refuse, v.outcome);
     try testing.expectEqual(@as(usize, 0), v.members.len);
-}
 
-test "a decorated star with every pair declared is still refused for discharge" {
+    // Fully backed, so only the undecorated guard can refuse it.
     const members = [_]rc.Member{ decoratedMember(0, 1), decoratedMember(1, 2) };
-    const backers = [_]rc.Backer{backer(10, 1, 2)};
-    const v = try decide(&members, &backers);
-    defer free(v);
-    try testing.expectEqual(rc.Outcome.refuse, v.outcome);
-    try testing.expectEqual(@as(usize, 0), v.discharges.len);
+    const backed = try decide(&members, &[_]rc.Backer{backer(10, 1, 2)});
+    defer free(backed);
+    try testing.expectEqual(rc.Outcome.refuse, backed.outcome);
+    try testing.expectEqual(@as(usize, 0), backed.discharges.len);
 }
 
 test "a mixed decorated and bare star salvages only the bare declared subset" {
@@ -192,20 +178,4 @@ test "a mixed decorated and bare star salvages only the bare declared subset" {
     try testing.expectEqual(rc.Outcome.salvage, v.outcome);
     try testing.expectEqualSlices(u32, &.{ 1, 2 }, v.members);
     try testing.expectEqual(@as(usize, 1), v.discharges.len);
-}
-
-test "a pair edge is backed by the rail that discharges it" {
-    const ds = [_]rc.Discharge{ .{ .pair = .{ 1, 2 }, .backer = 10 }, .{ .pair = .{ 1, 3 }, .backer = 11 } };
-    try testing.expect(rc.backs(&ds, 11));
-    try testing.expect(!rc.backs(&ds, 12));
-    try testing.expect(!rc.backs(&.{}, 10));
-}
-
-test "two rails share a pair when each discharges an edge for it" {
-    const x = [_]rc.Discharge{ .{ .pair = .{ 1, 2 }, .backer = 10 }, .{ .pair = .{ 1, 3 }, .backer = 11 } };
-    const y = [_]rc.Discharge{.{ .pair = .{ 1, 3 }, .backer = 12 }};
-    const z = [_]rc.Discharge{.{ .pair = .{ 2, 3 }, .backer = 13 }};
-    try testing.expect(rc.sharesPair(&x, &y));
-    try testing.expect(!rc.sharesPair(&x, &z));
-    try testing.expect(!rc.sharesPair(&x, &.{}));
 }

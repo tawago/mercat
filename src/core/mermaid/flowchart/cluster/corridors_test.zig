@@ -75,44 +75,6 @@ test "a corridor with no legal column in its own face keeps its column" {
     try testing.expectEqual(@as(i32, 6), got[1]);
 }
 
-test "portOffset inverts the centred sideOffset on both face orientations" {
-    const r: sketch.Rect = .{ .x = 5, .y = 3, .w = 6, .h = 4 };
-    try testing.expectEqual(@as(u32, 2), corridors.portOffset(r, .north, 7));
-    try testing.expectEqual(@as(u32, 2), corridors.portOffset(r, .west, 5));
-    const c = corridors.sideOffset(r, .north);
-    try testing.expectEqual(c, corridors.portOffset(r, .north, r.x + @as(i32, @intCast(c))));
-}
-
-test "two bridges entering one frame at one column: the later port slides along its face" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const frames = [_]sketch.ClusterFrame{
-        .{ .id = 1, .rect = .{ .x = 0, .y = 10, .w = 14, .h = 12 }, .parent_id = null, .label = "S", .depth = 0 },
-    };
-    const t1: sketch.Rect = .{ .x = 4, .y = 12, .w = 6, .h = 3 };
-    const t2: sketch.Rect = .{ .x = 4, .y = 17, .w = 6, .h = 3 };
-    const src: sketch.Rect = .{ .x = 4, .y = 0, .w = 6, .h = 3 };
-    const pairs = [_]corridors.Pair{
-        .{
-            .from = .{ .node = 0, .rect = src, .side = .south, .frame = null },
-            .to = .{ .node = 1, .rect = t1, .side = .north, .frame = 1 },
-        },
-        .{
-            .from = .{ .node = 0, .rect = src, .side = .south, .frame = null },
-            .to = .{ .node = 2, .rect = t2, .side = .north, .frame = 1 },
-        },
-    };
-    const got = try corridors.discipline(a, &pairs, &frames, &.{});
-    try testing.expectEqual(@as(i32, 7), got[0].to_coord);
-    try testing.expectEqual(@as(u32, 3), got[0].to_off);
-    try testing.expect(got[1].to_coord != got[0].to_coord);
-    try testing.expectEqual(@as(i32, 8), got[1].to_coord);
-    try testing.expectEqual(@as(u32, 4), got[1].to_off);
-    try testing.expectEqual(@as(u32, 3), got[0].from_off);
-    try testing.expectEqual(@as(u32, 3), got[1].from_off);
-}
-
 fn place(id: sketch.NodeId, rect: sketch.Rect, cluster: ?sketch.ClusterId) sketch.NodePlacement {
     return .{ .id = id, .rect = rect, .shape = .rect, .lines = &.{}, .cluster_id = cluster };
 }
@@ -147,7 +109,12 @@ test "a slide that would drive the approach run through a node box is refused" {
 
     const open = [_]sketch.NodePlacement{ place(0, src, null), place(2, t2, 1) };
     const got2 = try corridors.discipline(a, &pairs, &frames, &open);
+    try testing.expectEqual(@as(i32, 7), got2[0].to_coord);
+    try testing.expectEqual(@as(u32, 3), got2[0].to_off);
     try testing.expectEqual(@as(i32, 8), got2[1].to_coord);
+    try testing.expectEqual(@as(u32, 4), got2[1].to_off);
+    try testing.expectEqual(@as(u32, 3), got2[0].from_off);
+    try testing.expectEqual(@as(u32, 3), got2[1].from_off);
 }
 
 test "the node-clearance run is read along the face's own axis" {
@@ -177,6 +144,8 @@ test "the node-clearance run is read along the face's own axis" {
     const blocked = [_]sketch.NodePlacement{ place(0, src, null), place(1, n1, 1), place(2, n2, 1) };
     const got2 = try corridors.discipline(a, &pairs, &frames, &blocked);
     try testing.expectEqual(got2[0].to_coord, got2[1].to_coord);
+    // A west face measures its port offset down from the box top.
+    try testing.expectEqual(@as(u32, @intCast(got2[0].to_coord - n1.y)), got2[0].to_off);
 }
 
 test "both endpoints inside one drawn frame cross no border and never slide" {

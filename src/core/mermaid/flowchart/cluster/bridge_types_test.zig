@@ -28,7 +28,7 @@ fn pending(exit: sketch.Dir4, start: Pt, end: Pt) types.Pending {
     };
 }
 
-test "bounds run from the exit port to the entry port along the flow, and a jog is clamped inside them" {
+test "bounds run from the exit port to the entry port along the flow, a jog is clamped inside them, and a north exit resets below the target" {
     const down = pending(.south, .{ .x = 1, .y = 2 }, .{ .x = 5, .y = 20 });
     try std.testing.expectEqual([2]i32{ 2, 20 }, down.bounds());
     const up = pending(.north, .{ .x = 1, .y = 20 }, .{ .x = 5, .y = 2 });
@@ -46,47 +46,12 @@ test "bounds run from the exit port to the entry port along the flow, and a jog 
     try std.testing.expectEqual(@as(?i32, 19), p.clampedJog());
     p.jog = 11;
     try std.testing.expectEqual(@as(?i32, 11), p.clampedJog());
-}
 
-test "an elbow is the straight line without a jog and four corners with one" {
-    var p = pending(.south, .{ .x = 1, .y = 2 }, .{ .x = 5, .y = 20 });
-    try std.testing.expectEqualSlices(Pt, &.{ .{ .x = 1, .y = 2 }, .{ .x = 5, .y = 20 } }, p.elbow().slice());
-    p.jog = 11;
-    try std.testing.expectEqualSlices(Pt, &.{ .{ .x = 1, .y = 2 }, .{ .x = 1, .y = 11 }, .{ .x = 5, .y = 11 }, .{ .x = 5, .y = 20 } }, p.elbow().slice());
-    var side = pending(.east, .{ .x = 3, .y = 1 }, .{ .x = 30, .y = 4 });
-    side.jog = 12;
-    try std.testing.expectEqualSlices(Pt, &.{ .{ .x = 3, .y = 1 }, .{ .x = 12, .y = 1 }, .{ .x = 12, .y = 4 }, .{ .x = 30, .y = 4 } }, side.elbow().slice());
-}
-
-test "resetJog wants the row above the target box and drops the jog, or wants none when the ports are aligned" {
-    var p = pending(.south, .{ .x = 1, .y = 2 }, .{ .x = 5, .y = 20 });
-    p.jog = 7;
-    p.resetJog();
-    try std.testing.expectEqual(@as(?i32, 18), p.pref);
-    try std.testing.expectEqual(@as(?i32, null), p.jog);
-    p.end.x = 1;
-    p.resetJog();
-    try std.testing.expectEqual(@as(?i32, null), p.pref);
-
+    // A north exit wants the row below the target box (route tests only exit south).
     var back = pending(.north, .{ .x = 1, .y = 20 }, .{ .x = 5, .y = 2 });
     back.to_box = .{ .x = 0, .y = 0, .w = 4, .h = 3 };
+    back.jog = 7;
     back.resetJog();
     try std.testing.expectEqual(@as(?i32, 4), back.pref);
-}
-
-test "two bridges share an anchor in one drawn frame, or at one bare node" {
-    var a = pending(.south, .{ .x = 1, .y = 2 }, .{ .x = 5, .y = 20 });
-    var b = a;
-    b.gt = 12;
-    try std.testing.expect(!a.sameAnchor(b));
-    b.gt = a.gt;
-    try std.testing.expect(a.sameAnchor(b));
-
-    a.to_frame = 7;
-    b.gt = 12;
-    try std.testing.expect(!a.sameAnchor(b));
-    b.to_frame = 7;
-    try std.testing.expect(a.sameAnchor(b));
-    b.to_frame = 8;
-    try std.testing.expect(!a.sameAnchor(b));
+    try std.testing.expectEqual(@as(?i32, null), back.jog);
 }

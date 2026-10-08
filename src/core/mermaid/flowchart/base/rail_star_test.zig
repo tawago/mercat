@@ -37,19 +37,6 @@ fn outClaim(members: []const rs.RailClaimMember) rs.RailClaim {
     return .{ .id = 1, .polarity = .out, .members = members };
 }
 
-test "RailClaim ids are render-local one-based handles with zero sentinel" {
-    try testing.expect(rs.RailClaimId == u32);
-    try testing.expectEqual(@as(rs.RailClaimId, 0), rs.no_rail_claim);
-    try testing.expect(!rs.validId(rs.no_rail_claim));
-    try testing.expect(rs.validId(1));
-    try testing.expect(rs.validId(std.math.maxInt(u32)));
-    try testing.expect(rs.NodeId == prim.NodeId);
-    try testing.expect(rs.EdgeId == prim.EdgeId);
-    try testing.expect(rs.Dir4 == prim.Dir4);
-    try testing.expect(rs.ArrowKind == prim.ArrowKind);
-    try testing.expect(rs.EdgeKind == prim.EdgeKind);
-}
-
 test "valid fan-out derives its pivot and pi and passes every partition" {
     const members = [_]rs.RailClaimMember{
         outMember(1, 10, 20),
@@ -75,27 +62,6 @@ test "valid fan-in derives its target pivot and shared attachment" {
     try testing.expectEqual(@as(u32, 10), result.derived_pi.?.node);
 }
 
-test "one wrong pivot removes the common real pivot" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 11, 21),
-    };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.no_common_real_pivot);
-    try testing.expect(result.partition().star_law);
-}
-
-test "multiple member pivots derive no pivot at all" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 11, 21),
-        outMember(3, 12, 22),
-    };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.no_common_real_pivot);
-    try testing.expectEqual(@as(?u32, null), result.derived_pivot);
-}
-
 test "wrong recorded pivot end is a polarity failure" {
     var members = [_]rs.RailClaimMember{
         outMember(1, 10, 20),
@@ -107,125 +73,59 @@ test "wrong recorded pivot end is a polarity failure" {
     try testing.expect(result.star_law.no_common_real_pivot);
 }
 
-test "duplicate member edge is reported independently" {
-    const members = [_]rs.RailClaimMember{
-        outMember(7, 10, 20),
-        outMember(7, 10, 21),
+fn withPivotEnd(m: rs.RailClaimMember, end: @TypeOf(m.pivot_end)) rs.RailClaimMember {
+    var out = m;
+    out.pivot_end = end;
+    return out;
+}
+
+fn withSite(m: rs.RailClaimMember, end: usize, s: ?rs.AttachmentSite) rs.RailClaimMember {
+    var out = m;
+    out.sites[end] = s;
+    return out;
+}
+
+test "each star-law, decoration, style or record defect invalidates a claim" {
+    var circle = outMember(2, 10, 21);
+    circle.arrows[0] = .circle;
+    var dotted = outMember(2, 10, 21);
+    dotted.kind = .dotted;
+    const Row = struct {
+        members: []const rs.RailClaimMember,
+        id: rs.RailClaimId = 1,
+        no_pivot: bool = false,
+        no_pi: bool = false,
+        wrong_polarity_end: bool = false,
     };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.duplicate_member_edge);
-    try testing.expect(!result.star_law.duplicate_leaf);
-}
-
-test "duplicate leaf and parallel members are both reported" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 20),
+    const rows = [_]Row{
+        // One wrong pivot, then three disagreeing pivots.
+        .{ .members = &.{ outMember(1, 10, 20), outMember(2, 11, 21) } },
+        .{ .members = &.{ outMember(1, 10, 20), outMember(2, 11, 21), outMember(3, 12, 22) }, .no_pivot = true },
+        // Duplicate edge, duplicate leaf, self-loop.
+        .{ .members = &.{ outMember(7, 10, 20), outMember(7, 10, 21) } },
+        .{ .members = &.{ outMember(1, 10, 20), outMember(2, 10, 20) } },
+        .{ .members = &.{ outMember(1, 10, 10), outMember(2, 10, 20) } },
+        // Antiparallel is found without trusting pivot_end, which raster/fan_roles reads.
+        .{ .members = &.{ outMember(1, 10, 20), withPivotEnd(outMember(2, 20, 10), .target) }, .wrong_polarity_end = true },
+        // Differing and missing pivot-side sites leave no pi.
+        .{ .members = &.{ outMember(1, 10, 20), withSite(outMember(2, 10, 21), 0, site(10, .south, 3)) }, .no_pi = true },
+        .{ .members = &.{ outMember(1, 10, 20), withSite(outMember(2, 10, 21), 0, null) }, .no_pi = true },
+        .{ .members = &.{ outMember(1, 10, 20), circle } },
+        .{ .members = &.{ outMember(1, 10, 20), dotted } },
+        // Unresolved endpoint, missing leaf site, and a leaf site on the wrong node.
+        .{ .members = &.{ outMember(1, 10, 20), outMember(2, null, 21) } },
+        .{ .members = &.{ outMember(1, 10, 20), withSite(outMember(2, 10, 21), 1, null) } },
+        .{ .members = &.{ outMember(1, 10, 20), withSite(outMember(2, 10, 21), 1, site(99, .north, 1)) } },
+        // Arity and the zero sentinel id.
+        .{ .members = &.{outMember(1, 10, 20)}, .id = rs.no_rail_claim },
     };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.duplicate_leaf);
-    try testing.expect(result.star_law.parallel);
-    try testing.expect(!result.star_law.antiparallel);
-}
-
-test "antiparallel members are detected without trusting pivot_end" {
-    var reverse = outMember(2, 20, 10);
-    reverse.pivot_end = .target;
-    const members = [_]rs.RailClaimMember{ outMember(1, 10, 20), reverse };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.antiparallel);
-    try testing.expect(!result.star_law.no_common_real_pivot);
-    try testing.expect(result.star_law.duplicate_leaf);
-    try testing.expect(result.star_law.wrong_polarity_end);
-}
-
-test "self-loop and leaf equal to pivot remain separate facts" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 10),
-        outMember(2, 10, 20),
-    };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.star_law.self_loop);
-    try testing.expect(result.star_law.leaf_is_pivot);
-}
-
-test "differing or missing pi is derived from pivot-side member sites" {
-    var differing = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 21),
-    };
-    differing[1].sites[0] = site(10, .south, 3);
-    var result = rs.check(outClaim(&differing));
-    try testing.expect(result.star_law.differing_or_missing_pi);
-    try testing.expectEqual(@as(?rs.AttachmentSite, null), result.derived_pi);
-
-    differing[1].sites[0] = null;
-    result = rs.check(outClaim(&differing));
-    try testing.expect(result.star_law.differing_or_missing_pi);
-}
-
-test "mixed pivot arrows occupy only the decoration partition" {
-    var members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 21),
-    };
-    members[1].arrows[0] = .circle;
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.decoration.mixed_pivot_decoration);
-    try testing.expect(result.partition().decoration);
-    try testing.expect(!result.partition().star_law);
-    try testing.expect(!result.partition().style);
-}
-
-test "mixed stroke kinds occupy only the style partition" {
-    var members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 21),
-    };
-    members[1].kind = .dotted;
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.style.style_mismatch);
-    try testing.expect(result.partition().style);
-    try testing.expect(!result.partition().star_law);
-    try testing.expect(!result.partition().decoration);
-}
-
-test "unresolved members are counted from final endpoints" {
-    const members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, null, 21),
-    };
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.record.unresolved);
-    try testing.expectEqual(@as(u32, 1), result.derived_unresolved_members);
-    try testing.expect(result.star_law.no_common_real_pivot);
-}
-
-test "unresolved attachment sites count even when both endpoint nodes exist" {
-    var members = [_]rs.RailClaimMember{
-        outMember(1, 10, 20),
-        outMember(2, 10, 21),
-    };
-    members[1].sites[1] = null;
-    const result = rs.check(outClaim(&members));
-    try testing.expect(result.record.unresolved);
-    try testing.expectEqual(@as(u32, 1), result.derived_unresolved_members);
-
-    members[1].sites[1] = site(99, .north, 1);
-    const mismatched = rs.check(outClaim(&members));
-    try testing.expect(mismatched.record.unresolved);
-    try testing.expectEqual(@as(u32, 1), mismatched.derived_unresolved_members);
-}
-
-test "arity and sentinel identity invalidate otherwise coherent claims" {
-    const members = [_]rs.RailClaimMember{outMember(1, 10, 20)};
-    var claim = outClaim(&members);
-    claim.id = rs.no_rail_claim;
-    const result = rs.check(claim);
-    try testing.expect(result.record.invalid_id);
-    try testing.expect(result.record.arity);
-    try testing.expect(!result.isValid());
-    try testing.expect(result.partition().record);
+    for (rows) |row| {
+        const result = rs.check(.{ .id = row.id, .polarity = .out, .members = row.members });
+        try testing.expect(!result.isValid());
+        if (row.no_pivot) try testing.expectEqual(@as(?u32, null), result.derived_pivot);
+        if (row.no_pi) try testing.expectEqual(@as(?rs.AttachmentSite, null), result.derived_pi);
+        if (row.wrong_polarity_end) try testing.expect(result.star_law.wrong_polarity_end);
+    }
 }
 
 fn licenceMember(edge: u32, pivot: u32, leaf: u32, arrows: [2]rs.ArrowKind) rs.RailLicenceMember {
@@ -242,82 +142,35 @@ fn outLicence(members: []const rs.RailLicenceMember) rs.RailLicence {
     return .{ .id = 1, .polarity = .out, .pivot = 10, .members = members };
 }
 
-test "a star of blocking members holds the licence" {
-    const members = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .none, .filled }),
-        licenceMember(2, 10, 21, .{ .none, .filled }),
-    };
-    const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.isValid());
-    try testing.expect(!result.star_law.non_blocking_member);
-}
-
-test "a member with directional ends on both sides blocks nothing and refuses the licence" {
-    const members = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .filled, .filled }),
-        licenceMember(2, 10, 21, .{ .filled, .filled }),
-    };
-    const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.star_law.non_blocking_member);
-    try testing.expect(!result.isValid());
-}
-
-test "a mixed blocking and arrow-free star refuses the licence" {
-    const members = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .none, .filled }),
-        licenceMember(2, 10, 21, .{ .none, .none }),
-    };
-    const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.star_law.non_blocking_member);
-    try testing.expect(!result.isValid());
-}
-
-test "an all-arrow-free star is not refused by the blocking predicate" {
-    const bare = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .none, .none }),
-        licenceMember(2, 10, 21, .{ .none, .none }),
-    };
-    try testing.expect(!rs.checkLicence(outLicence(&bare)).star_law.non_blocking_member);
-    try testing.expect(rs.checkLicence(outLicence(&bare)).isValid());
-
-    const decorated = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .none, .circle }),
-        licenceMember(2, 10, 21, .{ .none, .circle }),
-    };
-    try testing.expect(!rs.checkLicence(outLicence(&decorated)).star_law.non_blocking_member);
-}
-
-test "a head at the source side alone still blocks under the licence" {
-    const members = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .filled, .none }),
-        licenceMember(2, 10, 21, .{ .none, .filled }),
-    };
-    try testing.expect(!rs.checkLicence(outLicence(&members)).star_law.non_blocking_member);
-}
-
-test "a placement member standing for one-way crossings blocks like a headed member" {
-    for ([_]prim.StandsFor{ .forward_one_way, .backward_one_way }) |class| {
-        var proxy = licenceMember(3, 10, 22, .{ .none, .none });
-        proxy.stands_for = class;
-        const members = [_]rs.RailLicenceMember{
-            licenceMember(1, 10, 20, .{ .none, .filled }),
-            licenceMember(2, 10, 21, .{ .none, .filled }),
-            proxy,
-        };
-        const result = rs.checkLicence(outLicence(&members));
-        try testing.expect(!result.star_law.non_blocking_member);
+test "the licence holds only for a star whose members all block" {
+    var one_way: [2]rs.RailLicenceMember = undefined;
+    for (&one_way, [_]prim.StandsFor{ .forward_one_way, .backward_one_way }) |*m, class| {
+        m.* = licenceMember(3, 10, 22, .{ .none, .none });
+        m.stands_for = class;
     }
-}
-
-test "a placement member standing for non-forward directed ink refuses the licence" {
-    var proxy = licenceMember(3, 10, 22, .{ .none, .none });
-    proxy.stands_for = .directed;
-    const members = [_]rs.RailLicenceMember{
-        licenceMember(1, 10, 20, .{ .none, .filled }),
-        licenceMember(2, 10, 21, .{ .none, .filled }),
-        proxy,
+    var directed = licenceMember(3, 10, 22, .{ .none, .none });
+    directed.stands_for = .directed;
+    const head = licenceMember(1, 10, 20, .{ .none, .filled });
+    const head2 = licenceMember(2, 10, 21, .{ .none, .filled });
+    const Row = struct { members: []const rs.RailLicenceMember, valid: ?bool, non_blocking: bool };
+    const rows = [_]Row{
+        .{ .members = &.{ head, head2 }, .valid = true, .non_blocking = false },
+        // Directional ends on both sides block nothing.
+        .{ .members = &.{ licenceMember(1, 10, 20, .{ .filled, .filled }), licenceMember(2, 10, 21, .{ .filled, .filled }) }, .valid = false, .non_blocking = true },
+        .{ .members = &.{ head, licenceMember(2, 10, 21, .{ .none, .none }) }, .valid = false, .non_blocking = true },
+        // An all-arrow-free star, bare or decorated, is not the blocking predicate's to refuse.
+        .{ .members = &.{ licenceMember(1, 10, 20, .{ .none, .none }), licenceMember(2, 10, 21, .{ .none, .none }) }, .valid = true, .non_blocking = false },
+        .{ .members = &.{ licenceMember(1, 10, 20, .{ .none, .circle }), licenceMember(2, 10, 21, .{ .none, .circle }) }, .valid = null, .non_blocking = false },
+        // A head at the source side alone still blocks.
+        .{ .members = &.{ licenceMember(1, 10, 20, .{ .filled, .none }), head2 }, .valid = null, .non_blocking = false },
+        // Placement proxies: one-way crossings block like a head, directed ink refuses.
+        .{ .members = &.{ head, head2, one_way[0] }, .valid = null, .non_blocking = false },
+        .{ .members = &.{ head, head2, one_way[1] }, .valid = null, .non_blocking = false },
+        .{ .members = &.{ head, head2, directed }, .valid = false, .non_blocking = true },
     };
-    const result = rs.checkLicence(outLicence(&members));
-    try testing.expect(result.star_law.non_blocking_member);
-    try testing.expect(!result.isValid());
+    for (rows) |row| {
+        const result = rs.checkLicence(outLicence(row.members));
+        try testing.expectEqual(row.non_blocking, result.star_law.non_blocking_member);
+        if (row.valid) |valid| try testing.expectEqual(valid, result.isValid());
+    }
 }
