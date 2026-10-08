@@ -52,44 +52,23 @@ pub fn splitCommand(allocator: std.mem.Allocator, raw: []const u8) !Command {
     return .{ .argv = try parts.toOwnedSlice(allocator) };
 }
 
-pub fn writeToPager(allocator: std.mem.Allocator, argv: []const []const u8, content: []const u8) !void {
-    if (argv.len == 0) return error.EmptyCommand;
-
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    try child.spawn();
-    errdefer _ = child.kill() catch {};
-
-    if (child.stdin) |stdin_pipe| {
-        defer stdin_pipe.close();
-        try stdin_pipe.writeAll(content);
-    }
-
-    const term = try child.wait();
-    switch (term) {
-        .Exited => |code| if (code != 0) return error.ChildProcessFailed,
-        else => return error.ChildProcessFailed,
-    }
-}
-
-test "splits simple command" {
+test "splitCommand: words, quotes, escapes and errors" {
     const allocator = std.testing.allocator;
-    const command = try splitCommand(allocator, "less -R");
-    defer command.deinit(allocator);
-
-    try std.testing.expectEqual(@as(usize, 2), command.argv.len);
-    try std.testing.expectEqualStrings("less", command.argv[0]);
-    try std.testing.expectEqualStrings("-R", command.argv[1]);
-}
-
-test "splits quoted command argument" {
-    const allocator = std.testing.allocator;
-    const command = try splitCommand(allocator, "pager --prompt 'hello world'");
-    defer command.deinit(allocator);
-
-    try std.testing.expectEqual(@as(usize, 3), command.argv.len);
-    try std.testing.expectEqualStrings("hello world", command.argv[2]);
+    const cases = [_]struct { raw: []const u8, argv: []const []const u8 }{
+        .{ .raw = "less -R", .argv = &.{ "less", "-R" } },
+        .{ .raw = "pager --prompt 'hello world'", .argv = &.{ "pager", "--prompt", "hello world" } },
+        .{ .raw = "ed \"a b\"\tc", .argv = &.{ "ed", "a b", "c" } },
+        .{ .raw = "  vi\t\t-n  ", .argv = &.{ "vi", "-n" } },
+        .{ .raw = "say 'it\\'s'", .argv = &.{ "say", "it's" } },
+        .{ .raw = "say \"a\\\"b\"", .argv = &.{ "say", "a\"b" } },
+        .{ .raw = "", .argv = &.{} },
+    };
+    for (cases) |case| {
+        const command = try splitCommand(allocator, case.raw);
+        defer command.deinit(allocator);
+        try std.testing.expectEqual(case.argv.len, command.argv.len);
+        for (case.argv, command.argv) |want, got| try std.testing.expectEqualStrings(want, got);
+    }
+    try std.testing.expectError(error.UnterminatedQuote, splitCommand(allocator, "vim 'oops"));
+    try std.testing.expectError(error.UnterminatedQuote, splitCommand(allocator, "vim \"oops"));
 }

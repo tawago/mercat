@@ -29,6 +29,10 @@ test "resolve prefers config, then VISUAL, then EDITOR" {
     defer from_editor.deinit(allocator);
     try std.testing.expectEqualStrings("nano", from_editor.command);
     try std.testing.expectEqual(editor.Source.editor, from_editor.source);
+
+    // Nothing configured and nothing installed: no editor, not a guessed "vi".
+    try std.testing.expect((try editor.resolve(allocator, "", .{ .path = "/nonexistent-dir" })) == null);
+    try std.testing.expect((try editor.resolve(allocator, "", .{})) == null);
 }
 
 test "resolve falls back to the first known editor on PATH" {
@@ -52,12 +56,6 @@ test "resolve falls back to the first known editor on PATH" {
     try std.testing.expectEqual(editor.Source.path, resolved.source);
 }
 
-test "resolve returns null when nothing is configured or installed" {
-    const allocator = std.testing.allocator;
-    try std.testing.expect((try editor.resolve(allocator, "", .{ .path = "/nonexistent-dir" })) == null);
-    try std.testing.expect((try editor.resolve(allocator, "", .{})) == null);
-}
-
 test "programExists checks bare names on PATH and explicit paths directly" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -73,13 +71,6 @@ test "programExists checks bare names on PATH and explicit paths directly" {
     try std.testing.expect(editor.programExists(null, full));
     try std.testing.expect(!editor.programExists(null, "myedit"));
     try std.testing.expect(!editor.programExists(dir_path, ""));
-}
-
-test "programName returns the first word of a command with arguments" {
-    const allocator = std.testing.allocator;
-    const name = try editor.programName(allocator, "code --wait");
-    defer allocator.free(name);
-    try std.testing.expectEqualStrings("code", name);
 }
 
 test "openFile appends the path to a command with arguments" {

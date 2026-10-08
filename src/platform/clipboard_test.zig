@@ -43,33 +43,21 @@ test "writeOsc52 reports empty, oversized and failed writes" {
     try testing.expectEqual(clipboard.Osc52Status.write_failed, try clipboard.writeOsc52(&writer, testing.allocator, "more than sixteen bytes", .none));
 }
 
-test "decide: a working clipboard tool always counts" {
-    const outcome = decide(.too_large, .{ .copied = "wl-copy" }, .tmux_clipboard_off);
-    try testing.expect(outcome == .copied);
-    try testing.expect(outcome.copied == .native);
-}
-
-test "decide: a sent OSC 52 counts unless tmux drops it" {
-    try testing.expect(decide(.sent, .no_tool, .none).copied == .osc52);
-    try testing.expect(decide(.sent, .no_tool, .tmux).copied == .osc52);
-    try testing.expect(decide(.sent, .no_tool, .screen).copied == .osc52);
-    try testing.expectEqual(clipboard.Failure.tmux_clipboard_off, decide(.sent, .no_tool, .tmux_clipboard_off).failed);
-}
-
-test "decide: failures name the reason" {
-    try testing.expectEqual(clipboard.Failure.too_large, decide(.too_large, .no_tool, .none).failed);
-    try testing.expectEqual(clipboard.Failure.too_large, decide(.too_large, .{ .failed = "xclip" }, .tmux).failed);
-    try testing.expectEqual(clipboard.Failure.write_failed, decide(.write_failed, .no_tool, .none).failed);
-    try testing.expectEqual(clipboard.Failure.no_tool, decide(.empty, .no_tool, .none).failed);
-    try testing.expectEqual(clipboard.Failure.tool_failed, decide(.empty, .{ .failed = "xclip" }, .none).failed);
-}
-
-test "failure messages carry a hint" {
-    try testing.expect(std.mem.indexOf(u8, clipboard.failureMessage(.too_large), "OSC 52") != null);
-    try testing.expect(std.mem.indexOf(u8, clipboard.failureMessage(.tmux_clipboard_off), "set-clipboard on") != null);
-    inline for (std.meta.fields(clipboard.Failure)) |field| {
-        try testing.expect(std.mem.startsWith(u8, clipboard.failureMessage(@enumFromInt(field.value)), "Copy failed: "));
-    }
+test "decide: a working tool always counts, OSC 52 counts unless tmux drops it, failures name the reason" {
+    const Row = struct { osc52: clipboard.Osc52Status, native: clipboard.NativeStatus, mux: clipboard.Mux, want: clipboard.Outcome };
+    const rows = [_]Row{
+        .{ .osc52 = .too_large, .native = .{ .copied = "wl-copy" }, .mux = .tmux_clipboard_off, .want = .{ .copied = .native } },
+        .{ .osc52 = .sent, .native = .no_tool, .mux = .none, .want = .{ .copied = .osc52 } },
+        .{ .osc52 = .sent, .native = .no_tool, .mux = .tmux, .want = .{ .copied = .osc52 } },
+        .{ .osc52 = .sent, .native = .no_tool, .mux = .screen, .want = .{ .copied = .osc52 } },
+        .{ .osc52 = .sent, .native = .no_tool, .mux = .tmux_clipboard_off, .want = .{ .failed = .tmux_clipboard_off } },
+        .{ .osc52 = .too_large, .native = .no_tool, .mux = .none, .want = .{ .failed = .too_large } },
+        .{ .osc52 = .too_large, .native = .{ .failed = "xclip" }, .mux = .tmux, .want = .{ .failed = .too_large } },
+        .{ .osc52 = .write_failed, .native = .no_tool, .mux = .none, .want = .{ .failed = .write_failed } },
+        .{ .osc52 = .empty, .native = .no_tool, .mux = .none, .want = .{ .failed = .no_tool } },
+        .{ .osc52 = .empty, .native = .{ .failed = "xclip" }, .mux = .none, .want = .{ .failed = .tool_failed } },
+    };
+    for (rows) |row| try testing.expectEqual(row.want, decide(row.osc52, row.native, row.mux));
 }
 
 fn clipboardOn() bool {

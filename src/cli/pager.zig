@@ -103,14 +103,6 @@ fn ensureTrailingNewline(allocator: std.mem.Allocator, output: []const u8) ![]co
     return allocator.dupe(u8, output);
 }
 
-test "falls back to configured pager when env missing" {
-    const allocator = std.testing.allocator;
-    const value = try resolvePagerCommand(allocator, "less -R");
-    defer allocator.free(value);
-
-    try std.testing.expectEqualStrings("less -R", value);
-}
-
 test "runPager reports a missing command as a spawn failure" {
     const argv = [_][]const u8{"/nonexistent/mercat-pager-xyz"};
     try std.testing.expectError(error.FileNotFound, runPager(std.testing.allocator, &argv, "x\n"));

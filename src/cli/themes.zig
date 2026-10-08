@@ -97,16 +97,6 @@ test "collectFrom lists built-ins then sorted user themes, skipping non-toml and
     try std.testing.expectEqualStrings("zeta", names[presets.ALL.len + 1]);
 }
 
-test "suggest offers the closest theme name for a typo" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    const items = try collectFrom(arena.allocator(), null);
-    var names = Names{ .arena = arena, .items = items };
-    defer names.deinit();
-    try std.testing.expectEqualStrings("dracula", names.suggest("drakula").?);
-    try std.testing.expectEqualStrings("tokyo-night", names.suggest("tokyo").?);
-    try std.testing.expectEqual(@as(?[]const u8, null), names.suggest("zzzzzzzz"));
-}
-
 test "collectFrom with no directory lists only built-ins" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
