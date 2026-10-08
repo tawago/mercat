@@ -87,6 +87,8 @@ expect missing-file 1 "mercat: error: nonexist.md: no such file or directory" --
 expect directory 1 "mercat: error: dir: is a directory" -- dir
 expect plain-write-fail 1 "mercat: error: cannot write '$work/nope/out.txt': no such file or directory" -- --format plain -o "$work/nope/out.txt" h.md
 expect png-write-fail 1 "mercat: error: cannot write '$work/nope/out.png': no such file or directory" -- --format png -o "$work/nope/out.png" h.md
+expect terminal-output-short 1 "mercat: error: -o needs --format plain or --format png (terminal output goes to stdout)" -- -o out.txt h.md
+expect terminal-output-long 1 "mercat: error: --output needs --format plain or --format png (terminal output goes to stdout)" -- --output out.txt h.md
 printf '# Oops \360\237\222\251\n' > emoji.md
 expect png-missing-glyph 1 "mercat: error: PNG export failed: no glyph for U+1F4A9 at row 0, column 9" -- --format png -o emoji.png emoji.md
 check png-missing-glyph-no-file [ -z "$(ls -A | grep -e '^emoji.png$' -e mercat-tmp)" ]

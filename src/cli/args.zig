@@ -216,6 +216,7 @@ pub const Diagnostic = struct {
     first_input: []const u8 = "",
     pager_spelling: []const u8 = "--pager",
     tui_spelling: []const u8 = "--tui",
+    output_spelling: []const u8 = "-o",
 };
 
 pub fn parse(allocator: std.mem.Allocator, argv: []const []const u8) ParseError!Parsed {
@@ -382,6 +383,7 @@ fn apply(allocator: std.mem.Allocator, result: *Parsed, spec: FlagSpec, value: ?
         .frontmatter => result.frontmatter = std.meta.stringToEnum(config.FrontmatterStyle, v) orelse return error.InvalidFrontmatterStyle,
         .format => result.format = std.meta.stringToEnum(OutputFormat, v) orelse return error.InvalidFormat,
         .output => {
+            d.output_spelling = spec.name;
             if (v.len == 0) return error.EmptyOutputPath;
             const dup = try allocator.dupe(u8, v);
             if (result.output_path) |old| allocator.free(old);
@@ -511,7 +513,7 @@ pub fn describe(buf: []u8, err: ParseError, d: *const Diagnostic) []const u8 {
         error.FormatRequiresCliMode => std.fmt.bufPrint(buf, "'{s}' cannot be used with --format {s}", .{ d.option, d.value }),
         error.PngRequiresOutput => std.fmt.bufPrint(buf, "--format png needs an output file; add -o <file>.png", .{}),
         error.PngWithPager => std.fmt.bufPrint(buf, "'{s}' cannot be used with --format png", .{d.option}),
-        error.TerminalWithOutput => std.fmt.bufPrint(buf, "-o needs --format plain or --format png (terminal output goes to stdout)", .{}),
+        error.TerminalWithOutput => std.fmt.bufPrint(buf, "{s} needs --format plain or --format png (terminal output goes to stdout)", .{d.output_spelling}),
         error.SingleDashLongOption => std.fmt.bufPrint(buf, "unknown option '{s}'", .{d.option}),
         error.EmptyOutputPath => std.fmt.bufPrint(buf, "option '{s}' needs a non-empty file name", .{d.option}),
         error.MonochromeRequiresPng => std.fmt.bufPrint(buf, "'--monochrome' only applies to --format png", .{}),
