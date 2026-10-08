@@ -146,7 +146,7 @@ pub fn enterCookedMode() void {
 /// The caller is responsible for restoring and re-entering the screen.
 pub fn stopProcess() void {
     setHandler(posix.SIG.TSTP, null);
-    posix.raise(posix.SIG.TSTP) catch {};
+    raiseUnblocked(posix.SIG.TSTP);
     if (active.load(.acquire)) setHandler(posix.SIG.TSTP, forwardSignal);
 }
 
@@ -169,7 +169,7 @@ pub fn foregroundDecision(owner: posix.pid_t, own: posix.pid_t) bool {
 /// spinning.
 fn waitForForeground() void {
     while (!inForeground(tty_fd)) {
-        posix.raise(posix.SIG.TTIN) catch {};
+        raiseUnblocked(posix.SIG.TTIN);
         if (!inForeground(tty_fd)) std.Thread.sleep(100 * std.time.ns_per_ms);
     }
 }
@@ -245,6 +245,19 @@ fn addSignal(set: *posix.sigset_t, sig: u8) void {
     }
 }
 
+/// Raises `sig` at the calling thread with it unblocked there, then puts the
+/// thread's mask back. The watcher thread blocks the guarded signals, and a
+/// handler blocks its own signal; on macOS a signal raised while blocked
+/// stays pending instead of taking its default action.
+fn raiseUnblocked(sig: u8) void {
+    var set = emptyMask();
+    addSignal(&set, sig);
+    var old: posix.sigset_t = undefined;
+    _ = std.c.pthread_sigmask(posix.SIG.UNBLOCK, &set, &old);
+    posix.raise(sig) catch {};
+    _ = std.c.pthread_sigmask(posix.SIG.SETMASK, &old, &old);
+}
+
 /// Blocks the signals the guard handles in the calling thread.
 fn blockGuardedSignals() void {
     var set = emptyMask();
@@ -267,7 +280,7 @@ fn forwardSignal(sig: c_int) callconv(.c) void {
     if (suspended.load(.acquire) and isExitSignal(byte)) {
         if (inForeground(tty_fd)) posix.tcsetattr(tty_fd, .NOW, cooked_termios) catch {};
         setHandler(byte, null);
-        _ = posix.system.kill(posix.system.getpid(), sig);
+        raiseUnblocked(byte);
         return;
     }
     const fd = pipe_fds[1];
@@ -383,7 +396,7 @@ fn handleSignal(sig: u8) void {
 fn exitForSignal(sig: u8) void {
     restoreTerminal();
     setHandler(sig, null);
-    posix.raise(sig) catch {};
+    raiseUnblocked(sig);
     // A default action that does not terminate (should not happen for these
     // signals) still must not leave the user stuck in a dead UI.
     std.process.exit(128 + sig);
