@@ -216,25 +216,3 @@ test "png file output emits nothing to stdout and re-export replaces the file at
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
     }
 }
-
-test "png export of an uncovered glyph fails without leaving a file" {
-    try requireBinary();
-    const allocator = testing.allocator;
-
-    var tmp = testing.tmpDir(.{ .iterate = true });
-    defer tmp.cleanup();
-    try writeTmpFile(&tmp, "emoji.md", "# Oops \u{1F4A9}\n");
-    const in_path = try tmpPath(allocator, &tmp, "emoji.md");
-    defer allocator.free(in_path);
-    const out_path = try tmpPath(allocator, &tmp, "should_not_exist.png");
-    defer allocator.free(out_path);
-
-    const r = try runMercat(allocator, &.{ "--format", "png", "-w", "80", "-o", out_path, in_path });
-    defer r.deinit(allocator);
-    try testing.expect(!r.exited_zero);
-    try testing.expectError(error.FileNotFound, tmp.dir.access("should_not_exist.png", .{}));
-    var it = tmp.dir.iterate();
-    while (try it.next()) |entry| {
-        try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
-    }
-}

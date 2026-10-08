@@ -167,6 +167,14 @@ All notable changes to this project will be documented in this file.
   if the terminal never answers the startup device-status query (#87). The
   reproduction script is in the issue.
 
+### Development
+
+- The test suite is trimmed: duplicate and restated tests are merged into
+  tables or removed, and the long fuzz runs moved to the opt-in
+  `zig build test-fuzz-long` step. `zig build test` runs much faster.
+- `tests/repro` is removed. Reproductions live in their GitHub issues, and a
+  fixed issue gets a regression test next to the code.
+
 ## [0.3.1]
 
 ### Diagrams

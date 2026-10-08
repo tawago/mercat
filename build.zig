@@ -22,8 +22,6 @@ pub fn build(b: *std.Build) void {
     if (onlyStepRequested(b, "unicode-check")) return;
 
     const options = b.addOptions();
-    const calibration_inputs = b.option([]const u8, "calibration-inputs", "Directory containing optional score-calibration inputs");
-    options.addOption(?[]const u8, "calibration_inputs", calibration_inputs);
     const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
     const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
     if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
@@ -171,7 +169,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    flowchart_test_module.addOptions("build_options", options);
     flowchart_test_module.addImport("prim", prim_mod);
     flowchart_test_module.addImport("unicode", unicode_mod);
     const flowchart_tests = b.addTest(.{ .root_module = flowchart_test_module });
