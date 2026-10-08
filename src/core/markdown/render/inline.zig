@@ -103,8 +103,9 @@ pub fn appendInlineTokens(allocator: std.mem.Allocator, tokens: *std.ArrayList(I
             if (ld.icon.len != 0) try tokens.append(allocator, .{ .text = try allocator.dupe(u8, ld.icon), .style = .link });
             try appendInlineSliceTokens(allocator, tokens, link.text, .link, decor);
             if (link.url.len != 0) {
+                // A footnote ref inside the link already set its own `#fn:N` url; keep it.
                 for (tokens.items[start..]) |*tok| {
-                    tok.url = try allocator.dupe(u8, link.url);
+                    if (tok.url == null) tok.url = try allocator.dupe(u8, link.url);
                 }
                 const gap: []const u8 = if (isBlank(link.text)) "" else " ";
                 const url_text = try std.fmt.allocPrint(allocator, "{s}<{s}>", .{ gap, link.url });

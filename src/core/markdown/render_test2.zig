@@ -104,3 +104,30 @@ fn markerColumn(line: Line) usize {
     };
     return column;
 }
+
+test "a link nested in a link keeps its own url and leaks nothing (issue #88)" {
+    const allocator = std.testing.allocator;
+    const Case = struct { source: []const u8, inner: []const u8, outer: ?[]const u8 };
+    const cases = [_]Case{
+        .{ .source = "[^1]: d\n\n[see[^1]](http://u)\n", .inner = "#fn:1", .outer = "http://u" },
+        .{ .source = "[^1]: d\n\n<div><a href=v>[^1]</a></div>\n", .inner = "#fn:1", .outer = null },
+        .{ .source = "[<http://auto>](http://u)\n", .inner = "http://auto", .outer = "http://u" },
+    };
+    for (cases) |case| {
+        var document = try markdown.parse(allocator, case.source);
+        defer document.deinit(allocator);
+        var rendered = try renderDocument(allocator, document, .{ .width = 60 });
+        defer rendered.deinit(allocator);
+        var saw_inner = false;
+        var saw_outer = false;
+        for (rendered.lines) |line| for (line.spans) |span| {
+            const url = span.url orelse continue;
+            if (std.mem.eql(u8, url, case.inner)) saw_inner = true;
+            if (case.outer) |outer| {
+                if (std.mem.eql(u8, url, outer)) saw_outer = true;
+            }
+        };
+        try std.testing.expect(saw_inner);
+        try std.testing.expect(saw_outer or case.outer == null);
+    }
+}
