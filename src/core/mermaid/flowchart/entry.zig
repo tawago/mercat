@@ -148,4 +148,5 @@ test {
     _ = @import("candidates.zig");
     _ = @import("candidates_test.zig");
     _ = @import("entry_test.zig");
+    _ = @import("layout/sketch_props_test.zig");
 }

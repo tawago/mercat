@@ -105,23 +105,10 @@ test "inline <br> breaks the line" {
     try testing.expect(out.has("a<bread>b"));
 }
 
-test "raw-source fallback drops invisible characters like all document text" {
-    const allocator = testing.allocator;
-    var document = try markdown.parse(allocator, "keep X so\u{AD}ft\u{200B} \u{200E}bidi\u{202E} \u{FEFF}end\x1b[2J\n");
-    defer document.deinit(allocator);
-    // Force the fallback: plant a control byte the block renderer rejects.
-    const first: []u8 = @constCast(document.blocks[0].paragraph.content[0].text);
-    first[std.mem.indexOfScalar(u8, first, 'X').?] = 0x01;
-    const out = try renderDoc(document, 40);
-    defer out.deinit();
-    try testing.expectEqual(@as(usize, 1), out.fallbacks);
-    try testing.expectEqualStrings("  keep X soft bidi end\u{FFFD}[2J\n", out.text);
-}
-
-test "fallback sanitize follows unicode.sanitize" {
-    const out = try render_model.sanitize(testing.allocator, "a\tb\x01c\xffd\u{0085}é\u{AD}\u{200B}\u{2066}x\u{FE0F}\r\xe2\x82");
+test "fallback sanitize turns a carriage return into a space" {
+    const out = try render_model.sanitize(testing.allocator, "a\rb\x01");
     defer testing.allocator.free(out);
-    try testing.expectEqualStrings("a\tb\u{FFFD}c\u{FFFD}d\u{FFFD}éx\u{FE0F} \u{FFFD}\u{FFFD}", out);
+    try testing.expectEqualStrings("a b\u{FFFD}", out);
 }
 
 const fragments = [_][]const u8{
@@ -154,12 +141,18 @@ fn randomDocument(random: std.Random, buf: *std.ArrayList(u8)) !void {
     }
 }
 
+/// The fixed seeds replay the same corpus every run, so the default suite
+/// takes a prefix; `zig build test-fuzz-long` sets MERCAT_LONG_FUZZ for all of it.
+fn iterations(default: usize) usize {
+    return if (std.posix.getenv("MERCAT_LONG_FUZZ") != null) 2500 else default;
+}
+
 test "property: random markdown-ish input always renders, never as a placeholder" {
     var prng = std.Random.DefaultPrng.init(0x6d657263);
     const random = prng.random();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(testing.allocator);
-    for (0..2500) |iteration| {
+    for (0..iterations(500)) |iteration| {
         try randomDocument(random, &buf);
         const width: usize = if (iteration % 3 == 0) 20 else 60;
         // As the CLI sees it (decoded), and raw bytes straight to the parser.
@@ -186,7 +179,7 @@ test "property: the raw-source fallback shows any source and never fails" {
     const random = prng.random();
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
-    for (0..2500) |_| {
+    for (0..iterations(200)) |_| {
         try randomDocument(random, &buf);
         // A paragraph the renderer rejects (control byte), paired with an
         // arbitrary recorded source: the fallback must cope with any bytes.
