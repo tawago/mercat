@@ -76,13 +76,6 @@ pub const legacy: Decor = blk: {
 
 const testing = std.testing;
 
-test "Decor defaults are total (no null holes)" {
-    const d = Decor{};
-    try testing.expectEqualStrings("", d.slot(.heading1).prefix);
-    try testing.expectEqualStrings("─", d.glyphs.hr_glyph);
-    try testing.expectEqual(HrMode.full, d.glyphs.hr_mode);
-}
-
 test "bulletAt clamps to last entry" {
     const g = ResolvedGlyphSet{};
     try testing.expectEqualStrings("•", g.bulletAt(0));

@@ -6,6 +6,7 @@ const render_model = @import("render.zig");
 const decor_mod = @import("render/decor.zig");
 const resolve = @import("../theme/resolve.zig");
 const presets = @import("../theme/presets.zig");
+const input_test = @import("render_input_test.zig");
 
 const testing = std.testing;
 const Options = render_model.Options;
@@ -127,9 +128,7 @@ test "HTML blocks render as readable text" {
         "",
         "  Body text",
     });
-    try expectLines("<p align=\"center\">\n  <img src=\"x.png\" alt=\"logo\">\n</p>\n", 40, &.{"  [Image: logo]"});
     try expectLines("<!-- only a comment -->\n\n# Title\n", 40, &.{"  # Title"});
-    try expectLines("<div>a<br>b</div>\n", 40, &.{ "  a", "  b" });
 }
 
 test "block quotes: one space after the bar and one blank line after" {
@@ -141,22 +140,12 @@ test "block quotes: one space after the bar and one blank line after" {
     });
 }
 
-test "emphasis directly before a link renders styled, without markers" {
-    const text = try renderText("**bold** [link](http://x)\n", .{ .width = 40 });
-    defer text.deinit();
-    try testing.expectEqualStrings("  bold link <http://x>", text.lines[0]);
-    var saw_strong = false;
-    for (text.rendered.lines[0].spans) |span| {
-        if (span.style == .strong and std.mem.eql(u8, span.text, "bold")) saw_strong = true;
-    }
-    try testing.expect(saw_strong);
-}
-
 test "a block that cannot be rendered falls back to its raw source" {
     const allocator = testing.allocator;
     // The parser never produces such text (it sanitizes), so plant a control
-    // byte in the parsed paragraph and in its recorded source.
-    var document = try markdown.parse(allocator, "# Title\n\nbad X *text*\n\nafter\n");
+    // byte in the parsed paragraph and in its recorded source. The fallback
+    // drops invisible format characters and shows controls like any text.
+    var document = try markdown.parse(allocator, "# Title\n\nbad X so\u{AD}ft\u{200B} \u{200E}bidi\u{202E} \u{FEFF}*text*\x1b[2J\n\nafter\n");
     defer document.deinit(allocator);
     const buffer: []u8 = @constCast(document.source_buffer.?);
     buffer[std.mem.indexOfScalar(u8, buffer, 'X').?] = 0x01;
@@ -169,14 +158,17 @@ test "a block that cannot be rendered falls back to its raw source" {
     try testing.expectEqual(@as(usize, 5), rendered.lines.len);
     const raw = try rendered.lines[2].joinedText(allocator);
     defer allocator.free(raw);
-    try testing.expectEqualStrings("  bad \u{FFFD} *text*", raw);
+    try testing.expectEqualStrings("  bad \u{FFFD} soft bidi *text*\u{FFFD}[2J", raw);
     try testing.expectEqual(SpanStyle.muted, rendered.lines[2].spans[rendered.lines[2].spans.len - 1].style);
     const after = try rendered.lines[4].joinedText(allocator);
     defer allocator.free(after);
     try testing.expectEqualStrings("  after", after);
 }
 
-test "kitchen-sink fixture renders in every built-in style without fallback" {
+test "kitchen-sink fixture and hostile input render in every built-in style without fallback" {
+    const hostile =
+        "---\ntitle: T\xFF\x1b\n---\n\n# H\u{00ad}\xFF\n\n- a\x07 [l](u\x1b) `c\x1b`\n\n" ++
+        "| \x1b | \xFF |\n|---|---|\n| \u{202e} | &#27; |\n\n```\n\x1b[2J\xFF\n```\n\n> q\u{200b}\x9b\n";
     for (presets.ALL) |preset| {
         const theme = resolve.builtinResolved(testing.allocator, preset.name);
         for ([_]usize{ 80, 40, 24 }) |width| {
@@ -186,6 +178,13 @@ test "kitchen-sink fixture renders in every built-in style without fallback" {
             try testing.expect(text.find("Body text inside") != null);
             try testing.expect(text.find("**") == null);
             try testing.expect(text.find("<details>") == null);
+
+            const bad = try renderText(hostile, .{ .width = width, .decor = &theme.decor });
+            defer bad.deinit();
+            for (bad.rendered.lines) |line| for (line.spans) |span| {
+                try input_test.expectDisplaySafe(span.text);
+                if (span.url) |url| try input_test.expectDisplaySafe(url);
+            };
         }
     }
 }

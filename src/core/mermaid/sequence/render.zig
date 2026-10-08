@@ -70,3 +70,7 @@ test "the narrowest unwrapped width still draws on the tight top-down rung" {
     defer allocator.free(direct.drawn);
     try std.testing.expectEqualStrings(direct.drawn, fitted.drawn);
 }
+
+test {
+    _ = @import("tb_wrap_test.zig");
+}

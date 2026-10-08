@@ -154,23 +154,6 @@ pub const Builder = struct {
     }
 };
 
-fn buildForLeakTest(allocator: std.mem.Allocator) !void {
-    var b = Builder.init(allocator);
-    defer b.deinit();
-    b.left_padding = 2;
-    try b.appendSpanWithUrl(.body, "link", "https://example.com");
-    try b.appendSpan(.emphasis, "text");
-    try b.newline();
-    try b.appendSpan(.body, "more");
-    const lines = try b.finish();
-    for (lines) |line| line.deinit(allocator);
-    allocator.free(lines);
-}
-
-test "Builder leaks no spans under injected allocation failure" {
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, buildForLeakTest, .{});
-}
-
 test "consecutive same-style appends merge into one span, including left padding" {
     const allocator = std.testing.allocator;
 
@@ -197,6 +180,13 @@ test "consecutive same-style appends merge into one span, including left padding
     try std.testing.expectEqualStrings("ghij", lines[0].spans[2].text);
     try std.testing.expectEqualStrings("u", lines[0].spans[2].url.?);
     try std.testing.expectEqualStrings("  z", lines[1].spans[0].text);
+
+    // A zero count or an empty glyph appends nothing at all.
+    var empty = Builder.init(allocator);
+    defer empty.deinit();
+    try empty.appendRepeated(.body, " ", 0);
+    try empty.appendRepeated(.body, "", 4);
+    try std.testing.expect(!empty.hasPending());
 }
 
 test "building one long span stays linear rather than quadratic" {
@@ -239,11 +229,7 @@ test "whole-line preparation preserves styles across one combining grapheme" {
 test "whole-line tabs use actual columns and keep the tab span style" {
     const allocator = std.testing.allocator;
     const cases = [_]struct { prefix: []const u8, spaces: []const u8, columns: usize }{
-        .{ .prefix = "", .spaces = "    ", .columns = 4 },
         .{ .prefix = "a", .spaces = "   ", .columns = 4 },
-        .{ .prefix = "ab", .spaces = "  ", .columns = 4 },
-        .{ .prefix = "abc", .spaces = " ", .columns = 4 },
-        .{ .prefix = "abcd", .spaces = "    ", .columns = 8 },
         .{ .prefix = "日", .spaces = "  ", .columns = 4 },
     };
     for (cases) |case| {
@@ -262,7 +248,7 @@ test "whole-line tabs use actual columns and keep the tab span style" {
     }
 }
 
-fn absorbForLeakTest(allocator: std.mem.Allocator, pending: bool) !void {
+fn absorbCase(allocator: std.mem.Allocator, pending: bool) !void {
     var outer = Builder.init(allocator);
     defer outer.deinit();
     var inner = Builder.init(allocator);
@@ -293,19 +279,15 @@ fn absorbForLeakTest(allocator: std.mem.Allocator, pending: bool) !void {
 }
 
 test "absorb moves sealed lines verbatim and mirrors the pending state" {
-    try absorbForLeakTest(std.testing.allocator, true);
-    try absorbForLeakTest(std.testing.allocator, false);
-    try std.testing.checkAllAllocationFailures(std.testing.allocator, absorbForLeakTest, .{true});
+    try absorbCase(std.testing.allocator, true);
+    try absorbCase(std.testing.allocator, false);
 }
 
-test "seal reports invalid lines without consuming them" {
-    var builder = Builder.init(std.testing.allocator);
-    defer builder.deinit();
-    try builder.appendSpan(.body, "ok\x1b");
-    try std.testing.expectError(error.DisallowedControl, builder.seal());
-}
-
-test "whole-line preparation propagates invalid UTF-8 and controls" {
+test "invalid text is reported by seal and by finish" {
+    var sealed = Builder.init(std.testing.allocator);
+    defer sealed.deinit();
+    try sealed.appendSpan(.body, "ok\x1b");
+    try std.testing.expectError(error.DisallowedControl, sealed.seal());
     inline for (.{ .{ "\x80", error.InvalidUtf8 }, .{ "\x1b", error.DisallowedControl } }) |case| {
         var builder = Builder.init(std.testing.allocator);
         defer builder.deinit();

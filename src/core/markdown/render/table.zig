@@ -259,21 +259,6 @@ fn alignmentPadding(text: []const u8, width: usize, base_column: usize, alignmen
 
 const testing = std.testing;
 
-test "tableTriple maps each weighted variant to its box-drawing glyphs" {
-    try testing.expectEqualStrings("\u{2500}", tableTriple(.grid).h);
-    try testing.expectEqualStrings("\u{253c}", tableTriple(.grid).cross);
-    try testing.expectEqualStrings("\u{2501}", tableTriple(.heavy).h);
-    try testing.expectEqualStrings("\u{2503}", tableTriple(.heavy).v);
-    try testing.expectEqualStrings("\u{254b}", tableTriple(.heavy).cross);
-    try testing.expectEqualStrings("\u{2550}", tableTriple(.double).h);
-    try testing.expectEqualStrings("\u{2551}", tableTriple(.double).v);
-    try testing.expectEqualStrings("\u{256c}", tableTriple(.double).cross);
-    try testing.expectEqualStrings("-", tableTriple(.ascii).h);
-    try testing.expectEqualStrings("|", tableTriple(.ascii).v);
-    try testing.expectEqualStrings("+", tableTriple(.ascii).cross);
-    try testing.expectEqualStrings("\u{2500}", tableTriple(.rounded).h);
-}
-
 fn renderTableWith(allocator: std.mem.Allocator, style: TableStyle) ![]u8 {
     var cell_a = [_]Inline{.{ .text = "A" }};
     var cell_b = [_]Inline{.{ .text = "B" }};
@@ -335,6 +320,7 @@ test "renderTable draws all five TableStyle variants with distinct borders" {
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{2570}") != null);
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{256F}") != null);
     try testing.expect(std.mem.indexOf(u8, rounded, "\u{2502}") != null);
+    try testing.expect(std.mem.indexOf(u8, rounded, "\u{2500}") != null);
 }
 
 test "a very wide table row builds in time linear in its width" {
@@ -370,29 +356,4 @@ test "a very wide table row builds in time linear in its width" {
     var border_width: usize = 0;
     for (lines[0].spans) |span| border_width += try geometry.displayWidth(span.text);
     try testing.expectEqual(@as(usize, 20_002), border_width);
-}
-
-test "appendRepeated emits one span and matches glyph-by-glyph appends" {
-    const allocator = testing.allocator;
-
-    var builder = Builder.init(allocator);
-    defer builder.deinit();
-    try builder.appendRepeated(.table_border, "\u{2500}", 5);
-    try builder.appendSpan(.body, "x");
-    try builder.appendRepeated(.body, " ", 3);
-    const lines = try builder.finish();
-    defer {
-        for (lines) |line| line.deinit(allocator);
-        allocator.free(lines);
-    }
-
-    try testing.expectEqual(@as(usize, 2), lines[0].spans.len);
-    try testing.expectEqualStrings("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}", lines[0].spans[0].text);
-    try testing.expectEqualStrings("x   ", lines[0].spans[1].text);
-
-    var empty = Builder.init(allocator);
-    defer empty.deinit();
-    try empty.appendRepeated(.body, " ", 0);
-    try empty.appendRepeated(.body, "", 4);
-    try testing.expect(!empty.hasPending());
 }

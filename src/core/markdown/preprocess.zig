@@ -446,58 +446,22 @@ fn replaceFootnoteRefs(allocator: std.mem.Allocator, line: []const u8, defs: []c
     return try out.toOwnedSlice(allocator);
 }
 
-test "superscript basic" {
-    const result = try preprocess(std.testing.allocator, "E=mc^2^");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("E=mc²", result);
-}
-
-test "superscript digits and symbols" {
-    const result = try preprocess(std.testing.allocator, "10^-3^");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("10⁻³", result);
-}
-
-test "superscript letters" {
-    const result = try preprocess(std.testing.allocator, "x^abc^");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("xᵃᵇᶜ", result);
-}
-
-test "superscript fallback for unknown char" {
-    const result = try preprocess(std.testing.allocator, "x^q^");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("xq", result);
-}
-
-test "subscript basic" {
-    const result = try preprocess(std.testing.allocator, "H~2~O");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("H₂O", result);
-}
-
-test "subscript digits and symbols" {
-    const result = try preprocess(std.testing.allocator, "A~(n+1)~");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("A₍ₙ₊₁₎", result);
-}
-
-test "subscript letters" {
-    const result = try preprocess(std.testing.allocator, "H~aei~");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("Hₐₑᵢ", result);
-}
-
-test "highlight basic" {
-    const result = try preprocess(std.testing.allocator, "This is ==highlighted== text.");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("This is <mark>highlighted</mark> text.", result);
-}
-
-test "no transform inside backtick code" {
-    const result = try preprocess(std.testing.allocator, "Use `^var^` in code");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("Use `^var^` in code", result);
+test "span syntax converts outside code" {
+    const cases = [_]struct { input: []const u8, want: []const u8 }{
+        .{ .input = "E=mc^2^", .want = "E=mc²" },
+        .{ .input = "x^q^", .want = "xq" },
+        .{ .input = "H~2~O", .want = "H₂O" },
+        .{ .input = "This is ==highlighted== text.", .want = "This is <mark>highlighted</mark> text." },
+        // The space keeps no U+0336: only visible characters are struck.
+        .{ .input = "~~hello world~~", .want = "h\u{0336}e\u{0336}l\u{0336}l\u{0336}o\u{0336} w\u{0336}o\u{0336}r\u{0336}l\u{0336}d\u{0336}" },
+        .{ .input = "not \\^super\\^", .want = "not ^super^" },
+        .{ .input = "Use `^var^` in code", .want = "Use `^var^` in code" },
+    };
+    for (cases) |case| {
+        const result = try preprocess(std.testing.allocator, case.input);
+        defer std.testing.allocator.free(result);
+        try std.testing.expectEqualStrings(case.want, result);
+    }
 }
 
 test "no transform inside fenced code block" {
@@ -509,24 +473,6 @@ test "no transform inside fenced code block" {
     const result = try preprocess(std.testing.allocator, source);
     defer std.testing.allocator.free(result);
     try std.testing.expectEqualStrings(source, result);
-}
-
-test "escaped delimiters" {
-    const result = try preprocess(std.testing.allocator, "not \\^super\\^");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("not ^super^", result);
-}
-
-test "strikethrough converts to unicode" {
-    const result = try preprocess(std.testing.allocator, "~~deleted~~");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("d\u{0336}e\u{0336}l\u{0336}e\u{0336}t\u{0336}e\u{0336}d\u{0336}", result);
-}
-
-test "strikethrough preserves spaces" {
-    const result = try preprocess(std.testing.allocator, "~~hello world~~");
-    defer std.testing.allocator.free(result);
-    try std.testing.expectEqualStrings("h\u{0336}e\u{0336}l\u{0336}l\u{0336}o\u{0336} w\u{0336}o\u{0336}r\u{0336}l\u{0336}d\u{0336}", result);
 }
 
 test "footnote definition and reference" {

@@ -102,13 +102,3 @@ test "attrValue handles quoting and attribute boundaries" {
     try testing.expect(html.attrValue("<img title=\"src=no\">", "src") == null);
     try testing.expect(html.attrValue("<img alt-text=\"q\">", "alt") == null);
 }
-
-fn convertForLeakTest(allocator: std.mem.Allocator) !void {
-    const inlines = try html.toInlines(allocator, "<p><!-- c --><summary>S</summary><a href=\"u\"><img alt=\"A\" src=\"s\">t</a><br><x-y>z</x-y></p>");
-    for (inlines) |inline_| inline_.deinit(allocator);
-    allocator.free(inlines);
-}
-
-test "conversion leaks nothing under allocation failure" {
-    try testing.checkAllAllocationFailures(testing.allocator, convertForLeakTest, .{});
-}

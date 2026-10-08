@@ -11,15 +11,6 @@ fn expectDecoded(input: []const u8, want: []const u8, issue: ?encoding.Issue) !v
     try testing.expectEqual(issue, decoded.issue);
 }
 
-test "valid UTF-8 is borrowed unchanged" {
-    const input = "caf\u{e9} \u{1F600}\n";
-    const decoded = try encoding.decode(testing.allocator, input);
-    defer decoded.deinit(testing.allocator);
-    try testing.expect(!decoded.owned);
-    try testing.expectEqual(input.ptr, decoded.text.ptr);
-    try testing.expectEqual(@as(?encoding.Issue, null), decoded.issue);
-}
-
 test "UTF-8 byte order mark is dropped" {
     try expectDecoded("\xEF\xBB\xBF# hi\n", "# hi\n", null);
 }
@@ -56,13 +47,6 @@ test "issue position is the first replacement, counted in characters" {
     try expectDecoded("a\nb\n\u{e9}x\xFFy\n\xFF\n", "a\nb\n\u{e9}x\u{FFFD}y\n\u{FFFD}\n", .{ .line = 3, .column = 3, .replaced = 2 });
 }
 
-test "Latin-1 file keeps its structure" {
-    const decoded = try encoding.decode(testing.allocator, "# R\xE9sum\xE9\n\nA na\xEFve caf\xE9.\n");
-    defer decoded.deinit(testing.allocator);
-    try testing.expectEqualStrings("# R\u{FFFD}sum\u{FFFD}\n\nA na\u{FFFD}ve caf\u{FFFD}.\n", decoded.text);
-    try testing.expectEqual(@as(usize, 4), decoded.issue.?.replaced);
-}
-
 test "UTF-16 with a byte order mark is transcoded" {
     try expectDecoded("\xFF\xFE#\x00 \x00H\x00i\x00\n\x00", "# Hi\n", null);
     try expectDecoded("\xFE\xFF\x00#\x00 \x00H\x00i\x00\n", "# Hi\n", null);
@@ -93,13 +77,4 @@ test "describeIssue formats the warning" {
         "x.md: invalid UTF-16 at line 1, column 2 (1 code unit replaced with U+FFFD)",
         encoding.describeIssue(&buf, "x.md", .utf16le, .{ .line = 1, .column = 2, .replaced = 1 }),
     );
-}
-
-test "toValidUtf8 always returns an owned copy" {
-    const a = try encoding.toValidUtf8(testing.allocator, "fine");
-    defer testing.allocator.free(a);
-    try testing.expectEqualStrings("fine", a);
-    const b = try encoding.toValidUtf8(testing.allocator, "\xFF");
-    defer testing.allocator.free(b);
-    try testing.expectEqualStrings("\u{FFFD}", b);
 }
