@@ -58,7 +58,10 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
     const sketch_val = chosen.sketch;
 
     for (sketch_val.edges) |e| if (!e.routed()) {
-        std.log.warn("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
+        const declared = graph.edgeById(e.origin);
+        const from = if (declared) |d| nodeRawId(graph, d.from) else "?";
+        const to = if (declared) |d| nodeRawId(graph, d.to) else "?";
+        std.log.warn("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.origin, from, to });
     };
 
     const raster_report = raster.rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {

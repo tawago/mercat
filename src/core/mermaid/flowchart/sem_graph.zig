@@ -51,6 +51,10 @@ pub const Edge = struct {
     stands_for: StandsFor = .arrow_free,
     crossings: u32 = 0,
     origin: EdgeId = SENTINEL,
+
+    pub fn declaredId(self: Edge) EdgeId {
+        return if (self.origin == SENTINEL) self.id else self.origin;
+    }
 };
 
 pub const StandsFor = prim.StandsFor;

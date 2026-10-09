@@ -118,6 +118,7 @@ const Loop = struct {
                     .label = orig.label,
                     .kind = orig.kind,
                     .role = .member_stroke,
+                    .origin = orig.declaredId(),
                 });
                 try polylines.append(self.a, poly);
             }

@@ -349,6 +349,7 @@ fn translateEdge(arena: std.mem.Allocator, e: sketch.EdgePath, at: Place) error{
         .label = e.label,
         .kind = e.kind,
         .role = e.role,
+        .origin = e.origin,
     };
 }
 

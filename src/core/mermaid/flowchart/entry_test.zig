@@ -109,3 +109,42 @@ test "cluster unification: two subgraph rails keep their own members through non
     try std.testing.expect(bundles[0].members[0] != bundles[1].members[0]);
     try std.testing.expect(bundles[0].members[1] != bundles[1].members[1]);
 }
+
+fn rawId(graph: entry.sem_graph.SemGraph, id: entry.NodeId) []const u8 {
+    for (graph.nodes) |n| if (n.id == id) return n.raw_id;
+    return "?";
+}
+
+test "declared identity: a clustered self-loop is named by its declared ends, not its stitched node ids" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a,
+        \\flowchart TD
+        \\A --> X
+        \\subgraph S
+        \\  P --> Q
+        \\  Q --> Q
+        \\end
+        \\X --> P
+        \\A --> C
+        \\A --> D
+        \\
+    );
+    const result = try select.resolvePermits(a, graph);
+    const chosen = try select.choose(a, graph, &result.plan, 120, .bridge);
+
+    var loops: usize = 0;
+    for (chosen.sketch.edges) |e| {
+        const declared = graph.edgeById(e.origin) orelse return error.UndeclaredOrigin;
+        if (e.from != e.to) continue;
+        loops += 1;
+        try std.testing.expectEqualStrings("Q", rawId(graph, declared.from));
+        try std.testing.expectEqualStrings("Q", rawId(graph, declared.to));
+        try std.testing.expect(!std.mem.eql(u8, "Q", rawId(graph, e.from)));
+    }
+    try std.testing.expectEqual(@as(usize, 1), loops);
+    for (chosen.sketch.rails) |rail| for (rail.taps) |tap| {
+        _ = graph.edgeById(tap.origin) orelse return error.UndeclaredOrigin;
+    };
+}

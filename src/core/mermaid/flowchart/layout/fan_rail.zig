@@ -169,6 +169,7 @@ pub fn build(
             .label = if (p.long) null else p.edge.label,
             .arrow = rt.mapArrow(if (fan_in) p.edge.arrow_from else p.edge.arrow_to),
             .continues = p.long,
+            .origin = p.edge.declaredId(),
         };
         min_x = @min(min_x, tx);
         max_x = @max(max_x, tx);
