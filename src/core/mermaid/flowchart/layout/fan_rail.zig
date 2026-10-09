@@ -139,9 +139,7 @@ pub fn build(
     const obstacle: i32 = if (fan_in) peer_line else pivot_p.rect.bottom() - 1;
     var labeled = false;
     for (resolved.peers) |p| {
-        if (p.edge.label) |lbl| {
-            if (lbl.len > 0) labeled = true;
-        }
+        if (p.edge.labelText() != null) labeled = true;
     }
     const label_lift: i32 = @intCast(fan_mod.LABEL_RUN_EXTRA_ROWS);
     const off: i32 = if (labeled and !fan_in and anchor - 2 - label_lift - delta > obstacle)

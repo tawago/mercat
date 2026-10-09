@@ -132,7 +132,7 @@ pub fn rowHasLabeledIncomingEdge(graph: sg.SemGraph, geom: []const NodeGeom, lg:
 
 fn edgeHasLabel(graph: sg.SemGraph, edge_id: sg.EdgeId) bool {
     const edge = graph.edgeById(edge_id) orelse return false;
-    return if (edge.label) |label| label.len > 0 else false;
+    return edge.labelText() != null;
 }
 
 fn centerRunOnDesired(geom: []NodeGeom, lg: sugiyama.LayeredGraph, row: []const u32, desired: []const i32) void {

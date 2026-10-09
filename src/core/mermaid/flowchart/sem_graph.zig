@@ -55,6 +55,11 @@ pub const Edge = struct {
     pub fn declaredId(self: Edge) EdgeId {
         return if (self.origin == SENTINEL) self.id else self.origin;
     }
+
+    pub fn labelText(self: Edge) ?[]const u8 {
+        const label = self.label orelse return null;
+        return if (label.len == 0) null else label;
+    }
 };
 
 pub const StandsFor = prim.StandsFor;
