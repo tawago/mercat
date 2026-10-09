@@ -16,6 +16,8 @@ pub const RasterizeError = error{
     LatticeAllocFailed,
 };
 
+pub const LabelPlan = labels_r.LabelPlan;
+
 pub const RasterReport = struct {
     lattice: lattice.Lattice,
     edge_cells_lost: u32 = 0,
