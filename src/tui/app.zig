@@ -24,7 +24,6 @@ const term_guard = @import("term_guard.zig");
 const event_loop = @import("event_loop.zig");
 const ctlseqs = vaxis.ctlseqs;
 
-const toast_duration_ms: i64 = 1400;
 /// How long a status-line message stays before the bar shows just the file.
 pub const message_duration_ms: i64 = 2000;
 /// Startup warnings and copy failures stay longer so they are not missed.
@@ -510,7 +509,7 @@ pub const App = struct {
         };
         self.clearToast();
         self.toast_message = message;
-        self.toast_deadline_ms = std.time.milliTimestamp() + toast_duration_ms;
+        self.toast_deadline_ms = std.time.milliTimestamp() + message_duration_ms;
     }
 
     fn clearToast(self: *App) void {

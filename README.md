@@ -157,9 +157,9 @@ a closed pipe (`mercat big.md | head -1`) exits 0 silently.
 
 The status line shows the file name on the left and the position on the
 right (`L 30-58/897 6%`, or `Top` / `Bot` / `All`); messages such as
-`Reloaded` or search counts appear next to the file name for 2 seconds,
-warnings (an invalid-UTF-8 or theme warning at startup or reload, a failed
-copy) for 5 seconds.
+`Reloaded`, `Copied "…"`, search counts or a failed reload appear next to
+the file name for 2 seconds, warnings (an invalid-UTF-8 or theme warning at
+startup or after a reload, a failed copy) for 5 seconds.
 
 Known issue: in a terminal that never answers the device-status query
 (`ESC [5n`), quitting or pressing `e` can hang
