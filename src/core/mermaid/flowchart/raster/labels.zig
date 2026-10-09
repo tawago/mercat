@@ -10,88 +10,123 @@ const log = std.log.scoped(.@"mermaid.raster.labels");
 
 pub const RasterError = error{OutOfMemory};
 
-pub const Report = struct {
-    placed: u32,
-    dropped: u32,
-    displaced: u32,
+pub const Omission = labels_edge.Omission;
+
+pub const LabelOwner = union(enum) {
+    edge: sketch.EdgeId,
+    tap: struct { rail: u32, edge: sketch.EdgeId },
+};
+
+pub const Form = enum { on_run, beside_run };
+
+pub const EdgeLabel = struct {
+    owner: LabelOwner,
+    origin: sketch.EdgeId,
+    form: ?Form,
+    first_choice: bool,
+    omitted: ?Omission,
+};
+
+pub const LabelPlan = struct {
+    edges: []const EdgeLabel = &.{},
+    node_dropped: u32 = 0,
+    cluster_dropped: u32 = 0,
+
+    pub fn omittedRouted(self: LabelPlan) u32 {
+        var n: u32 = 0;
+        for (self.edges) |e| {
+            if (e.omitted) |o| {
+                if (o != .unrouted_host) n += 1;
+            }
+        }
+        return n;
+    }
+
+    pub fn dropped(self: LabelPlan) u32 {
+        var n: u32 = self.node_dropped + self.cluster_dropped;
+        for (self.edges) |e| {
+            if (e.omitted != null) n += 1;
+        }
+        return n;
+    }
+
+    pub fn displaced(self: LabelPlan) u32 {
+        var n: u32 = 0;
+        for (self.edges) |e| {
+            if (e.form != null and !e.first_choice) n += 1;
+        }
+        return n;
+    }
 };
 
 const ELLIPSIS: u21 = 0x2026;
 
-const Tally = struct {
-    attempted: u32 = 0,
-    placed: u32 = 0,
-    displaced: u32 = 0,
+fn onRun(owner: LabelOwner, origin: sketch.EdgeId) EdgeLabel {
+    return .{ .owner = owner, .origin = origin, .form = .on_run, .first_choice = true, .omitted = null };
+}
 
-    fn record(self: *Tally, placement: labels_edge.Placement) void {
-        switch (placement) {
-            .at_anchor => self.placed += 1,
-            .displaced => {
-                self.placed += 1;
-                self.displaced += 1;
-            },
-            .dropped => {},
-        }
-    }
-};
+fn fromPlacement(owner: LabelOwner, origin: sketch.EdgeId, p: labels_edge.Placement) EdgeLabel {
+    return switch (p) {
+        .at_anchor => .{ .owner = owner, .origin = origin, .form = .beside_run, .first_choice = true, .omitted = null },
+        .displaced => .{ .owner = owner, .origin = origin, .form = .beside_run, .first_choice = false, .omitted = null },
+        .omitted => |o| .{ .owner = owner, .origin = origin, .form = null, .first_choice = false, .omitted = o },
+    };
+}
 
 pub fn rasterizeLabels(
     allocator: std.mem.Allocator,
     lat: *lattice.Lattice,
     s: sketch.Sketch,
-) RasterError!Report {
+) RasterError!LabelPlan {
     std.debug.assert(lat.glyphs.len == 0);
     var glyphs = lw.GlyphTable.init(allocator);
     errdefer glyphs.deinit();
 
-    var tally: Tally = .{};
+    var plan: LabelPlan = .{};
+    var edges: std.ArrayList(EdgeLabel) = .empty;
+    errdefer edges.deinit(allocator);
 
     for (s.nodes) |np| {
         if (np.lines.len == 0) continue;
-        tally.attempted += 1;
-        if (try placeNodeLabel(allocator, lat, np, &glyphs)) tally.placed += 1;
+        if (!try placeNodeLabel(allocator, lat, np, &glyphs)) plan.node_dropped += 1;
     }
 
     for (s.edges) |ep| {
         const lbl = ep.label orelse continue;
         if (lbl.len == 0) continue;
-        tally.attempted += 1;
+        const owner: LabelOwner = .{ .edge = ep.id };
         const run = try lw.prepare(allocator, &glyphs, lbl);
         if (labels_onrun.tryOnRunEdge(lat, s, ep, run)) {
-            tally.placed += 1;
+            try edges.append(allocator, onRun(owner, ep.origin));
             continue;
         }
-        tally.record(labels_edge.placeEdgeLabel(lat, ep, run));
+        try edges.append(allocator, fromPlacement(owner, ep.origin, labels_edge.placeEdgeLabel(lat, ep, run)));
     }
 
-    for (s.rails) |rail| {
+    for (s.rails, 0..) |rail, ri| {
         for (rail.taps) |tap| {
             const lbl = tap.label orelse continue;
             if (lbl.len == 0) continue;
-            tally.attempted += 1;
+            const owner: LabelOwner = .{ .tap = .{ .rail = @intCast(ri), .edge = tap.edge } };
             const run = try lw.prepare(allocator, &glyphs, lbl);
             if (labels_onrun.tryOnRunTap(lat, s, tap, run)) {
-                tally.placed += 1;
+                try edges.append(allocator, onRun(owner, tap.origin));
                 continue;
             }
             const seg = rail.tapLabelSeg(tap);
-            tally.record(labels_edge.placeLabelAtSeg(lat, tap.edge, run, seg[0], seg[1], false, &.{}));
+            const placed = labels_edge.placeLabelAtSeg(lat, tap.edge, run, seg[0], seg[1], false, &.{});
+            try edges.append(allocator, fromPlacement(owner, tap.origin, placed));
         }
     }
 
     for (s.clusters) |cf| {
         if (cf.label.len == 0) continue;
-        tally.attempted += 1;
-        if (try placeClusterLabel(allocator, lat, cf, &glyphs)) tally.placed += 1;
+        if (!try placeClusterLabel(allocator, lat, cf, &glyphs)) plan.cluster_dropped += 1;
     }
 
     lat.glyphs = try glyphs.finish();
-
-    return Report{
-        .placed = tally.placed,
-        .dropped = tally.attempted - tally.placed,
-        .displaced = tally.displaced,
-    };
+    plan.edges = try edges.toOwnedSlice(allocator);
+    return plan;
 }
 
 const Fitted = struct { text: []const u8, width: u32, truncated: bool };

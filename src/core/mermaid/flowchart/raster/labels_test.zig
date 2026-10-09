@@ -79,9 +79,8 @@ test "node label fits centered" {
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(u32, 0), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, 'H'), cellChar(lat, 2, 1));
     try testing.expectEqual(@as(u21, 'i'), cellChar(lat, 3, 1));
@@ -106,8 +105,8 @@ test "node label truncated ends in an ellipsis" {
     var s = emptySketch(10, 5, .TD);
     s.nodes = &nodes;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, 'H'), cellChar(lat, 1, 1));
     try testing.expectEqual(@as(u21, 'e'), cellChar(lat, 2, 1));
@@ -138,8 +137,8 @@ test "cluster label overwrites top border" {
     var s = emptySketch(12, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 2, 0));
     try testing.expectEqual(@as(u21, 'S'), cellChar(lat, 3, 0));
@@ -159,8 +158,8 @@ test "edge label fits above midpoint" {
     var s = emptySketch(10, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }
@@ -176,9 +175,66 @@ test "an edge label with no free cell is dropped" {
     var s = emptySketch(10, 1, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 0), report.placed);
-    try testing.expectEqual(@as(u32, 1), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 1), plan.dropped());
+    try testing.expectEqual(@as(usize, 1), plan.edges.len);
+    try testing.expectEqual(labels.Omission.no_room, plan.edges[0].omitted.?);
+    try testing.expectEqual(@as(u32, 1), plan.omittedRouted());
+}
+
+test "an edge label on an unrouted edge is omitted for its host, not for room" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var lat = try makeLattice(alloc, 10, 6);
+    var e = makeEdge(9, &.{}, "lbl");
+    e.origin = 4;
+    const edges = [_]sketch.EdgePath{e};
+    var s = emptySketch(10, 6, .LR);
+    s.edges = &edges;
+
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 1), plan.dropped());
+    try testing.expectEqual(@as(u32, 0), plan.omittedRouted());
+    try testing.expectEqual(labels.Omission.unrouted_host, plan.edges[0].omitted.?);
+    try testing.expectEqual(@as(u32, 9), plan.edges[0].owner.edge);
+    try testing.expectEqual(@as(u32, 4), plan.edges[0].origin);
+}
+
+test "a tap label set into its own dropper is recorded on-run at first choice" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var lat = try makeLattice(alloc, 12, 9);
+    const roles = [_]lattice.EdgeRole{ .fan_out_rail, .fan_out_dropper, .fan_out_dropper, .fan_out_dropper };
+    for (roles, 1..) |role, y| {
+        lat.at(5, @intCast(y)).* = .{
+            .occupant = .{ .edge_segment = .{ .edge = 7, .kind = .solid, .role = role } },
+            .neighbours = .{ .n = true, .s = true },
+        };
+    }
+    lat.at(5, 5).* = .{ .occupant = .{ .arrowhead = .{ .dir = .south, .edge = 7 } }, .neighbours = .{ .n = true } };
+
+    const taps = [_]sketch.Tap{.{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = 6 }, .label = "ok" }};
+    const stem = [_]sketch.Point{ .{ .x = 2, .y = 0 }, .{ .x = 2, .y = 1 } };
+    const rails = [_]sketch.Rail{.{
+        .pivot = 0,
+        .stem = &stem,
+        .crossbar = .{ .{ .x = 2, .y = 1 }, .{ .x = 8, .y = 1 } },
+        .taps = &taps,
+        .kind = .solid,
+        .role = .fan_out_dropper,
+    }};
+    var s = emptySketch(12, 9, .TD);
+    s.rails = &rails;
+
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
+    try testing.expectEqual(labels.Form.on_run, plan.edges[0].form.?);
+    try testing.expect(plan.edges[0].first_choice);
+    try testing.expectEqual(@as(u32, 0), plan.displaced());
 }
 
 test "vertical edge label paints at the exact prim anchor for both rail sides" {
@@ -198,9 +254,8 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
-        try testing.expectEqual(@as(u32, 1), report.placed);
-        try testing.expectEqual(@as(u32, 0), report.dropped);
+        const plan = try labels.rasterizeLabels(alloc, &lat, s);
+        try testing.expectEqual(@as(u32, 0), plan.dropped());
 
         const want = prim.edgeLabelAnchor(10, 2, 10, 6, label_w, .{});
         try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(want.x), @intCast(want.y)));
@@ -216,9 +271,8 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
         var s = emptySketch(20, 10, .LR);
         s.edges = &edges;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
-        try testing.expectEqual(@as(u32, 1), report.placed);
-        try testing.expectEqual(@as(u32, 0), report.dropped);
+        const plan = try labels.rasterizeLabels(alloc, &lat, s);
+        try testing.expectEqual(@as(u32, 0), plan.dropped());
 
         const want = prim.leftOfRailAnchor(10, 2, 10, 6, label_w);
         try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(want.x), @intCast(want.y)));
@@ -266,9 +320,12 @@ test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column 
     var s = emptySketch(30, 15, .TD);
     s.rails = &[_]sketch.Rail{rail};
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 2), report.placed);
-    try testing.expectEqual(@as(u32, 0), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
+    try testing.expectEqual(@as(usize, 2), plan.edges.len);
+    try testing.expectEqual(@as(u32, 1), plan.edges[0].owner.tap.edge);
+    try testing.expectEqual(@as(u32, 2), plan.edges[1].owner.tap.edge);
+    try testing.expectEqual(@as(u32, 0), plan.edges[1].owner.tap.rail);
 
     const off_seg = rail.tapLabelSeg(off_col_tap);
     const off_w = prim.displayWidth(off_col_tap.label.?);
@@ -297,9 +354,8 @@ test "edge label falls back below the segment when above is out of bounds" {
     var s = emptySketch(10, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
-    try testing.expectEqual(@as(u32, 0), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
     try testing.expectEqual(@as(u21, 'l'), cellChar(lat, 3, 1));
     try testing.expectEqual(@as(u21, 'b'), cellChar(lat, 4, 1));
 }
@@ -317,8 +373,8 @@ test "tryWrite rejects a pre-occupied primary-anchor cell as a real collision, n
 
     lat.at(3, 2).* = .{ .occupant = .{ .node_interior = 99 }, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 3, 2));
     try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));

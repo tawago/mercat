@@ -1,11 +1,8 @@
-const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
-
-const log = std.log.scoped(.@"mermaid.raster.labels");
 
 const Pass = enum { own_adjacent, own_nearest, any, any_solid };
 const passes = [4]Pass{ .own_adjacent, .own_nearest, .any, .any_solid };
@@ -33,16 +30,19 @@ pub fn pickMidSegment(poly: []const sketch.Point) ?SegPair {
     return null;
 }
 
-pub const Placement = enum { at_anchor, displaced, dropped };
+pub const Omission = enum { unrouted_host, no_room };
+
+pub const Placement = union(enum) { at_anchor, displaced, omitted: Omission };
 
 pub fn placeEdgeLabel(
     lat: *lattice.Lattice,
     ep: sketch.EdgePath,
     run: lw.Run,
 ) Placement {
-    if (ep.polyline.len < 2) return .dropped;
+    if (!ep.routed()) return .{ .omitted = .unrouted_host };
+    if (ep.polyline.len < 2) return .{ .omitted = .no_room };
 
-    const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
+    const seg_pair = pickMidSegment(ep.polyline) orelse return .{ .omitted = .no_room };
     return placeLabelAtSeg(lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
 }
 
@@ -73,11 +73,7 @@ pub fn placeLabelAtSeg(
         }
     }
 
-    log.debug(
-        "raster/labels: edge {d} has no space for label (len={d}); skipping",
-        .{ edge_id, run.width },
-    );
-    return .dropped;
+    return .{ .omitted = .no_room };
 }
 
 fn anchorFor(a: sketch.Point, b: sketch.Point, left_of_run: bool, label_w: u32) prim.LabelAnchor {
