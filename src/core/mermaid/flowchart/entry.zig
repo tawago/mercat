@@ -57,7 +57,7 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
     };
     const sketch_val = chosen.sketch;
 
-    for (sketch_val.edges) |e| if (select.isUnrouted(e)) {
+    for (sketch_val.edges) |e| if (!e.routed()) {
         std.log.warn("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
     };
 

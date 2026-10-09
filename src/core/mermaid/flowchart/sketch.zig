@@ -90,6 +90,10 @@ pub const EdgePath = struct {
     kind: EdgeKind,
     role: EdgeRole = .forward,
     label_left_of_run: bool = false,
+
+    pub fn routed(self: EdgePath) bool {
+        return self.polyline.len >= 2 or self.kind == .invisible;
+    }
 };
 
 pub const Tap = struct {

@@ -47,14 +47,10 @@ pub fn chooseIndex(
     return positions[try argmin(aa, routed, source_direction, subgraph_edges)];
 }
 
-pub fn isUnrouted(e: sketch_mod.EdgePath) bool {
-    return e.polyline.len < 2 and e.kind != .invisible;
-}
-
 pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
     var n: u32 = 0;
     for (s.edges) |e| {
-        if (isUnrouted(e)) n += 1;
+        if (!e.routed()) n += 1;
     }
     return n;
 }

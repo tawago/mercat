@@ -80,7 +80,7 @@ pub fn eval(
 ) !Score {
     const counts = blk: {
         const vr = try validate.validate(allocator, s);
-        break :blk validate.counts(vr, s);
+        break :blk validate.counts(vr);
     };
     const t1: u32 = counts.path_through_interior + counts.edge_unrouted;
 
