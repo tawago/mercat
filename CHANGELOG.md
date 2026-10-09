@@ -114,9 +114,9 @@ All notable changes to this project will be documented in this file.
   Before, it silently cut off its last entries on a 24-row terminal.
 - **Status line.** It spans the full width: the file name and any message on
   the left, the position on the right (`L 30-58/897 6%`, or `Top` / `Bot` /
-  `All`). Messages disappear after 2 seconds (5 seconds for
-  warnings such as invalid UTF-8 at startup or reload, and copy failures) and
-  never hide the position. Text is clipped by display width at character boundaries, so
+  `All`). Messages, `Copied "…"` and a failed reload disappear after 2
+  seconds; warnings (invalid UTF-8 at startup or after a reload, copy failures)
+  after 5 seconds. None hides the position. Text is clipped by display width at character boundaries, so
   wide (CJK) names no longer misalign the bar. A long search query shows its
   end (`…tail`) with the cursor right after it.
 - **Search.** `/` opens an incremental, smart-case search prompt in the status
