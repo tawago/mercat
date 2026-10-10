@@ -38,6 +38,14 @@ fn isCont(lat: lattice.Lattice, x: u32, y: u32) bool {
     };
 }
 
+fn stampRun(lat: *lattice.Lattice, edge: u32, x0: u32, x1: u32, y: u32) void {
+    var x = x0;
+    while (x <= x1) : (x += 1) lat.at(x, y).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } },
+        .neighbours = .{ .w = x > x0, .e = x < x1 },
+    };
+}
+
 fn emptySketch(bw: u32, bh: u32, dir: sketch.Direction) sketch.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = bw, .h = bh },
@@ -159,7 +167,8 @@ test "an edge label paints a wide scalar and an interned flag each as head + con
     const alloc = arena.allocator();
 
     var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
+    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 8, .y = 3 } };
+    stampRun(&lat, 42, 1, 8, 3);
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "\u{1F1EF}\u{1F1F5} 日")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
@@ -187,12 +196,13 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 5, .y = 3 } };
+    const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 6, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(5, &poly, "ab")};
     var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
     var lat = try makeLattice(alloc, 8, 4);
+    stampRun(&lat, 5, 3, 6, 3);
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     lat.at(3, 2).* = .{ .occupant = .label_cont, .neighbours = .{} };
 
@@ -200,6 +210,7 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     try testing.expectEqual(@as(u32, 1), plan.dropped());
 
     var free_lat = try makeLattice(alloc, 8, 4);
+    stampRun(&free_lat, 5, 3, 6, 3);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 
     const free_plan = try labels.rasterizeLabels(alloc, &free_lat, s);

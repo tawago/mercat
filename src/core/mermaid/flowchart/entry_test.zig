@@ -149,7 +149,7 @@ test "declared identity: a clustered self-loop is named by its declared ends, no
     };
 }
 
-test "omission report: a label with no room is warned once, by its declared edge and ends" {
+test "omission report: a label with no faithful place is warned once, by its declared edge and ends" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -166,7 +166,7 @@ test "omission report: a label with no room is warned once, by its declared edge
     var out: std.Io.Writer.Allocating = .init(a);
     try entry.writeOmissions(&out.writer, graph, chosen.cand.sketch, chosen.report.label_plan);
     try std.testing.expectEqualStrings(
-        "mermaid: label \"verified\" on edge 0 (A -> B) has no room and is not drawn\n",
+        "mermaid: label \"verified\" on edge 0 (A -> B) has no faithful place and is not drawn\n",
         out.written(),
     );
 }

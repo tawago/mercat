@@ -93,6 +93,7 @@ pub fn writeOmissions(w: *std.Io.Writer, graph: sem_graph.SemGraph, s: sketch.Sk
         const why = switch (el.omitted orelse continue) {
             .unrouted_host => continue,
             .no_room => "has no room",
+            .no_faithful_place => "has no faithful place",
         };
         const ends = declaredEnds(graph, el.origin);
         const text = if (graph.edgeById(el.origin)) |d| d.label orelse "" else "";

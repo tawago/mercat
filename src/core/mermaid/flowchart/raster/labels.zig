@@ -66,7 +66,6 @@ const Subject = struct {
     owner: LabelOwner,
     origin: sketch.EdgeId,
     hosts: []const labels_ink.Host,
-    polyline: []const sketch.Point,
     left_of_run: bool = false,
 };
 
@@ -79,11 +78,11 @@ fn placeEdgeLabel(lat: *lattice.Lattice, sub: Subject, run: lw.Run) EdgeLabel {
             return label;
         }
     }
-    if (labels_edge.beside(lat, sub.hosts, sub.polyline, run, sub.left_of_run)) {
-        label.form = .beside_run;
-        return label;
+    switch (labels_edge.beside(lat, sub.hosts, run, sub.left_of_run)) {
+        .placed => label.form = .beside_run,
+        .no_room => label.omitted = .no_room,
+        .no_faithful_place => label.omitted = .no_faithful_place,
     }
-    label.omitted = .no_room;
     return label;
 }
 
@@ -116,7 +115,7 @@ pub fn rasterizeLabels(
         }
         const hosts = try labels_ink.hosts(allocator, ep.id, .{ ep.from, ep.to }, ep.polyline);
         defer allocator.free(hosts);
-        const sub: Subject = .{ .owner = owner, .origin = ep.origin, .hosts = hosts, .polyline = ep.polyline, .left_of_run = ep.label_left_of_run };
+        const sub: Subject = .{ .owner = owner, .origin = ep.origin, .hosts = hosts, .left_of_run = ep.label_left_of_run };
         try edges.append(allocator, placeEdgeLabel(lat, sub, run));
     }
 
@@ -129,7 +128,7 @@ pub fn rasterizeLabels(
             const dropper = [2]sketch.Point{ tap.at, tap.landing };
             const hosts = try labels_ink.hosts(allocator, tap.edge, .{ rail.pivot, tap.node }, &dropper);
             defer allocator.free(hosts);
-            const sub: Subject = .{ .owner = owner, .origin = tap.origin, .hosts = hosts, .polyline = &dropper };
+            const sub: Subject = .{ .owner = owner, .origin = tap.origin, .hosts = hosts };
             try edges.append(allocator, placeEdgeLabel(lat, sub, run));
         }
     }
