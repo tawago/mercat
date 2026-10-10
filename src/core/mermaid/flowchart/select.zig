@@ -52,20 +52,31 @@ pub fn chooseIndex(
 
 /// What the sketch's raster shows of it: the counts the score prices.
 pub fn audit(aa: std.mem.Allocator, s: sketch_mod.Sketch, subgraph_edges: prim.SubgraphEdges) !score_mod.RasterCounts {
-    return countsOf(try raster.rasterize(aa, s, subgraph_edges));
+    return countsOf(aa, try raster.rasterize(aa, s, subgraph_edges));
 }
 
-fn countsOf(report: raster.RasterReport) score_mod.RasterCounts {
+fn countsOf(aa: std.mem.Allocator, report: raster.RasterReport) !score_mod.RasterCounts {
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
         .labels_omitted = report.label_plan.omittedRouted() + report.label_plan.node_dropped + report.label_plan.cluster_dropped,
         .edge_cells_lost = report.edge_cells_lost,
+        .heads_lost = report.heads_lost,
         .foreign_junction = report.crossings.foreign_junction_violation,
         .arrowhead_transit = report.crossings.arrowhead_transit_violation,
         .arrow_base = report.arrow_base.violations,
         .arm_into_head = report.arrow_base.lateral_arms,
+        .label_cells = try labelCells(aa, report.lattice),
     };
+}
+
+fn labelCells(aa: std.mem.Allocator, lat: @FieldType(raster.RasterReport, "lattice")) ![]const sketch_mod.Point {
+    var out: std.ArrayListUnmanaged(sketch_mod.Point) = .empty;
+    for (lat.cells, 0..) |c, i| switch (c.occupant) {
+        .label_char, .label_cont => try out.append(aa, .{ .x = @intCast(i % lat.width), .y = @intCast(i / lat.width) }),
+        else => {},
+    };
+    return out.items;
 }
 
 pub const Evaluation = struct {
@@ -83,7 +94,7 @@ pub fn evaluate(
     subgraph_edges: prim.SubgraphEdges,
 ) !Evaluation {
     const report = try raster.rasterize(aa, s, subgraph_edges);
-    const counts = countsOf(report);
+    const counts = try countsOf(aa, report);
     return .{ .counts = counts, .score = try score_mod.eval(aa, s, source_direction, index, counts), .report = report };
 }
 

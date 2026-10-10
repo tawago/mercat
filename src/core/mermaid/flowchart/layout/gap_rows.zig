@@ -1,5 +1,6 @@
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
+const prim = @import("prim");
 const pb = @import("../base/ledger.zig");
 const rail_closure = @import("../base/rail_closure.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -23,7 +24,7 @@ const edgeClaim = pack_mod.edgeClaim;
 const Census = census_mod.Census;
 const drawnByEligible = fans_mod.drawnByEligible;
 
-fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
+fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), label_room: bool, claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
         if (e.kind == .invisible or e.from == e.to or c.isReversed(e.id) or c.isPlacement(e)) continue;
         if (rail_closure.contains(bundles.discharged, e.id) or per_peer.contains(e.id)) continue;
@@ -45,9 +46,13 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
                 from_col = c.corridorColumn(si, ti, tcol, true);
                 if (from_col != scol) try claims.append(a, try edgeClaim(a, entry_gap, scol, from_col, .corridor_entry, .entry, e.arrow_from == .none, e.arrow_from != .none, e.id));
             };
+            const roomed = label_room and e.labelText() != null and !sharedArrival(c, e, tcol);
             if (from_col != tcol) {
-                try claims.append(a, try edgeClaim(a, exit_gap, from_col, tcol, if (from_col == scol) .run else .corridor_exit, .exit, e.arrow_to == .none and e.arrow_from == .none and from_col == scol, e.arrow_from != .none and from_col == scol, e.id));
-            } else if (e.arrow_to != .none) try posts.append(a, .{ .gap = exit_gap, .x = tcol });
+                var claim = try edgeClaim(a, exit_gap, from_col, tcol, if (from_col == scol) .run else .corridor_exit, .exit, e.arrow_to == .none and e.arrow_from == .none and from_col == scol, e.arrow_from != .none and from_col == scol, e.id);
+                if (roomed) claim.base_ok = false;
+                try claims.append(a, claim);
+            } else if (e.arrow_to != .none or roomed) try posts.append(a, .{ .gap = exit_gap, .x = tcol });
+            if (roomed) if (labelRoom(c, e, exit_gap, tcol, from_col == tcol)) |room| try claims.append(a, room);
             continue;
         }
         if (!c.flow_down) continue;
@@ -57,6 +62,24 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
             try claims.append(a, try edgeClaim(a, target_gap, corridor, tcol, .corridor_exit, .exit, e.arrow_to == .none, false, e.id));
         } else if (e.arrow_to != .none) try posts.append(a, .{ .gap = target_gap, .x = tcol });
     }
+}
+
+fn sharedArrival(c: Census, e: sg.Edge, tcol: i32) bool {
+    for (c.graph.edges) |o| {
+        if (o.id == e.id or o.to != e.to or o.kind == .invisible or o.from == o.to) continue;
+        if (c.portCol(o, .target_entry) == tcol) return true;
+    }
+    return false;
+}
+
+fn labelRoom(c: Census, e: sg.Edge, gap: u32, tcol: i32, straight: bool) ?Claim {
+    const label = e.labelText() orelse return null;
+    const w: i32 = @intCast(prim.displayWidth(label));
+    const along: u32 = if (c.graph.direction == .TD) 1 else @intCast(w);
+    const heads = @as(u32, @intFromBool(e.arrow_to != .none)) + @intFromBool(straight and e.arrow_from != .none);
+    const lo = if (c.graph.direction == .TD) tcol - @divTrunc(w - 1, 2) - 2 else tcol;
+    const hi = if (c.graph.direction == .TD) tcol + @divTrunc(w, 2) + 2 else tcol;
+    return .{ .gap = gap, .lo = lo, .hi = hi, .height = along + heads, .kind = .run, .pin = 0 };
 }
 
 fn fusedAnywhere(bundles: pb.RealizedBundles, edge: sg.EdgeId) bool {
@@ -114,6 +137,7 @@ pub fn buildPiece(
     bases: []const u32,
     supers: []const Super,
     departures: []const sg.NodeId,
+    label_room: bool,
 ) error{OutOfMemory}!Ledger {
     if (bases.len == 0) return .{};
     const c = try Census.init(a, graph, lg, geom, plan, supers, departures, bases.len);
@@ -133,7 +157,7 @@ pub fn buildPiece(
     try fans_mod.fanClaims(a, c, fans, eligible, bundles, &claims, &per_peer, &detours);
     try fans_mod.detourClaims(a, c, detours.items, &claims);
     try fans_mod.strokeClaims(a, c, fans, eligible, bundles, &claims);
-    try edgeClaims(a, c, fans, eligible, bundles, per_peer, &claims, &posts);
+    try edgeClaims(a, c, fans, eligible, bundles, per_peer, label_room, &claims, &posts);
     try returnClaims(a, c, &claims);
     try bridge.jogClaims(a, c, &claims);
     try departureClaims(a, c, &claims);

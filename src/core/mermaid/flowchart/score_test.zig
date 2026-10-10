@@ -58,6 +58,12 @@ test "tier ordering: t0 severity, then omission, then composite, then height, th
     omitting.t_omit.labels = 1;
     try t.expect(omitting.lessThan(mild_clip));
     try t.expect(fitting_but_ugly.lessThan(omitting));
+    var headless = base;
+    headless.t_omit.heads = 1;
+    try t.expect(fitting_but_ugly.lessThan(headless));
+    var both = omitting;
+    both.t_omit.heads = 1;
+    try t.expect(headless.lessThan(both));
     var worse = base;
     worse.t12_composite = 10;
     worse.t1_integrity = 7;
@@ -212,10 +218,12 @@ test "dead_space does not double-count cluster frames vs member nodes" {
         testNode(0, .{ .x = 2, .y = 1, .w = 4, .h = 3 }, 0),
     };
     const covered = testSketch(.{ .x = 0, .y = 0, .w = 10, .h = 5 }, &nodes, &.{}, &clusters);
-    try t.expectEqual(@as(u64, 0), try deadSpace(a, covered));
+    try t.expectEqual(@as(u64, 0), try deadSpace(a, covered, &.{}));
 
     const bare = testSketch(.{ .x = 0, .y = 0, .w = 10, .h = 5 }, &nodes, &.{}, &.{});
-    try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare));
+    try t.expectEqual(@as(u64, 50 - 12), try deadSpace(a, bare, &.{}));
+    const label = [_]sketch.Point{ .{ .x = 0, .y = 0 }, .{ .x = 1, .y = 0 }, .{ .x = 2, .y = 1 } };
+    try t.expectEqual(@as(u64, 50 - 12 - 2), try deadSpace(a, bare, &label));
 }
 
 test "a shared rail: its junction bends once per off-column tap, and it registers one crossing but never crosses itself" {

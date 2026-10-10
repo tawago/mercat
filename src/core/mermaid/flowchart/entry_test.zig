@@ -4,6 +4,7 @@ const ladder = @import("budget.zig");
 const entry = @import("entry.zig");
 const select = @import("select.zig");
 const parse = @import("parse.zig").parse;
+const sem_graph = @import("sem_graph.zig");
 
 test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -149,15 +150,15 @@ test "declared identity: a clustered self-loop is named by its declared ends, no
     };
 }
 
-test "omission report: a label with no faithful place is warned once, by its declared edge and ends" {
+test "omission report: an omitted label is warned once, by its declared edge and ends" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const graph = try parse(a,
         \\flowchart TD
-        \\    A[Start] -->|verified| B[Next]
-        \\    B -->|fail| C[Retry]
-        \\    C --> A
+        \\  A -->|left-source-label| T
+        \\  B -->|middle-source-label| T
+        \\  C -->|right-source-label| T
         \\
     );
     const result = try select.resolvePermits(a, graph);
@@ -166,7 +167,76 @@ test "omission report: a label with no faithful place is warned once, by its dec
     var out: std.Io.Writer.Allocating = .init(a);
     try entry.writeOmissions(&out.writer, graph, chosen.cand.sketch, chosen.report.label_plan);
     try std.testing.expectEqualStrings(
-        "mermaid: label \"verified\" on edge 0 (A -> B) has no faithful place and is not drawn\n",
+        "mermaid: label \"middle-source-label\" on edge 1 (B -> T) has no room and is not drawn\n",
         out.written(),
     );
+}
+
+fn chooseAt(a: std.mem.Allocator, source: []const u8, width: u32) !select.Chosen {
+    const graph = try parse(a, source);
+    const permits = try select.resolvePermits(a, graph);
+    const plan = try a.create(ledger.BundlePermits);
+    plan.* = permits.plan;
+    return select.choose(a, graph, plan, width, .bridge);
+}
+
+test "label room: a TD labelled edge between adjacent layers stays TD and holds its label on its own run, above the head" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source = "flowchart TD\n  A -->|carry| B\n";
+    const chosen = try chooseAt(a, source, 60);
+    try std.testing.expectEqual(sem_graph.Direction.TD, chosen.cand.sketch.direction);
+    try std.testing.expectEqual(@as(u32, 0), chosen.report.label_plan.dropped());
+    const out = (try entry.render(a, source, .{ .max_width = 60 })).output;
+    var rows: std.ArrayList([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, out, '\n');
+    while (it.next()) |row| try rows.append(a, row);
+    var at: usize = 0;
+    while (std.mem.indexOf(u8, rows.items[at], "carry") == null) at += 1;
+    try std.testing.expectEqual(@as(usize, 0), std.mem.indexOf(u8, rows.items[at], "carry").?);
+    const col = std.mem.indexOf(u8, rows.items[at - 1], "│").?;
+    try std.testing.expectEqual(col, std.mem.indexOf(u8, rows.items[at + 1], "│").?);
+    try std.testing.expectEqual(col, std.mem.indexOf(u8, rows.items[at + 2], "▼").?);
+    try std.testing.expect(std.mem.indexOf(u8, rows.items[at - 2], "┬") != null);
+}
+
+test "label room: an LR labelled edge between adjacent layers holds its label inline on its run" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const chosen = try chooseAt(a, "flowchart LR\n  A -->|carry| B\n", 60);
+    try std.testing.expectEqual(sem_graph.Direction.LR, chosen.cand.sketch.direction);
+    try std.testing.expectEqual(@as(u32, 0), chosen.report.label_plan.dropped());
+    const out = (try entry.render(a, "flowchart LR\n  A -->|carry| B\n", .{ .max_width = 60 })).output;
+    try std.testing.expect(std.mem.indexOf(u8, out, "├─carry─▶") != null);
+}
+
+test "label room: a labelled chain keeps every label in its declared direction" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lr = "graph LR\n  A -->|solid| B -.->|dotted| C ==>|thick| D\n";
+    const chosen = try chooseAt(a, lr, 90);
+    try std.testing.expectEqual(sem_graph.Direction.LR, chosen.cand.sketch.direction);
+    try std.testing.expectEqual(@as(u32, 0), chosen.report.label_plan.dropped());
+    const out = (try entry.render(a, lr, .{ .max_width = 90 })).output;
+    for ([_][]const u8{ "─solid─▶", "╌dotted╌▶", "═thick═▶" }) |run| try std.testing.expect(std.mem.indexOf(u8, out, run) != null);
+    const td = "graph TD\n  A[Start] -->|solid| B[Mid]\n  B -.->|dotted| C[Next]\n  C ==>|thick| D[End]\n";
+    for ([_]u32{ 60, 120 }) |w| {
+        const c = try chooseAt(a, td, w);
+        try std.testing.expectEqual(sem_graph.Direction.TD, c.cand.sketch.direction);
+        try std.testing.expectEqual(@as(u32, 0), c.report.label_plan.dropped());
+    }
+}
+
+test "label room: a merged arrival claims no room on the shared trunk" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source = "flowchart LR\n  A -->|ab| B\n  C -->|cd| B\n";
+    const chosen = try chooseAt(a, source, 120);
+    try std.testing.expectEqual(@as(u32, 0), chosen.report.label_plan.dropped());
+    const out = (try entry.render(a, source, .{ .max_width = 120 })).output;
+    try std.testing.expect(std.mem.indexOf(u8, out, "┴─▶") != null);
 }

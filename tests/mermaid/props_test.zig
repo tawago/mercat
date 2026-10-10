@@ -14,7 +14,7 @@ const widths = [_]u32{ 120, 48 };
 // Seeds whose render at some width in `widths` does not read back as
 // declared today. Each list below may only shrink: a seed that starts to
 // hold must leave its list, and no seed may join one.
-const known_lying = [_]u64{ 1, 4, 9, 14, 17, 19, 21, 23, 24, 30, 33, 36, 47, 50, 52, 54, 55, 56, 62, 64, 69, 75, 77, 80, 86, 87, 89, 90, 93, 94, 95, 98, 99, 108, 109, 110, 111, 112, 113, 117 };
+const known_lying = [_]u64{ 1, 4, 9, 14, 17, 19, 21, 23, 24, 30, 33, 36, 47, 50, 52, 54, 55, 56, 62, 64, 69, 75, 80, 86, 87, 89, 90, 93, 94, 95, 98, 99, 108, 109, 110, 111, 112, 113, 117 };
 
 // Seeds whose labelled drawing changes when only node ids change.
 const known_renaming = [_]u64{ 0, 17, 18, 19, 38, 46 };

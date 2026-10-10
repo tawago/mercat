@@ -21,6 +21,7 @@ const toCoord = geo.toCoord;
 
 pub const EdgeRasterReport = struct {
     cells_lost: u32 = 0,
+    heads_lost: u32 = 0,
     crossings: crossings.CrossingCounts = .{},
 };
 
@@ -431,11 +432,16 @@ fn writeHead(
     head: ?Head,
     cells_lost: *u32,
     ctx: crossings.Ctx,
-) void {
-    const h = head orelse return;
-    if (!pointInBounds(h.cell, lat)) return;
+) bool {
+    const h = head orelse return false;
+    if (!pointInBounds(h.cell, lat)) return false;
     const c = toCoord(h.cell);
-    writeArrowGuarded(lat.at(c.x, c.y), edge.id, edge.kind, arrow, h.dir, straightMask(h.dir), c.x, c.y, cells_lost, ctx);
+    const cell = lat.at(c.x, c.y);
+    writeArrowGuarded(cell, edge.id, edge.kind, arrow, h.dir, straightMask(h.dir), c.x, c.y, cells_lost, ctx);
+    return switch (cell.occupant) {
+        .arrowhead => |a| a.dir == h.dir,
+        else => false,
+    };
 }
 
 pub fn rasterizeEdges(
@@ -444,6 +450,7 @@ pub fn rasterizeEdges(
     subgraph_edges: prim.SubgraphEdges,
 ) EdgeRasterReport {
     var cells_lost: u32 = 0;
+    var heads_lost: u32 = 0;
     var cross_counts: crossings.CrossingCounts = .{};
     const ctx: crossings.Ctx = .{
         .sharing = s.sharing,
@@ -452,14 +459,15 @@ pub fn rasterizeEdges(
     };
 
     for (s.edges) |edge| {
-        const r = walkPolyline(lat, edge, railEnds(s, edge), &cells_lost, ctx);
-        writeHead(lat, edge, edge.arrow_to, r.target_head, &cells_lost, ctx);
-        writeHead(lat, edge, edge.arrow_from, r.source_head, &cells_lost, ctx);
+        const ends = railEnds(s, edge);
+        const r = walkPolyline(lat, edge, ends, &cells_lost, ctx);
+        if (!writeHead(lat, edge, edge.arrow_to, r.target_head, &cells_lost, ctx) and edge.arrow_to != .none and !ends.target) heads_lost += 1;
+        if (!writeHead(lat, edge, edge.arrow_from, r.source_head, &cells_lost, ctx) and edge.arrow_from != .none and !ends.source) heads_lost += 1;
     }
 
     fan_roles.resolveMasks(lat, s);
 
-    return .{ .cells_lost = cells_lost, .crossings = cross_counts };
+    return .{ .cells_lost = cells_lost, .heads_lost = heads_lost, .crossings = cross_counts };
 }
 
 test {

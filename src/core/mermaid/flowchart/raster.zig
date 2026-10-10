@@ -21,6 +21,7 @@ pub const LabelPlan = labels_r.LabelPlan;
 pub const RasterReport = struct {
     lattice: lattice.Lattice,
     edge_cells_lost: u32 = 0,
+    heads_lost: u32 = 0,
     labels_dropped: u32 = 0,
     labels_displaced: u32 = 0,
     label_plan: labels_r.LabelPlan = .{},
@@ -61,6 +62,7 @@ pub fn rasterize(
     return .{
         .lattice = lat,
         .edge_cells_lost = edge_report.cells_lost + rail_cells_lost,
+        .heads_lost = edge_report.heads_lost,
         .labels_dropped = label_plan.dropped(),
         .labels_displaced = label_plan.displaced(),
         .label_plan = label_plan,

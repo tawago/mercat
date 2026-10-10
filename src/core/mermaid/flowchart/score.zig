@@ -24,10 +24,12 @@ pub const RasterCounts = struct {
     labels_displaced: u32 = 0,
     labels_omitted: u32 = 0,
     edge_cells_lost: u32 = 0,
+    heads_lost: u32 = 0,
     foreign_junction: u32 = 0,
     arrowhead_transit: u32 = 0,
     arrow_base: u32 = 0,
     arm_into_head: u32 = 0,
+    label_cells: []const sketch.Point = &.{},
 };
 
 pub const W_FOREIGN_JUNCTION: u64 = 8192;
@@ -58,6 +60,11 @@ const W_LABEL_WRAPS: u64 = 2;
 pub const Omission = struct {
     relations: u32 = 0,
     labels: u32 = 0,
+    heads: u32 = 0,
+
+    pub fn silenced(o: Omission) u32 {
+        return o.labels + o.heads;
+    }
 };
 
 pub const Score = struct {
@@ -72,7 +79,7 @@ pub const Score = struct {
     pub fn lessThan(a: Score, b: Score) bool {
         if (a.t_omit.relations != b.t_omit.relations) return a.t_omit.relations < b.t_omit.relations;
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
-        if (a.t_omit.labels != b.t_omit.labels) return a.t_omit.labels < b.t_omit.labels;
+        if (a.t_omit.silenced() != b.t_omit.silenced()) return a.t_omit.silenced() < b.t_omit.silenced();
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
         return a.t4_index < b.t4_index;
@@ -92,7 +99,7 @@ pub fn eval(
     };
     const t1: u32 = counts.path_through_interior;
 
-    const dead = try geom.deadSpace(allocator, s);
+    const dead = try geom.deadSpace(allocator, s, raster.label_cells);
     const t2: u64 = W_DEAD_SPACE * dead +
         W_EDGE_STRETCH * geom.edgeStretch(s) +
         W_BENDS * geom.bends(s) +
@@ -105,7 +112,7 @@ pub fn eval(
 
     return .{
         .t0_fit = fitSeverity(s),
-        .t_omit = .{ .relations = unrouted(s), .labels = raster.labels_omitted },
+        .t_omit = .{ .relations = unrouted(s), .labels = raster.labels_omitted, .heads = raster.heads_lost },
         .t1_integrity = t1,
         .t2_legibility = t2,
         .t3_height = s.bbox.h,
