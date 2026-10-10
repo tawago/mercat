@@ -50,6 +50,7 @@ pub fn writeEdgeCell(
                 .edge = existing.edge,
                 .kind = existing.kind,
                 .role = mergeRole(existing.role, role),
+                .cohabit = if (existing.edge != edge_id) .joined else existing.cohabit,
             } };
             cell.neighbours = geo.orMask(cell.neighbours, extra);
         },
@@ -265,18 +266,22 @@ const EdgeWalkResult = struct {
     }
 };
 
-fn crossingKeepsFirstWriter(
-    cell: *const lattice.Cell,
+pub fn crossingKeepsFirstWriter(
+    cell: *lattice.Cell,
     incoming_edge: u32,
     incoming_mask: lattice.Neighbours,
     at: crossings.BundleCell,
     ctx: crossings.Ctx,
 ) bool {
-    return switch (cell.occupant) {
-        .edge_segment => |seg| ctx.segmentOverlap(seg.edge, cell.neighbours, incoming_edge, incoming_mask, at),
-        .arrowhead => |a| ctx.headEntry(a.edge, a.dir, incoming_edge, incoming_mask, at),
-        else => false,
-    };
+    switch (cell.occupant) {
+        .edge_segment => |*seg| {
+            if (!ctx.segmentOverlap(seg.edge, cell.neighbours, incoming_edge, incoming_mask, at)) return false;
+            if (seg.cohabit != .joined) seg.cohabit = if (crossings.isLegalCrossing(cell.neighbours, incoming_mask)) .crossed else .joined;
+            return true;
+        },
+        .arrowhead => |a| return ctx.headEntry(a.edge, a.dir, incoming_edge, incoming_mask, at),
+        else => return false,
+    }
 }
 
 fn claimCornerCell(
@@ -323,12 +328,15 @@ const EdgeWalk = struct {
             .edge_segment => |seg| {
                 const refused = seg.edge != edge.id and
                     self.ctx.segmentOverlap(seg.edge, cell.neighbours, edge.id, corner_mask, crossings.bundleCellAt(c.x, c.y));
-                if (!refused) {
+                if (refused) {
+                    cell.occupant.edge_segment.cohabit = .joined;
+                } else {
                     cell.neighbours = orMask(cell.neighbours, corner_mask);
                     cell.occupant = .{ .edge_segment = .{
                         .edge = seg.edge,
                         .kind = seg.kind,
                         .role = mergeRole(seg.role, edge.role),
+                        .cohabit = if (seg.edge != edge.id) .joined else seg.cohabit,
                     } };
                     fan_roles.markShared(cell, edge.id, edge.role);
                 }

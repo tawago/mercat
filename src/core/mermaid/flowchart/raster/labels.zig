@@ -96,7 +96,7 @@ pub fn rasterizeLabels(
         if (lbl.len == 0) continue;
         const owner: LabelOwner = .{ .edge = ep.id };
         const run = try lw.prepare(allocator, &glyphs, lbl);
-        if (labels_onrun.tryOnRunEdge(lat, s, ep, run)) {
+        if (labels_onrun.tryOnRunEdge(lat, ep, run)) {
             try edges.append(allocator, onRun(owner, ep.origin));
             continue;
         }
@@ -109,7 +109,7 @@ pub fn rasterizeLabels(
             if (lbl.len == 0) continue;
             const owner: LabelOwner = .{ .tap = .{ .rail = @intCast(ri), .edge = tap.edge } };
             const run = try lw.prepare(allocator, &glyphs, lbl);
-            if (labels_onrun.tryOnRunTap(lat, s, tap, run)) {
+            if (labels_onrun.tryOnRunTap(lat, rail, tap, run)) {
                 try edges.append(allocator, onRun(owner, tap.origin));
                 continue;
             }

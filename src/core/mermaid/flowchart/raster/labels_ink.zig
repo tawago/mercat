@@ -1,6 +1,7 @@
 const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const geo = @import("geometry.zig");
+const crossings = @import("crossings.zig");
 
 pub const InkClass = enum { none, own, foreign_edge, foreign_solid };
 
@@ -51,24 +52,49 @@ fn isLabelCell(lat: *const lattice.Lattice, x: i32, y: i32) bool {
 
 pub const Axis = enum { vertical, horizontal };
 
-pub fn straightRunRole(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32, axis: Axis) ?lattice.EdgeRole {
-    const cell = geo.cellAt(lat, x, y) orelse return null;
-    const seg = switch (cell.occupant) {
-        .edge_segment => |s| s,
-        else => return null,
-    };
-    if (seg.edge != edge_id) return null;
-    const n = cell.neighbours;
-    const straight = switch (axis) {
-        .vertical => n.n and n.s and !n.e and !n.w,
-        .horizontal => n.e and n.w and !n.n and !n.s,
-    };
-    return if (straight) seg.role else null;
+pub fn along(m: lattice.Neighbours, axis: Axis) bool {
+    return crossings.isStraightPair(m) and m.e == (axis == .horizontal);
 }
 
-pub fn plainRunCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32, axis: Axis) bool {
-    const role = straightRunRole(lat, edge_id, x, y, axis) orelse return false;
-    return role != .fan_out_rail and role != .fan_in_rail;
+pub const Host = struct {
+    edge: lattice.EdgeId,
+    ends: [2]lattice.NodeId,
+    axis: Axis,
+    lo: sketch.Point,
+    hi: sketch.Point,
+
+    fn onLine(self: Host, x: i32, y: i32) bool {
+        return switch (self.axis) {
+            .vertical => x == self.lo.x,
+            .horizontal => y == self.lo.y,
+        };
+    }
+
+    fn endsAt(self: Host, node: lattice.NodeId) bool {
+        return node == self.ends[0] or node == self.ends[1];
+    }
+};
+
+pub const Relation = enum { none, private, piercing, joined, rail_interior, foreign_run, own_box, foreign_box, frame, decoration, label };
+
+pub fn relationAt(lat: *const lattice.Lattice, h: Host, x: i32, y: i32) Relation {
+    const cell = geo.cellAt(lat, x, y) orelse return .none;
+    return switch (cell.occupant) {
+        .empty => .none,
+        .label_char, .label_cont => .label,
+        .arrowhead => .decoration,
+        .cluster_border => .frame,
+        .node_border => |b| if (h.endsAt(b.node)) .own_box else .foreign_box,
+        .node_interior => |n| if (h.endsAt(n)) .own_box else .foreign_box,
+        .edge_segment => |seg| if (seg.edge == h.edge) switch (seg.cohabit) {
+            .crossed => .piercing,
+            .joined => .joined,
+            .alone => if (seg.role == .fan_out_rail or seg.role == .fan_in_rail) .rail_interior else .private,
+        } else if (h.onLine(x, y) and crossings.isStraightPair(cell.neighbours) and !along(cell.neighbours, h.axis))
+            .piercing
+        else
+            .foreign_run,
+    };
 }
 
 pub fn spanIsolated(
