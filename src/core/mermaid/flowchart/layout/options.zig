@@ -18,6 +18,7 @@ pub const LayoutOptions = struct {
     justify: Justify = .center,
     spacing_scale: u8 = 0,
     bridge_build: prim.BridgeBuild = .plain,
+    label_room: bool = true,
 };
 
 pub const Justify = enum { center, flush_left };

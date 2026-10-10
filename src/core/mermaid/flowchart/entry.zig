@@ -2,6 +2,7 @@ const std = @import("std");
 const prim = @import("prim");
 const select = @import("select.zig");
 const raster = @import("raster.zig");
+const sketch = @import("sketch.zig");
 const paint = @import("paint.zig");
 
 pub const parse = @import("parse.zig").parse;
@@ -55,16 +56,13 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
         std.log.warn("mermaid/entry: ladder failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 ladder error");
     };
-    const sketch_val = chosen.sketch;
+    const sketch_val = chosen.cand.sketch;
+    const raster_report = chosen.report;
 
-    for (sketch_val.edges) |e| if (select.isUnrouted(e)) {
-        std.log.warn("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn", .{ e.id, nodeRawId(graph, e.from), nodeRawId(graph, e.to) });
-    };
-
-    const raster_report = raster.rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {
-        std.log.warn("mermaid rasterize failed: {s}", .{@errorName(err)});
-        return fallback(source, "v2 raster error");
-    };
+    var warnings: std.Io.Writer.Allocating = .init(aa);
+    writeOmissions(&warnings.writer, graph, sketch_val, raster_report.label_plan) catch {};
+    var lines = std.mem.tokenizeScalar(u8, warnings.written(), '\n');
+    while (lines.next()) |line| std.log.warn("{s}", .{line});
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
@@ -84,6 +82,28 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
         .is_fallback = false,
         .fallback_reason = null,
     };
+}
+
+pub fn writeOmissions(w: *std.Io.Writer, graph: sem_graph.SemGraph, s: sketch.Sketch, plan: raster.LabelPlan) std.Io.Writer.Error!void {
+    for (s.edges) |e| if (!e.routed()) {
+        const ends = declaredEnds(graph, e.origin);
+        try w.print("mermaid: edge {d} ({s} -> {s}) could not be routed without illegal ink and is not drawn\n", .{ e.origin, ends[0], ends[1] });
+    };
+    for (plan.edges) |el| {
+        const why = switch (el.omitted orelse continue) {
+            .unrouted_host => continue,
+            .no_room => "has no room",
+            .no_faithful_place => "has no faithful place",
+        };
+        const ends = declaredEnds(graph, el.origin);
+        const text = if (graph.edgeById(el.origin)) |d| d.label orelse "" else "";
+        try w.print("mermaid: label \"{s}\" on edge {d} ({s} -> {s}) {s} and is not drawn\n", .{ text, el.origin, ends[0], ends[1], why });
+    }
+}
+
+fn declaredEnds(graph: sem_graph.SemGraph, origin: EdgeId) [2][]const u8 {
+    const d = graph.edgeById(origin) orelse return .{ "?", "?" };
+    return .{ nodeRawId(graph, d.from), nodeRawId(graph, d.to) };
 }
 
 fn nodeRawId(graph: sem_graph.SemGraph, id: sem_graph.NodeId) []const u8 {

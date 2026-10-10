@@ -1,134 +1,97 @@
-const std = @import("std");
-const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
-const cover = @import("labels_cover.zig");
-const onrun_h = @import("labels_onrun_h.zig");
+const geo = @import("geometry.zig");
 
-pub fn tryOnRunEdge(
-    lat: *lattice.Lattice,
-    s: sketch.Sketch,
-    ep: sketch.EdgePath,
-    run: lw.Run,
-) bool {
-    if (ep.polyline.len < 2) return false;
-    const h_len = onrun_h.longestHorizontalInterior(ep.polyline);
-    const v_len = longestVerticalInterior(ep.polyline);
-    if (h_len > v_len) {
-        if (onrun_h.tryOnRunEdgeH(lat, s, ep, run)) return true;
-        return tryVerticalEdge(lat, s, ep, run);
-    }
-    if (tryVerticalEdge(lat, s, ep, run)) return true;
-    return onrun_h.tryOnRunEdgeH(lat, s, ep, run);
-}
-
-fn longestVerticalInterior(polyline: []const sketch.Point) u32 {
-    if (polyline.len < 2) return 0;
-    var best: u32 = 0;
-    for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
-        const q = polyline[i + 1];
-        if (p.x != q.x or p.y == q.y) continue;
-        const span: u32 = @intCast(@max(p.y, q.y) - @min(p.y, q.y));
-        if (span >= 1 and span - 1 > best) best = span - 1;
-    }
-    return best;
-}
-
-fn tryVerticalEdge(
-    lat: *lattice.Lattice,
-    s: sketch.Sketch,
-    ep: sketch.EdgePath,
-    run: lw.Run,
-) bool {
-    for (ep.polyline[0 .. ep.polyline.len - 1], 0..) |p, i| {
-        const q = ep.polyline[i + 1];
-        if (p.x != q.x or p.y == q.y) continue;
-        const owner: ink.Owner = .{ .edge_id = ep.id, .polyline = ep.polyline, .seg_a = p, .seg_b = q };
-        if (tryRun(lat, s, ep.id, p.x, @min(p.y, q.y) + 1, @max(p.y, q.y) - 1, run, owner)) return true;
-    }
-    return false;
-}
-
-pub fn tryOnRunTap(
-    lat: *lattice.Lattice,
-    s: sketch.Sketch,
-    tap: sketch.Tap,
-    run: lw.Run,
-) bool {
-    if (tap.at.x != tap.landing.x or tap.at.y == tap.landing.y) return false;
-    const owner: ink.Owner = .{ .edge_id = tap.edge, .polyline = &.{}, .seg_a = tap.at, .seg_b = tap.landing };
-    return tryRun(lat, s, tap.edge, tap.at.x, @min(tap.at.y, tap.landing.y) + 1, @max(tap.at.y, tap.landing.y) - 1, run, owner);
-}
-
-fn tryRun(
-    lat: *lattice.Lattice,
-    s: sketch.Sketch,
-    edge_id: u32,
-    x: i32,
-    y_lo: i32,
-    y_hi: i32,
-    run: lw.Run,
-    owner: ink.Owner,
-) bool {
-    if (y_lo > y_hi) return false;
+pub fn tryOnRun(lat: *lattice.Lattice, h: ink.Host, run: lw.Run) bool {
     if (run.cell_count == 0) return false;
-    const mid: i32 = @divTrunc(y_lo + y_hi, 2);
-    var d: i32 = 0;
-    while (mid - d >= y_lo or mid + d <= y_hi) : (d += 1) {
-        if (mid - d >= y_lo and tryAt(lat, s, edge_id, x, mid - d, run, owner)) return true;
-        if (d > 0 and mid + d <= y_hi and tryAt(lat, s, edge_id, x, mid + d, run, owner)) return true;
+    const cc: i32 = @intCast(run.cell_count);
+    const lo: i32, const hi: i32 = switch (h.axis) {
+        .vertical => .{ h.lo.y + 1, h.hi.y - 1 },
+        .horizontal => .{ h.lo.x + 2, h.hi.x - 1 - cc },
+    };
+    if (lo > hi) return false;
+    var it = ink.MiddleOut.init(lo, hi);
+    while (it.next()) |t| {
+        if (tryAt(lat, h, t, run)) return true;
     }
     return false;
 }
 
-fn tryAt(
-    lat: *lattice.Lattice,
-    s: sketch.Sketch,
-    edge_id: u32,
-    x: i32,
-    row: i32,
-    run: lw.Run,
-    owner: ink.Owner,
-) bool {
-    const cell_count = run.cell_count;
-    if (!privateDropperCell(lat, edge_id, x, row)) return false;
-    if (cover.coveredByOther(s, edge_id, x, row)) return false;
-    if (!ink.plainRunCell(lat, edge_id, x, row - 1, .vertical)) return false;
-    if (!ink.plainRunCell(lat, edge_id, x, row + 1, .vertical)) return false;
-
-    const cc: i32 = @intCast(cell_count);
-    const start_x: i32 = x - @divTrunc(cc - 1, 2);
-    if (row < 0 or @as(i64, row) >= lat.height) return false;
-    if (start_x < 0) return false;
-    const sx: u32 = @intCast(start_x);
-    const urow: u32 = @intCast(row);
-    if (sx + cell_count > lat.width) return false;
-
-    var i: u32 = 0;
-    while (i < cell_count) : (i += 1) {
-        const cx: i32 = start_x + @as(i32, @intCast(i));
-        if (cx == x) continue;
-        switch (lat.atConst(@intCast(cx), urow).occupant) {
-            .empty => {},
-            else => return false,
-        }
+fn tryAt(lat: *lattice.Lattice, h: ink.Host, t: i32, run: lw.Run) bool {
+    const cc: i32 = @intCast(run.cell_count);
+    const w: i64 = lat.width;
+    switch (h.axis) {
+        .vertical => {
+            const x = h.lo.x;
+            if (!privateRun(lat, h, x, t)) return false;
+            if (!privateRun(lat, h, x, t - 1) or !privateRun(lat, h, x, t + 1)) return false;
+            const start_x = x - @divTrunc(cc - 1, 2);
+            if (start_x < 0 or start_x + cc > w) return false;
+            var cx = start_x;
+            while (cx < start_x + cc) : (cx += 1) {
+                if (cx != x and lat.atConst(@intCast(cx), @intCast(t)).occupant != .empty) return false;
+            }
+            if (!stretchClear(lat, h, x, t - 1, 0, -1) or !stretchClear(lat, h, x, t + 1, 0, 1)) return false;
+            return place(lat, h, start_x, t, run);
+        },
+        .horizontal => {
+            const y = h.lo.y;
+            if (t < 1 or t + cc >= w) return false;
+            var cx = t - 1;
+            while (cx <= t + cc) : (cx += 1) {
+                if (!privateRun(lat, h, cx, y)) return false;
+            }
+            if (!stretchClear(lat, h, t - 1, y, -1, 0) or !stretchClear(lat, h, t + cc, y, 1, 0)) return false;
+            return place(lat, h, t, y, run);
+        },
     }
+}
 
-    if (!ink.spanIsolated(lat, owner, start_x, row, cell_count, false)) return false;
-
-    std.debug.assert(privateDropperCell(lat, edge_id, x, row));
-
-    lw.writeRun(lat, sx, urow, run);
-
+fn place(lat: *lattice.Lattice, h: ink.Host, start_x: i32, row: i32, run: lw.Run) bool {
+    const cc: i32 = @intCast(run.cell_count);
+    var cx = start_x;
+    while (cx < start_x + cc) : (cx += 1) {
+        if (touchesBox(lat, h, cx, row - 1) or touchesBox(lat, h, cx, row + 1)) return false;
+    }
+    for ([_]i32{ start_x - 3, start_x - 2, start_x - 1, start_x + cc, start_x + cc + 1, start_x + cc + 2 }, 0..) |lx, i| {
+        if (touchesBox(lat, h, lx, row)) return false;
+        if (i != 0 and i != 5 and ink.relationAt(lat, h, lx, row) == .label) return false;
+    }
+    lw.writeRun(lat, @intCast(start_x), @intCast(row), run);
     return true;
 }
 
-fn privateDropperCell(lat: *const lattice.Lattice, edge_id: u32, x: i32, y: i32) bool {
-    const role = ink.straightRunRole(lat, edge_id, x, y, .vertical) orelse return false;
-    return role == .fan_out_dropper or role == .fan_in_dropper;
+fn privateRun(lat: *const lattice.Lattice, h: ink.Host, x: i32, y: i32) bool {
+    const cell = geo.cellAt(lat, x, y) orelse return false;
+    return ink.relationAt(lat, h, x, y) == .private and ink.along(cell.neighbours, h.axis);
+}
+
+fn touchesBox(lat: *const lattice.Lattice, h: ink.Host, x: i32, y: i32) bool {
+    return switch (ink.relationAt(lat, h, x, y)) {
+        .foreign_box, .frame => true,
+        else => false,
+    };
+}
+
+fn stretchClear(lat: *const lattice.Lattice, h: ink.Host, x0: i32, y0: i32, dx: i32, dy: i32) bool {
+    var x = x0;
+    var y = y0;
+    while (geo.cellAt(lat, x, y)) |cell| : ({
+        x += dx;
+        y += dy;
+    }) {
+        if (cell.occupant != .edge_segment) return true;
+        const rel = ink.relationAt(lat, h, x, y);
+        if (rel == .piercing) continue;
+        if (rel == .rail_interior) return true;
+        if (@popCount(cell.neighbours.toMask()) >= 3 or !ink.along(cell.neighbours, h.axis)) return true;
+        if (rel != .private) return false;
+    }
+    return true;
 }
 
 test {
     _ = @import("labels_onrun_test.zig");
+    _ = @import("labels_onrun_h_test.zig");
 }

@@ -126,3 +126,27 @@ test "mergeRole: rail beats dropper beats routing roles; a same-tier arrival kee
     };
     for (rows) |r| try testing.expectEqual(r[2], edges.mergeRole(r[0], r[1]));
 }
+
+test "a joined cell stays joined under a later legal crossing; a crossed cell a later writer joins becomes joined" {
+    var counts: crossings.CrossingCounts = .{};
+    const ctx: crossings.Ctx = .{ .counts = &counts };
+    const at = crossings.bundleCellAt(1, 1);
+    const H: lattice.Neighbours = .{ .e = true, .w = true };
+    const V: lattice.Neighbours = .{ .n = true, .s = true };
+
+    var joined: lattice.Cell = .{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid, .cohabit = .joined } },
+        .neighbours = H,
+    };
+    try testing.expect(edges.crossingKeepsFirstWriter(&joined, 9, V, at, ctx));
+    try testing.expectEqual(lattice.Cohabit.joined, joined.occupant.edge_segment.cohabit);
+
+    var crossed: lattice.Cell = .{
+        .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
+        .neighbours = H,
+    };
+    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 9, V, at, ctx));
+    try testing.expectEqual(lattice.Cohabit.crossed, crossed.occupant.edge_segment.cohabit);
+    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 7, H, at, ctx));
+    try testing.expectEqual(lattice.Cohabit.joined, crossed.occupant.edge_segment.cohabit);
+}

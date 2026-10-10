@@ -89,11 +89,13 @@ pub fn run(
     var opts = optionsFor(rung, max_width);
     opts.bundle_permits = bundle_permits;
     opts.bridge_build = transform.bridgeBuild();
-    return .{
-        .rung = rung,
-        .sketch = try recurse.layoutPieces(arena, rotateForRung(graph, rung), opts),
-        .transform = transform,
-    };
+    const g = rotateForRung(graph, rung);
+    var s = try recurse.layoutPieces(arena, g, opts);
+    if (hasWidthOverflow(s.diagnostics)) {
+        opts.label_room = false;
+        s = try recurse.layoutPieces(arena, g, opts);
+    }
+    return .{ .rung = rung, .sketch = s, .transform = transform };
 }
 
 pub fn runForced(

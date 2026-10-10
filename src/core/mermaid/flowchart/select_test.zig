@@ -74,16 +74,16 @@ test "a clustered render's rail bundles come from its piece plan and survive the
     const permits = (try permits_mod.build(a, g, .joined)).plan;
     const winner = try select.choose(a, g, &permits, 120, .bridge);
 
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.sharing.realized.selected_bundles.len);
-    const rail = winner.sketch.sharing.realized.selected_bundles[0];
+    try std.testing.expectEqual(@as(usize, 1), winner.cand.sketch.sharing.realized.selected_bundles.len);
+    const rail = winner.cand.sketch.sharing.realized.selected_bundles[0];
     try std.testing.expectEqual(@as(usize, 3), rail.members.len);
-    try std.testing.expect(winner.sketch.sharing.bundles.len > 0);
-    for (winner.sketch.sharing.bundles) |set| {
+    try std.testing.expect(winner.cand.sketch.sharing.bundles.len > 0);
+    for (winner.cand.sketch.sharing.bundles) |set| {
         try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
     var plan_sets: usize = 0;
-    for (winner.sketch.sharing.bundles) |set| {
+    for (winner.cand.sketch.sharing.bundles) |set| {
         if (set.origin != .selected_bundle) continue;
         plan_sets += 1;
         try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, set.members);
@@ -117,14 +117,16 @@ test "the audit prices the raster that ships: the subgraph-edge mode changes the
     const permits = try permitsFor(a, g);
     const winner = try select.choose(a, g, &permits, 90, .cross);
 
-    const shipped = try raster.rasterize(a, winner.sketch, .cross);
-    const priced = try select.audit(a, winner.sketch, .cross);
+    const shipped = winner.report;
+    const priced = try select.audit(a, winner.cand.sketch, .cross);
+    const redrawn = try raster.rasterize(a, winner.cand.sketch, .cross);
+    try std.testing.expectEqualDeep(redrawn.lattice.cells, shipped.lattice.cells);
     try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
     try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
     try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
     try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
 
-    const counterfactual = try select.audit(a, winner.sketch, .bridge);
+    const counterfactual = try select.audit(a, winner.cand.sketch, .bridge);
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 
@@ -263,39 +265,67 @@ test "bridge variants: a clustered graph enumerates dodged/railed twins behind t
     try std.testing.expect(first_bridge > last_raw);
 }
 
-test "a candidate with an unrouted visible edge is filtered out before scoring" {
+fn unroute(a: std.mem.Allocator, s: sketch_mod.Sketch, edge: usize) !sketch_mod.Sketch {
+    var out = s;
+    const edges = try a.dupe(sketch_mod.EdgePath, s.edges);
+    edges[edge].polyline = &.{};
+    out.edges = edges;
+    return out;
+}
+
+fn clip(s: sketch_mod.Sketch) sketch_mod.Sketch {
+    var out = s;
+    out.budget.max_width = s.bbox.w - 1;
+    return out;
+}
+
+test "a clipped candidate that routes everything beats a fitting one with an unrouted edge" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
     const set = try select.enumerateAll(a, g, testBundlePermits(), 120);
-    try std.testing.expect(set.len >= 2);
-    for (set) |cand| try std.testing.expectEqual(@as(u32, 0), select.unroutedEdges(cand.sketch));
-    try std.testing.expectEqual(set.len, (try select.routedPositions(a, set)).len);
+    const natural = set[@intFromEnum(ladder.Rung.natural)];
 
-    const forged = try a.dupe(ladder.Candidate, set);
-    const edges = try a.dupe(@TypeOf(forged[1].sketch.edges[0]), forged[1].sketch.edges);
-    edges[0].polyline = &.{};
-    forged[1].sketch.edges = edges;
-    try std.testing.expectEqual(@as(u32, 1), select.unroutedEdges(forged[1].sketch));
-    const survivors = try select.routedPositions(a, forged);
-    try std.testing.expectEqual(forged.len - 1, survivors.len);
-    try std.testing.expectEqual(@as(usize, 0), survivors[0]);
-    for (survivors) |position| try std.testing.expect(position != 1);
+    const cands = [_]ladder.Candidate{
+        .{ .rung = .natural, .sketch = clip(natural.sketch), .transform = .raw },
+        .{ .rung = .tight, .sketch = try unroute(a, natural.sketch, 0), .transform = .raw },
+    };
+    const clipped = (try select.evaluate(a, cands[0].sketch, .TD, 0, .bridge)).score;
+    const omitting = (try select.evaluate(a, cands[1].sketch, .TD, 1, .bridge)).score;
+    try std.testing.expect(clipped.t0_fit > 0);
+    try std.testing.expectEqual(@as(u32, 1), omitting.t_omit.relations);
+    try std.testing.expectEqual(@as(usize, 0), try select.chooseIndex(a, &cands, .TD, .bridge));
 }
 
-test "when no candidate routes, the choice is the first raw rung that fits" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-    const g = try parse(a, "flowchart TD\n  A --> B\n  B --> C\n");
-    const set = try a.dupe(ladder.Candidate, try select.enumerateAll(a, g, testBundlePermits(), 120));
-    for (set) |*cand| {
-        const edges = try a.dupe(@TypeOf(cand.sketch.edges[0]), cand.sketch.edges);
-        for (edges) |*e| e.polyline = &.{};
-        cand.sketch.edges = edges;
-    }
-    try std.testing.expectEqual(@as(usize, 0), (try select.routedPositions(a, set)).len);
-    try std.testing.expectEqual(ladder.firstFitIndex(set), try select.chooseIndex(a, set, g.direction, .bridge));
-    try std.testing.expectEqual(@as(usize, 0), try select.chooseIndex(a, set, g.direction, .bridge));
+test "fewer omitted labels beat a lower composite, and an unrouted relation outranks labels" {
+    const keeping: score_mod.Score = .{ .t0_fit = 0, .t1_integrity = 0, .t2_legibility = 0, .t3_height = 0, .t4_index = 1, .t12_composite = 1_000_000 };
+    var dropping = keeping;
+    dropping.t4_index = 0;
+    dropping.t12_composite = 0;
+    dropping.t_omit.labels = 1;
+    try std.testing.expect(keeping.lessThan(dropping));
+    try std.testing.expect(score_mod.displacesNatural(keeping, dropping));
+
+    var unrouting = keeping;
+    unrouting.t_omit.relations = 1;
+    var labelless = keeping;
+    labelless.t_omit.labels = 5;
+    try std.testing.expect(labelless.lessThan(unrouting));
+
+    var clipped = keeping;
+    clipped.t0_fit = 1;
+    try std.testing.expect(clipped.lessThan(unrouting));
+    try std.testing.expect(labelless.lessThan(clipped));
+}
+
+test "the natural margin never keeps natural over a candidate with fewer omissions" {
+    const natural: score_mod.Score = .{ .t0_fit = 0, .t_omit = .{ .labels = 1 }, .t1_integrity = 0, .t2_legibility = 0, .t3_height = 0, .t4_index = 0, .t12_composite = 1000 };
+    var close = natural;
+    close.t4_index = 1;
+    close.t_omit = .{};
+    close.t12_composite = natural.t12_composite + score_mod.NATURAL_PREFERENCE_MARGIN * 4;
+    try std.testing.expect(score_mod.displacesNatural(close, natural));
+    close.t12_composite = natural.t12_composite - 1;
+    try std.testing.expect(score_mod.displacesNatural(close, natural));
 }

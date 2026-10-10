@@ -100,7 +100,7 @@ fn buildSketch(
     const predicted_ports = try port_plan.predict(a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active);
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
-    const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
+    const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures, opts.label_room);
     restack(lg, geom, layer_h, v_sp_per_gap, rows);
 
     mirror.applyDirection(geom, graph.direction);

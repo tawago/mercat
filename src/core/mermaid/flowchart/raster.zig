@@ -16,11 +16,15 @@ pub const RasterizeError = error{
     LatticeAllocFailed,
 };
 
+pub const LabelPlan = labels_r.LabelPlan;
+
 pub const RasterReport = struct {
     lattice: lattice.Lattice,
     edge_cells_lost: u32 = 0,
+    heads_lost: u32 = 0,
     labels_dropped: u32 = 0,
     labels_displaced: u32 = 0,
+    label_plan: labels_r.LabelPlan = .{},
     crossings: crossings_r.CrossingCounts = .{},
     arrow_base: arrow_base_r.ArrowBaseCounts = .{},
 };
@@ -53,13 +57,15 @@ pub fn rasterize(
     const rail_cells_lost = rails_r.rasterizeRails(&lat, s);
     const edge_report = edges_r.rasterizeEdges(&lat, s, subgraph_edges);
     reconcile.reconcileNeighbours(&lat);
-    const label_report = try labels_r.rasterizeLabels(allocator, &lat, s);
+    const label_plan = try labels_r.rasterizeLabels(allocator, &lat, s);
 
     return .{
         .lattice = lat,
         .edge_cells_lost = edge_report.cells_lost + rail_cells_lost,
-        .labels_dropped = label_report.dropped,
-        .labels_displaced = label_report.displaced,
+        .heads_lost = edge_report.heads_lost,
+        .labels_dropped = label_plan.dropped(),
+        .labels_displaced = label_plan.displaced(),
+        .label_plan = label_plan,
         .crossings = edge_report.crossings,
         .arrow_base = arrow_base_r.validate(&lat),
     };

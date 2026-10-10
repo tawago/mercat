@@ -175,17 +175,8 @@ pub fn fanClaims(
 fn labelsCollide(taps: []const i32, widths: []const u32) bool {
     for (taps, widths, 0..) |cx, width, i| {
         if (width == 0) continue;
-        const w: i32 = @intCast(width);
-        const left = cx - @divTrunc(w - 1, 2);
-        const right = cx + @divTrunc(w, 2);
         for (taps, widths, 0..) |qx, qwidth, j| {
-            if (i == j) continue;
-            if (qwidth != 0) {
-                const qw: i32 = @intCast(qwidth);
-                const q_left = qx - @divTrunc(qw - 1, 2);
-                const q_right = qx + @divTrunc(qw, 2);
-                if (!(right + 3 <= q_left or q_right + 3 <= left)) return true;
-            } else if (left - 2 < qx and qx < right + 2) return true;
+            if (i != j and fan_mod.labelsOverlap(cx, width, qx, qwidth)) return true;
         }
     }
     return false;

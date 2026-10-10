@@ -206,7 +206,7 @@ test "an emoji node box closes at the same column on every row" {
     _ = try r.boxLabelled("🔥 Hot");
 }
 
-test "an emoji-labelled return rail runs straight down under its corner" {
+test "an emoji-labelled return rail runs straight down under its corner, through its own label" {
     const r = try renderFramed(
         "flowchart TD\n    A[Start] -->|🚀 go| B[Next]\n    B -->|✅ ok| C[Done]\n    C -->|🔥| A\n",
         3,
@@ -231,6 +231,7 @@ test "an emoji-labelled return rail runs straight down under its corner" {
     while (y < r.lines.len) : (y += 1) {
         const g = glyphAt(r.lines[y], col) orelse "";
         if (std.mem.eql(u8, g, "┘")) return;
+        if (std.mem.eql(u8, g, "🔥")) continue;
         if (!std.mem.eql(u8, g, "│")) {
             std.debug.print(
                 "\nthe rail corner `┐` sits at column {d} on row {d}, but row {d} holds \"{s}\" there:\n{s}\n",

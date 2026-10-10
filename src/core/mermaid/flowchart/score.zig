@@ -22,19 +22,20 @@ pub const W_INTEGRITY: u64 = 20480;
 pub const RasterCounts = struct {
     labels_dropped: u32 = 0,
     labels_displaced: u32 = 0,
+    labels_omitted: u32 = 0,
     edge_cells_lost: u32 = 0,
+    heads_lost: u32 = 0,
     foreign_junction: u32 = 0,
     arrowhead_transit: u32 = 0,
     arrow_base: u32 = 0,
     arm_into_head: u32 = 0,
+    label_cells: []const sketch.Point = &.{},
 };
 
 pub const W_FOREIGN_JUNCTION: u64 = 8192;
 pub const W_ARROWHEAD_TRANSIT: u64 = 8192;
 pub const W_ARROW_BASE: u64 = 4096;
 pub const W_ARM_INTO_HEAD: u64 = 8192;
-
-pub const W_LABEL_DROP: u64 = 4096;
 
 pub const W_CELL_LOST: u64 = 512;
 
@@ -45,6 +46,7 @@ pub const NATURAL_PREFERENCE_MARGIN: u64 = 128;
 pub fn displacesNatural(challenger: Score, natural: Score) bool {
     if (!challenger.lessThan(natural)) return false;
     if (challenger.t0_fit != natural.t0_fit) return true;
+    if (!std.meta.eql(challenger.t_omit, natural.t_omit)) return true;
     if (challenger.t12_composite == natural.t12_composite) return true;
     return natural.t12_composite - challenger.t12_composite >= NATURAL_PREFERENCE_MARGIN;
 }
@@ -55,8 +57,19 @@ const W_BENDS: u64 = 2;
 const W_CROSSINGS: u64 = 1;
 const W_LABEL_WRAPS: u64 = 2;
 
+pub const Omission = struct {
+    relations: u32 = 0,
+    labels: u32 = 0,
+    heads: u32 = 0,
+
+    pub fn silenced(o: Omission) u32 {
+        return o.labels + o.heads;
+    }
+};
+
 pub const Score = struct {
     t0_fit: u32,
+    t_omit: Omission = .{},
     t1_integrity: u32,
     t2_legibility: u64,
     t3_height: u32,
@@ -64,7 +77,9 @@ pub const Score = struct {
     t12_composite: u64,
 
     pub fn lessThan(a: Score, b: Score) bool {
+        if (a.t_omit.relations != b.t_omit.relations) return a.t_omit.relations < b.t_omit.relations;
         if (a.t0_fit != b.t0_fit) return a.t0_fit < b.t0_fit;
+        if (a.t_omit.silenced() != b.t_omit.silenced()) return a.t_omit.silenced() < b.t_omit.silenced();
         if (a.t12_composite != b.t12_composite) return a.t12_composite < b.t12_composite;
         if (a.t3_height != b.t3_height) return a.t3_height < b.t3_height;
         return a.t4_index < b.t4_index;
@@ -80,11 +95,11 @@ pub fn eval(
 ) !Score {
     const counts = blk: {
         const vr = try validate.validate(allocator, s);
-        break :blk validate.counts(vr, s);
+        break :blk validate.counts(vr);
     };
-    const t1: u32 = counts.path_through_interior + counts.edge_unrouted;
+    const t1: u32 = counts.path_through_interior;
 
-    const dead = try geom.deadSpace(allocator, s);
+    const dead = try geom.deadSpace(allocator, s, raster.label_cells);
     const t2: u64 = W_DEAD_SPACE * dead +
         W_EDGE_STRETCH * geom.edgeStretch(s) +
         W_BENDS * geom.bends(s) +
@@ -97,12 +112,12 @@ pub fn eval(
 
     return .{
         .t0_fit = fitSeverity(s),
+        .t_omit = .{ .relations = unrouted(s), .labels = raster.labels_omitted, .heads = raster.heads_lost },
         .t1_integrity = t1,
         .t2_legibility = t2,
         .t3_height = s.bbox.h,
         .t4_index = candidate_index,
         .t12_composite = scale * t2 + W_INTEGRITY * @as(u64, t1) +
-            W_LABEL_DROP * @as(u64, raster.labels_dropped) +
             W_LABEL_DISPLACED * @as(u64, raster.labels_displaced) +
             W_CELL_LOST * @as(u64, raster.edge_cells_lost) +
             W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
@@ -110,6 +125,14 @@ pub fn eval(
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
             W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head),
     };
+}
+
+pub fn unrouted(s: sketch.Sketch) u32 {
+    var n: u32 = 0;
+    for (s.edges) |e| {
+        if (!e.routed()) n += 1;
+    }
+    return n;
 }
 
 pub fn fitSeverity(s: sketch.Sketch) u32 {

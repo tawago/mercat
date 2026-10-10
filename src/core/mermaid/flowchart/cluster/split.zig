@@ -282,7 +282,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
                 .arrow_from = e.arrow_from,
                 .arrow_to = e.arrow_to,
                 .label = e.label,
-                .origin = originOf(e),
+                .origin = e.declaredId(),
             });
             const rf = outerRepr(graph, supers, orig.items, e.from);
             const rt = outerRepr(graph, supers, orig.items, e.to);
@@ -327,10 +327,6 @@ fn sameCluster(a: ?sg.ClusterId, b: ?sg.ClusterId) bool {
     return a != null and b != null and a.? == b.?;
 }
 
-fn originOf(e: sg.Edge) sg.EdgeId {
-    return if (e.origin == sg.SENTINEL) e.id else e.origin;
-}
-
 fn withoutRoot(cluster: ?sg.ClusterId, root: sg.ClusterId) ?sg.ClusterId {
     return if (cluster == root) null else cluster;
 }
@@ -349,7 +345,7 @@ fn pieceEdge(e: sg.Edge, id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge 
         .arrow_to = e.arrow_to,
         .label = e.label,
         .stands_for = e.stands_for,
-        .origin = originOf(e),
+        .origin = e.declaredId(),
     };
 }
 

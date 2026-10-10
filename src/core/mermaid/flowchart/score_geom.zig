@@ -1,7 +1,7 @@
 const std = @import("std");
 const sketch = @import("sketch.zig");
 
-pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch) !u64 {
+pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch, label_cells: []const sketch.Point) !u64 {
     const w: u64 = s.bbox.w;
     const h: u64 = s.bbox.h;
     const area = w * h;
@@ -27,6 +27,7 @@ pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch) !u64 {
         markSegment(&covered, s.bbox, rail.crossbar[0], rail.crossbar[1]);
         for (rail.taps) |tap| markSegment(&covered, s.bbox, tap.at, tap.landing);
     }
+    for (label_cells) |p| markCell(&covered, s.bbox, p.x, p.y);
     return area - covered.count();
 }
 

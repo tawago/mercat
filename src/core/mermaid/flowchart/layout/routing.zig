@@ -227,6 +227,7 @@ pub fn buildEdgesWithPlan(
                     .label = orig.label,
                     .kind = orig.kind,
                     .role = role,
+                    .origin = orig.declaredId(),
                 });
                 try polys.append(a, poly);
                 continue;
@@ -250,6 +251,7 @@ pub fn buildEdgesWithPlan(
                 .label = orig.label,
                 .kind = orig.kind,
                 .role = .self_loop,
+                .origin = orig.declaredId(),
             });
             try polys.append(a, sl.polyline);
             continue;
@@ -282,6 +284,7 @@ pub fn buildEdgesWithPlan(
                 .label = orig.label,
                 .kind = orig.kind,
                 .role = .back_edge,
+                .origin = orig.declaredId(),
             });
             try polys.append(a, poly);
             continue;
@@ -341,6 +344,7 @@ pub fn buildEdgesWithPlan(
             .label = orig.label,
             .kind = orig.kind,
             .role = .forward,
+            .origin = orig.declaredId(),
         });
         try polys.append(a, poly);
     }

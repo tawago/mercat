@@ -42,6 +42,8 @@ pub const Shape = prim.Shape;
 
 pub const ArrowKind = prim.ArrowKind;
 
+pub const Cohabit = enum(u2) { alone, crossed, joined };
+
 pub const Occupant = union(enum) {
     empty,
     node_interior: NodeId,
@@ -57,6 +59,7 @@ pub const Occupant = union(enum) {
         edge: EdgeId,
         kind: EdgeKind,
         role: EdgeRole = .forward,
+        cohabit: Cohabit = .alone,
     },
     arrowhead: struct {
         dir: Dir4,

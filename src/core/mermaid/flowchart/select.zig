@@ -20,17 +20,24 @@ pub fn resolvePermits(aa: std.mem.Allocator, graph: sem_graph.SemGraph) !permits
     return result;
 }
 
-/// The lowest-scored candidate among those that route every visible edge,
-/// or the first raw rung that fits when none does.
+/// The lowest-scored candidate and the raster it was scored on.
+pub const Chosen = struct {
+    cand: Candidate,
+    report: raster.RasterReport,
+};
+
+/// The lowest-scored candidate, shipped with the raster its score audited.
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
     bundle_permits: *const ledger.BundlePermits,
     max_width: u32,
     subgraph_edges: prim.SubgraphEdges,
-) !Candidate {
+) !Chosen {
     const candidates = try enumerateAll(aa, graph, bundle_permits, max_width);
-    return candidates[try chooseIndex(aa, candidates, graph.direction, subgraph_edges)];
+    const evals = try evaluateAll(aa, candidates, graph.direction, subgraph_edges);
+    const i = pick(candidates, evals);
+    return .{ .cand = candidates[i], .report = evals[i].report };
 }
 
 /// Where `choose` finds its candidate in the list.
@@ -40,54 +47,45 @@ pub fn chooseIndex(
     source_direction: sem_graph.Direction,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    const positions = try routedPositions(aa, candidates);
-    if (positions.len == 0) return ladder.firstFitIndex(candidates);
-    const routed = try aa.alloc(Candidate, positions.len);
-    for (positions, routed) |p, *r| r.* = candidates[p];
-    return positions[try argmin(aa, routed, source_direction, subgraph_edges)];
-}
-
-pub fn isUnrouted(e: sketch_mod.EdgePath) bool {
-    return e.polyline.len < 2 and e.kind != .invisible;
-}
-
-pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
-    var n: u32 = 0;
-    for (s.edges) |e| {
-        if (isUnrouted(e)) n += 1;
-    }
-    return n;
-}
-
-/// Positions, in list order, of the candidates that route every visible edge.
-pub fn routedPositions(aa: std.mem.Allocator, candidates: []const Candidate) ![]const usize {
-    var kept: std.ArrayListUnmanaged(usize) = .empty;
-    for (candidates, 0..) |cand, i| {
-        if (unroutedEdges(cand.sketch) == 0) try kept.append(aa, i);
-    }
-    return kept.toOwnedSlice(aa);
+    return argmin(aa, candidates, source_direction, subgraph_edges);
 }
 
 /// What the sketch's raster shows of it: the counts the score prices.
 pub fn audit(aa: std.mem.Allocator, s: sketch_mod.Sketch, subgraph_edges: prim.SubgraphEdges) !score_mod.RasterCounts {
-    const report = try raster.rasterize(aa, s, subgraph_edges);
+    return countsOf(aa, try raster.rasterize(aa, s, subgraph_edges));
+}
+
+fn countsOf(aa: std.mem.Allocator, report: raster.RasterReport) !score_mod.RasterCounts {
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
+        .labels_omitted = report.label_plan.omittedRouted() + report.label_plan.node_dropped + report.label_plan.cluster_dropped,
         .edge_cells_lost = report.edge_cells_lost,
+        .heads_lost = report.heads_lost,
         .foreign_junction = report.crossings.foreign_junction_violation,
         .arrowhead_transit = report.crossings.arrowhead_transit_violation,
         .arrow_base = report.arrow_base.violations,
         .arm_into_head = report.arrow_base.lateral_arms,
+        .label_cells = try labelCells(aa, report.lattice),
     };
+}
+
+fn labelCells(aa: std.mem.Allocator, lat: @FieldType(raster.RasterReport, "lattice")) ![]const sketch_mod.Point {
+    var out: std.ArrayListUnmanaged(sketch_mod.Point) = .empty;
+    for (lat.cells, 0..) |c, i| switch (c.occupant) {
+        .label_char, .label_cont => try out.append(aa, .{ .x = @intCast(i % lat.width), .y = @intCast(i / lat.width) }),
+        else => {},
+    };
+    return out.items;
 }
 
 pub const Evaluation = struct {
     counts: score_mod.RasterCounts,
     score: score_mod.Score,
+    report: raster.RasterReport,
 };
 
-/// The audit counts and the score of a sketch; `index` is its tie-break place.
+/// The raster, its audit counts and the score of a sketch; `index` is its tie-break place.
 pub fn evaluate(
     aa: std.mem.Allocator,
     s: sketch_mod.Sketch,
@@ -95,8 +93,20 @@ pub fn evaluate(
     index: u32,
     subgraph_edges: prim.SubgraphEdges,
 ) !Evaluation {
-    const counts = try audit(aa, s, subgraph_edges);
-    return .{ .counts = counts, .score = try score_mod.eval(aa, s, source_direction, index, counts) };
+    const report = try raster.rasterize(aa, s, subgraph_edges);
+    const counts = try countsOf(aa, report);
+    return .{ .counts = counts, .score = try score_mod.eval(aa, s, source_direction, index, counts), .report = report };
+}
+
+fn evaluateAll(
+    aa: std.mem.Allocator,
+    candidates: []const Candidate,
+    source_direction: sem_graph.Direction,
+    subgraph_edges: prim.SubgraphEdges,
+) ![]const Evaluation {
+    const evals = try aa.alloc(Evaluation, candidates.len);
+    for (candidates, evals, 0..) |cand, *e, i| e.* = try evaluate(aa, cand.sketch, source_direction, @intCast(i), subgraph_edges);
+    return evals;
 }
 
 /// Raw rungs in rung order, then motif-packed rungs, then bridge variants.
@@ -167,29 +177,28 @@ pub fn packedCandidates(
 }
 
 /// Index of the lowest score, the earlier candidate winning a tie. Truncate may win only
-/// when raw natural overflows or breaks integrity, and a challenger must beat raw natural
-/// by the natural-preference margin.
+/// when raw natural overflows, leaves an edge unrouted, or breaks integrity, and a challenger must beat raw
+/// natural by the natural-preference margin.
 pub fn argmin(
     aa: std.mem.Allocator,
     candidates: []const Candidate,
     source_direction: sem_graph.Direction,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    if (candidates.len == 1) return 0;
-    const scores = try aa.alloc(score_mod.Score, candidates.len);
-    for (candidates, scores, 0..) |cand, *s, i| {
-        s.* = (try evaluate(aa, cand.sketch, source_direction, @intCast(i), subgraph_edges)).score;
-    }
+    return pick(candidates, try evaluateAll(aa, candidates, source_direction, subgraph_edges));
+}
+
+fn pick(candidates: []const Candidate, evals: []const Evaluation) usize {
     const natural: ?usize = for (candidates, 0..) |c, i| {
         if (c.rung == .natural and c.transform == .raw) break i;
     } else null;
-    const truncate_allowed = if (natural) |n| scores[n].t0_fit > 0 or scores[n].t1_integrity > 0 else true;
+    const truncate_allowed = if (natural) |n| evals[n].score.t_omit.relations > 0 or evals[n].score.t0_fit > 0 or evals[n].score.t1_integrity > 0 else true;
 
     var best: ?usize = null;
-    for (candidates, scores, 0..) |c, s, i| {
+    for (candidates, evals, 0..) |c, e, i| {
         if (c.rung == .truncate and !truncate_allowed) continue;
-        if (best == null or s.lessThan(scores[best.?])) best = i;
+        if (best == null or e.score.lessThan(evals[best.?].score)) best = i;
     }
     const n = natural orelse return best.?;
-    return if (score_mod.displacesNatural(scores[best.?], scores[n])) best.? else n;
+    return if (score_mod.displacesNatural(evals[best.?].score, evals[n].score)) best.? else n;
 }

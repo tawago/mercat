@@ -20,7 +20,7 @@ pub fn markShared(cell: *lattice.Cell, edge_id: u32, role: lattice.EdgeRole) voi
         else => return,
     };
     if (seg.edge == edge_id or railRole(seg.role) != rail) return;
-    cell.occupant = .{ .edge_segment = .{ .edge = seg.edge, .kind = seg.kind, .role = rail } };
+    cell.occupant = .{ .edge_segment = .{ .edge = seg.edge, .kind = seg.kind, .role = rail, .cohabit = seg.cohabit } };
 }
 
 pub fn resolveMasks(lat: *lattice.Lattice, s: sketch.Sketch) void {

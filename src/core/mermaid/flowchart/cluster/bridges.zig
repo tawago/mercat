@@ -159,6 +159,7 @@ fn buildPaths(
             .label = p.cross.label,
             .kind = p.cross.kind,
             .role = .forward,
+            .origin = p.cross.origin,
         });
     }
     return out.toOwnedSlice(arena);

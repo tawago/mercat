@@ -29,13 +29,13 @@ pub fn list(aa: std.mem.Allocator, graph: sem_graph.SemGraph, max_width: u32) ![
     return select.enumerateAll(aa, graph, plan, max_width);
 }
 
-/// Whether every visible edge of the candidate is routed; only such candidates are scored.
+/// Whether every visible edge of the candidate is routed.
 pub fn routes(c: Candidate) bool {
-    return select.unroutedEdges(c.sketch) == 0;
+    for (c.sketch.edges) |e| if (!e.routed()) return false;
+    return true;
 }
 
-/// The index the selection picks: the lowest-scored routed candidate, or the first raw
-/// rung that fits when none routes.
+/// The index the selection picks: the lowest-scored candidate.
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
