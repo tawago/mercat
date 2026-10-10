@@ -20,8 +20,7 @@ pub fn resolvePermits(aa: std.mem.Allocator, graph: sem_graph.SemGraph) !permits
     return result;
 }
 
-/// The lowest-scored candidate among those that route every visible edge,
-/// or the first raw rung that fits when none does.
+/// The lowest-scored candidate.
 pub fn choose(
     aa: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -40,28 +39,7 @@ pub fn chooseIndex(
     source_direction: sem_graph.Direction,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    const positions = try routedPositions(aa, candidates);
-    if (positions.len == 0) return ladder.firstFitIndex(candidates);
-    const routed = try aa.alloc(Candidate, positions.len);
-    for (positions, routed) |p, *r| r.* = candidates[p];
-    return positions[try argmin(aa, routed, source_direction, subgraph_edges)];
-}
-
-pub fn unroutedEdges(s: sketch_mod.Sketch) u32 {
-    var n: u32 = 0;
-    for (s.edges) |e| {
-        if (!e.routed()) n += 1;
-    }
-    return n;
-}
-
-/// Positions, in list order, of the candidates that route every visible edge.
-pub fn routedPositions(aa: std.mem.Allocator, candidates: []const Candidate) ![]const usize {
-    var kept: std.ArrayListUnmanaged(usize) = .empty;
-    for (candidates, 0..) |cand, i| {
-        if (unroutedEdges(cand.sketch) == 0) try kept.append(aa, i);
-    }
-    return kept.toOwnedSlice(aa);
+    return argmin(aa, candidates, source_direction, subgraph_edges);
 }
 
 /// What the sketch's raster shows of it: the counts the score prices.
@@ -70,6 +48,7 @@ pub fn audit(aa: std.mem.Allocator, s: sketch_mod.Sketch, subgraph_edges: prim.S
     return .{
         .labels_dropped = report.labels_dropped,
         .labels_displaced = report.labels_displaced,
+        .labels_omitted = report.label_plan.omittedRouted() + report.label_plan.node_dropped + report.label_plan.cluster_dropped,
         .edge_cells_lost = report.edge_cells_lost,
         .foreign_junction = report.crossings.foreign_junction_violation,
         .arrowhead_transit = report.crossings.arrowhead_transit_violation,
@@ -163,15 +142,14 @@ pub fn packedCandidates(
 }
 
 /// Index of the lowest score, the earlier candidate winning a tie. Truncate may win only
-/// when raw natural overflows or breaks integrity, and a challenger must beat raw natural
-/// by the natural-preference margin.
+/// when raw natural overflows, leaves an edge unrouted, or breaks integrity, and a challenger must beat raw
+/// natural by the natural-preference margin.
 pub fn argmin(
     aa: std.mem.Allocator,
     candidates: []const Candidate,
     source_direction: sem_graph.Direction,
     subgraph_edges: prim.SubgraphEdges,
 ) !usize {
-    if (candidates.len == 1) return 0;
     const scores = try aa.alloc(score_mod.Score, candidates.len);
     for (candidates, scores, 0..) |cand, *s, i| {
         s.* = (try evaluate(aa, cand.sketch, source_direction, @intCast(i), subgraph_edges)).score;
@@ -179,7 +157,7 @@ pub fn argmin(
     const natural: ?usize = for (candidates, 0..) |c, i| {
         if (c.rung == .natural and c.transform == .raw) break i;
     } else null;
-    const truncate_allowed = if (natural) |n| scores[n].t0_fit > 0 or scores[n].t1_integrity > 0 else true;
+    const truncate_allowed = if (natural) |n| scores[n].t_omit.relations > 0 or scores[n].t0_fit > 0 or scores[n].t1_integrity > 0 else true;
 
     var best: ?usize = null;
     for (candidates, scores, 0..) |c, s, i| {

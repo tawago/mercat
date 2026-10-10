@@ -44,7 +44,7 @@ fn testSketch(bbox: sketch.Rect, nodes: []const sketch.NodePlacement, edges: []c
     };
 }
 
-test "tier ordering: t0 severity, then composite, then height, then index" {
+test "tier ordering: t0 severity, then omission, then composite, then height, then index" {
     const base: Score = .{ .t0_fit = 0, .t1_integrity = 0, .t2_legibility = 0, .t3_height = 0, .t4_index = 0, .t12_composite = 0 };
     var mild_clip = base;
     mild_clip.t0_fit = 3;
@@ -54,6 +54,10 @@ test "tier ordering: t0 severity, then composite, then height, then index" {
     var fitting_but_ugly = base;
     fitting_but_ugly.t12_composite = 999_999_999;
     try t.expect(fitting_but_ugly.lessThan(mild_clip));
+    var omitting = base;
+    omitting.t_omit.labels = 1;
+    try t.expect(omitting.lessThan(mild_clip));
+    try t.expect(fitting_but_ugly.lessThan(omitting));
     var worse = base;
     worse.t12_composite = 10;
     worse.t1_integrity = 7;

@@ -15,7 +15,7 @@ const sources = [_][]const u8{
 const widths = [_]u32{ 20, 80 };
 const modes = [_]prim.SubgraphEdges{ .bridge, .cross };
 
-test "the chosen candidate paints the text the render returns and routes every edge whenever any candidate does" {
+test "the chosen candidate paints the text the render returns" {
     for (sources) |source| for (widths) |width| for (modes) |mode| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
@@ -31,11 +31,5 @@ test "the chosen candidate paints the text the render returns and routes every e
         defer std.testing.allocator.free(rendered.output);
         try std.testing.expect(!rendered.is_fallback);
         try std.testing.expectEqualStrings(rendered.output, drawn.text);
-
-        if (mode == .bridge) {
-            var any = false;
-            for (listed) |c| any = any or candidates.routes(c);
-            try std.testing.expectEqual(any, candidates.routes(listed[chosen]));
-        }
     };
 }
