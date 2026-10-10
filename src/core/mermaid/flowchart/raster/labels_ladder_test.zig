@@ -52,7 +52,7 @@ fn stampEdgeCell(lat: *lattice.Lattice, x: u32, y: u32, edge_id: u32) void {
     };
 }
 
-test "own-edge ink beside the anchor does not displace the label" {
+test "own-edge ink beside the middle does not move a beside label off it" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -68,7 +68,7 @@ test "own-edge ink beside the anchor does not displace the label" {
 
     const plan = try labels.rasterizeLabels(alloc, &lat, s);
     try testing.expectEqual(@as(u32, 0), plan.dropped());
-    try testing.expectEqual(@as(u32, 0), plan.displaced());
+    try testing.expectEqual(labels.Form.beside_run, plan.edges[0].form.?);
 
     try testing.expectEqual(@as(u21, 'x'), cellChar(lat, 3, 2));
 }

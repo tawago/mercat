@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
+const ink = @import("labels_ink.zig");
 
 fn asciiRun(comptime text: []const u8) lw.Run {
     const cells = comptime blk: {
@@ -14,6 +15,21 @@ fn asciiRun(comptime text: []const u8) lw.Run {
 }
 
 const testing = std.testing;
+
+fn onEdge(lat: *lattice.Lattice, ep: sketch.EdgePath, run: lw.Run) bool {
+    const hs = ink.hosts(std.testing.allocator, ep.id, .{ ep.from, ep.to }, ep.polyline) catch return false;
+    defer std.testing.allocator.free(hs);
+    for (hs) |h| if (onrun.tryOnRun(lat, h, run)) return true;
+    return false;
+}
+
+fn onTap(lat: *lattice.Lattice, rail: sketch.Rail, tap: sketch.Tap, run: lw.Run) bool {
+    const dropper = [2]sketch.Point{ tap.at, tap.landing };
+    const hs = ink.hosts(std.testing.allocator, tap.edge, .{ rail.pivot, tap.node }, &dropper) catch return false;
+    defer std.testing.allocator.free(hs);
+    for (hs) |h| if (onrun.tryOnRun(lat, h, run)) return true;
+    return false;
+}
 
 fn makeLattice(alloc: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try alloc.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
@@ -80,7 +96,7 @@ test "happy path: the label interrupts its own dropper for one row, sandwiched b
     paintTapDropper(&lat, 7);
     const taps = [_]sketch.Tap{theTap(7)};
 
-    try testing.expect(onrun.tryOnRunTap(&lat, theRail(&taps, &stem_pts), taps[0], asciiRun("ok")));
+    try testing.expect(onTap(&lat, theRail(&taps, &stem_pts), taps[0], asciiRun("ok")));
 
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
@@ -113,7 +129,7 @@ test "on-run tap refusals: head-adjacent row, rail cell, another tap's drop, 1-c
         const tap: sketch.Tap = .{ .edge = 7, .node = 1, .at = .{ .x = 5, .y = 1 }, .landing = .{ .x = 5, .y = @intCast(r.head_y + 1) }, .label = "ok" };
         const taps = [_]sketch.Tap{tap};
 
-        try testing.expect(!onrun.tryOnRunTap(&lat, theRail(&taps, &stem_pts), tap, asciiRun("ok")));
+        try testing.expect(!onTap(&lat, theRail(&taps, &stem_pts), tap, asciiRun("ok")));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, r.row));
     }
 }
@@ -126,7 +142,7 @@ test "a foreign run meeting the label end-on does not refuse the dropper" {
     dropCell(&lat, 7, 3, 99, .forward);
     const taps = [_]sketch.Tap{theTap(7)};
 
-    try testing.expect(onrun.tryOnRunTap(&lat, theRail(&taps, &stem_pts), taps[0], asciiRun("ok")));
+    try testing.expect(onTap(&lat, theRail(&taps, &stem_pts), taps[0], asciiRun("ok")));
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
 }
 
@@ -165,7 +181,7 @@ test "a foreign box two blanks from the label in its row refuses it, three blank
         plainRun(&lat);
         var y: u32 = 1;
         while (y <= 5) : (y += 1) boxCell(&lat, bx, y, 9);
-        const placed = onrun.tryOnRunEdge(&lat, plainEdge(&plain_poly), asciiRun("ok"));
+        const placed = onEdge(&lat, plainEdge(&plain_poly), asciiRun("ok"));
         try testing.expectEqual(bx == 10, placed);
     }
 }
@@ -176,7 +192,7 @@ test "a plain edge's private vertical run hosts its label" {
     var lat = try makeLattice(arena.allocator(), 12, 8);
     plainRun(&lat);
 
-    try testing.expect(onrun.tryOnRunEdge(&lat, plainEdge(&plain_poly), asciiRun("ok")));
+    try testing.expect(onEdge(&lat, plainEdge(&plain_poly), asciiRun("ok")));
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
 }
@@ -189,7 +205,7 @@ test "a box the edge does not end at refuses a touching label; its own end box d
         plainRun(&lat);
         var y: u32 = 1;
         while (y <= 5) : (y += 1) boxCell(&lat, 7, y, node);
-        const placed = onrun.tryOnRunEdge(&lat, plainEdge(&plain_poly), asciiRun("ok"));
+        const placed = onEdge(&lat, plainEdge(&plain_poly), asciiRun("ok"));
         try testing.expectEqual(node == 1, placed);
     }
 }
@@ -218,7 +234,7 @@ test "on-run placement over a routed polyline dropper (fan-IN member)" {
         .kind = .solid,
         .role = .fan_in_dropper,
     };
-    try testing.expect(onrun.tryOnRunEdge(&lat, ep, asciiRun("grpc")));
+    try testing.expect(onEdge(&lat, ep, asciiRun("grpc")));
     try testing.expectEqual(@as(u21, 'g'), labelCharAt(lat, 4, 2));
     try testing.expectEqual(@as(u21, 'r'), labelCharAt(lat, 5, 2));
     try testing.expectEqual(@as(u21, 'p'), labelCharAt(lat, 6, 2));

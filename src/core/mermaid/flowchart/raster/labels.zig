@@ -4,6 +4,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const labels_edge = @import("labels_edge.zig");
 const labels_onrun = @import("labels_onrun.zig");
+const labels_ink = @import("labels_ink.zig");
 const lw = @import("labels_write.zig");
 
 const log = std.log.scoped(.@"mermaid.raster.labels");
@@ -61,16 +62,29 @@ pub const LabelPlan = struct {
 
 const ELLIPSIS: u21 = 0x2026;
 
-fn onRun(owner: LabelOwner, origin: sketch.EdgeId) EdgeLabel {
-    return .{ .owner = owner, .origin = origin, .form = .on_run, .first_choice = true, .omitted = null };
-}
+const Subject = struct {
+    owner: LabelOwner,
+    origin: sketch.EdgeId,
+    hosts: []const labels_ink.Host,
+    polyline: []const sketch.Point,
+    left_of_run: bool = false,
+};
 
-fn fromPlacement(owner: LabelOwner, origin: sketch.EdgeId, p: labels_edge.Placement) EdgeLabel {
-    return switch (p) {
-        .at_anchor => .{ .owner = owner, .origin = origin, .form = .beside_run, .first_choice = true, .omitted = null },
-        .displaced => .{ .owner = owner, .origin = origin, .form = .beside_run, .first_choice = false, .omitted = null },
-        .omitted => |o| .{ .owner = owner, .origin = origin, .form = null, .first_choice = false, .omitted = o },
-    };
+fn placeEdgeLabel(lat: *lattice.Lattice, sub: Subject, run: lw.Run) EdgeLabel {
+    var label: EdgeLabel = .{ .owner = sub.owner, .origin = sub.origin, .form = null, .first_choice = false, .omitted = null };
+    for (sub.hosts, 0..) |h, i| {
+        if (labels_onrun.tryOnRun(lat, h, run)) {
+            label.form = .on_run;
+            label.first_choice = i == 0;
+            return label;
+        }
+    }
+    if (labels_edge.beside(lat, sub.hosts, sub.polyline, run, sub.left_of_run)) {
+        label.form = .beside_run;
+        return label;
+    }
+    label.omitted = .no_room;
+    return label;
 }
 
 pub fn rasterizeLabels(
@@ -96,11 +110,14 @@ pub fn rasterizeLabels(
         if (lbl.len == 0) continue;
         const owner: LabelOwner = .{ .edge = ep.id };
         const run = try lw.prepare(allocator, &glyphs, lbl);
-        if (labels_onrun.tryOnRunEdge(lat, ep, run)) {
-            try edges.append(allocator, onRun(owner, ep.origin));
+        if (!ep.routed()) {
+            try edges.append(allocator, .{ .owner = owner, .origin = ep.origin, .form = null, .first_choice = false, .omitted = .unrouted_host });
             continue;
         }
-        try edges.append(allocator, fromPlacement(owner, ep.origin, labels_edge.placeEdgeLabel(lat, ep, run)));
+        const hosts = try labels_ink.hosts(allocator, ep.id, .{ ep.from, ep.to }, ep.polyline);
+        defer allocator.free(hosts);
+        const sub: Subject = .{ .owner = owner, .origin = ep.origin, .hosts = hosts, .polyline = ep.polyline, .left_of_run = ep.label_left_of_run };
+        try edges.append(allocator, placeEdgeLabel(lat, sub, run));
     }
 
     for (s.rails, 0..) |rail, ri| {
@@ -109,13 +126,11 @@ pub fn rasterizeLabels(
             if (lbl.len == 0) continue;
             const owner: LabelOwner = .{ .tap = .{ .rail = @intCast(ri), .edge = tap.edge } };
             const run = try lw.prepare(allocator, &glyphs, lbl);
-            if (labels_onrun.tryOnRunTap(lat, rail, tap, run)) {
-                try edges.append(allocator, onRun(owner, tap.origin));
-                continue;
-            }
-            const seg = rail.tapLabelSeg(tap);
-            const placed = labels_edge.placeLabelAtSeg(lat, tap.edge, run, seg[0], seg[1], false, &.{});
-            try edges.append(allocator, fromPlacement(owner, tap.origin, placed));
+            const dropper = [2]sketch.Point{ tap.at, tap.landing };
+            const hosts = try labels_ink.hosts(allocator, tap.edge, .{ rail.pivot, tap.node }, &dropper);
+            defer allocator.free(hosts);
+            const sub: Subject = .{ .owner = owner, .origin = tap.origin, .hosts = hosts, .polyline = &dropper };
+            try edges.append(allocator, placeEdgeLabel(lat, sub, run));
         }
     }
 

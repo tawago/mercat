@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const onrun = @import("labels_onrun.zig");
 const lw = @import("labels_write.zig");
+const ink = @import("labels_ink.zig");
 
 fn asciiRun(comptime text: []const u8) lw.Run {
     const cells = comptime blk: {
@@ -14,6 +15,13 @@ fn asciiRun(comptime text: []const u8) lw.Run {
 }
 
 const testing = std.testing;
+
+fn onEdge(lat: *lattice.Lattice, ep: sketch.EdgePath, run: lw.Run) bool {
+    const hs = ink.hosts(std.testing.allocator, ep.id, .{ ep.from, ep.to }, ep.polyline) catch return false;
+    defer std.testing.allocator.free(hs);
+    for (hs) |h| if (onrun.tryOnRun(lat, h, run)) return true;
+    return false;
+}
 
 fn makeLattice(alloc: std.mem.Allocator, w: u32, h: u32) !lattice.Lattice {
     const cells = try alloc.alloc(lattice.Cell, @as(usize, w) * @as(usize, h));
@@ -80,7 +88,7 @@ test "happy path: the label sits inline in its own horizontal run, flanked both 
     paintRun(&lat, 3, 11, 4, 7, .solid);
     const ep = straightEdge(&long_poly, .solid);
 
-    try testing.expect(onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+    try testing.expect(onEdge(&lat, ep, asciiRun("ok")));
 
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 7, 4));
@@ -111,7 +119,7 @@ test "inline label refusals: shared crossbar cell, corner or head flank, too-sho
         }
         const ep = straightEdge(if (m == .too_short) &short_poly else &tight_poly, .solid);
 
-        try testing.expect(!onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+        try testing.expect(!onEdge(&lat, ep, asciiRun("ok")));
         var x: u32 = 3;
         while (x <= 5) : (x += 1) try testing.expect(lat.atConst(x, 4).occupant == .edge_segment);
     }
@@ -124,7 +132,7 @@ test "foreign ink above the run does not refuse the inline label" {
     paintRun(&lat, 3, 6, 4, 7, .solid);
     runCell(&lat, 4, 3, 99, .forward, .solid);
 
-    try testing.expect(onrun.tryOnRunEdge(&lat, straightEdge(&tight_poly, .solid), asciiRun("ok")));
+    try testing.expect(onEdge(&lat, straightEdge(&tight_poly, .solid), asciiRun("ok")));
     try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 4, 4));
 }
 
@@ -140,7 +148,7 @@ test "a crossed run stays private: the label sits beside the piercing cell, whic
             .foreign_first => dropCell(&lat, 7, 4, 9, .forward),
         }
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, straightEdge(&long_poly, .solid), asciiRun("ok")));
+        try testing.expect(onEdge(&lat, straightEdge(&long_poly, .solid), asciiRun("ok")));
         try testing.expect(lat.atConst(7, 4).occupant == .edge_segment);
         try testing.expect(lat.atConst(6, 4).occupant == .edge_segment);
         try testing.expect(lat.atConst(8, 4).occupant == .edge_segment);
@@ -160,7 +168,7 @@ test "a collinear joined cell refuses the whole stretch" {
     paintRun(&lat, 3, 11, 4, 7, .solid);
     stampRun(&lat, 10, 4, 7, .forward, .solid, .joined);
 
-    try testing.expect(!onrun.tryOnRunEdge(&lat, straightEdge(&long_poly, .solid), asciiRun("ok")));
+    try testing.expect(!onEdge(&lat, straightEdge(&long_poly, .solid), asciiRun("ok")));
 }
 
 fn elbow(poly: []const sketch.Point) sketch.EdgePath {
@@ -170,7 +178,7 @@ fn elbow(poly: []const sketch.Point) sketch.EdgePath {
     return ep;
 }
 
-test "tie order: the longer qualifying stretch is tried first, ties go vertical" {
+test "tie order: the longer qualifying stretch is tried first, ties go in polyline order" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -182,7 +190,7 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         const poly = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 6 }, .{ .x = 14, .y = 6 } };
         const ep = elbow(&poly);
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+        try testing.expect(onEdge(&lat, ep, asciiRun("ok")));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 9, 6));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 10, 6));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 5, 3));
@@ -195,7 +203,7 @@ test "tie order: the longer qualifying stretch is tried first, ties go vertical"
         const poly = [_]sketch.Point{ .{ .x = 5, .y = 1 }, .{ .x = 5, .y = 6 }, .{ .x = 10, .y = 6 } };
         const ep = elbow(&poly);
 
-        try testing.expect(onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+        try testing.expect(onEdge(&lat, ep, asciiRun("ok")));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 5, 3));
         try testing.expectEqual(@as(u21, 'k'), labelCharAt(lat, 6, 3));
         try testing.expectEqual(@as(u21, 0), labelCharAt(lat, 7, 6));
@@ -216,14 +224,14 @@ test "OWN-INK RULE: a private prefix of a collinear shared run is refused" {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 11, 4, 7, .solid);
         paintRun(&lat, 12, 14, 4, 9, .solid);
-        try testing.expect(!onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+        try testing.expect(!onEdge(&lat, ep, asciiRun("ok")));
     }
 
     {
         var lat = try makeLattice(a, 16, 9);
         paintRun(&lat, 3, 11, 4, 7, .solid);
         paintRun(&lat, 13, 14, 4, 9, .solid);
-        try testing.expect(onrun.tryOnRunEdge(&lat, ep, asciiRun("ok")));
+        try testing.expect(onEdge(&lat, ep, asciiRun("ok")));
         try testing.expectEqual(@as(u21, 'o'), labelCharAt(lat, 6, 4));
     }
 }

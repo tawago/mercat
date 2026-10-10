@@ -283,7 +283,7 @@ test "vertical edge label paints at the exact prim anchor for both rail sides" {
     }
 }
 
-test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column and on-column taps" {
+test "a tap label sits beside its own dropper, never beside the crossbar" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
@@ -327,20 +327,116 @@ test "rail tap labels paint at the tapLabelSeg-predicted segment for off-column 
     try testing.expectEqual(@as(u32, 2), plan.edges[1].owner.tap.edge);
     try testing.expectEqual(@as(u32, 0), plan.edges[1].owner.tap.rail);
 
-    const off_seg = rail.tapLabelSeg(off_col_tap);
-    const off_w = prim.displayWidth(off_col_tap.label.?);
-    const off_anchor = prim.edgeLabelAnchor(off_seg[0].x, off_seg[0].y, off_seg[1].x, off_seg[1].y, off_w, .{});
-    try testing.expectEqual(@as(u21, 'a'), cellChar(lat, @intCast(off_anchor.x), @intCast(off_anchor.y)));
-    try testing.expectEqual(@as(u21, 'b'), cellChar(lat, @intCast(off_anchor.x + 1), @intCast(off_anchor.y)));
+    for (taps, [_][2]u21{ .{ 'a', 'b' }, .{ 'c', 'd' } }) |tap, want| {
+        const anchor = prim.edgeLabelAnchor(tap.at.x, tap.at.y, tap.landing.x, tap.landing.y, 2, .{});
+        try testing.expectEqual(want[0], cellChar(lat, @intCast(anchor.x), @intCast(anchor.y)));
+        try testing.expectEqual(want[1], cellChar(lat, @intCast(anchor.x + 1), @intCast(anchor.y)));
+    }
+    var x: u32 = 0;
+    while (x < 30) : (x += 1) {
+        try testing.expectEqual(@as(u21, 0), cellChar(lat, x, 2));
+        try testing.expectEqual(@as(u21, 0), cellChar(lat, x, 4));
+    }
+}
 
-    const on_seg = rail.tapLabelSeg(on_col_tap);
-    const on_w = prim.displayWidth(on_col_tap.label.?);
-    const on_anchor = prim.edgeLabelAnchor(on_seg[0].x, on_seg[0].y, on_seg[1].x, on_seg[1].y, on_w, .{});
-    try testing.expectEqual(@as(u21, 'c'), cellChar(lat, @intCast(on_anchor.x), @intCast(on_anchor.y)));
-    try testing.expectEqual(@as(u21, 'd'), cellChar(lat, @intCast(on_anchor.x + 1), @intCast(on_anchor.y)));
+fn stampPolyline(lat: *lattice.Lattice, edge: u32, poly: []const sketch.Point) void {
+    for (poly[0 .. poly.len - 1], poly[1..]) |p, q| {
+        const dx = std.math.sign(q.x - p.x);
+        const dy = std.math.sign(q.y - p.y);
+        var c = p;
+        while (true) {
+            const cell = lat.at(@intCast(c.x), @intCast(c.y));
+            if (cell.occupant != .edge_segment) cell.* = .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = .{} };
+            if (c.x == q.x and c.y == q.y) break;
+            if (dx > 0) cell.neighbours.e = true;
+            if (dx < 0) cell.neighbours.w = true;
+            if (dy > 0) cell.neighbours.s = true;
+            if (dy < 0) cell.neighbours.n = true;
+            c = .{ .x = c.x + dx, .y = c.y + dy };
+            const next = lat.at(@intCast(c.x), @intCast(c.y));
+            if (next.occupant != .edge_segment) next.* = .{ .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } }, .neighbours = .{} };
+            if (dx > 0) next.neighbours.w = true;
+            if (dx < 0) next.neighbours.e = true;
+            if (dy > 0) next.neighbours.n = true;
+            if (dy < 0) next.neighbours.s = true;
+        }
+    }
+}
 
-    try testing.expect(off_seg[0].y == off_seg[1].y);
-    try testing.expect(on_seg[0].x == on_seg[1].x);
+test "a tap label with no faithful place beside its dropper is omitted, not set beside the crossbar" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var lat = try makeLattice(alloc, 20, 10);
+    stampPolyline(&lat, 5, &.{ .{ .x = 2, .y = 3 }, .{ .x = 18, .y = 3 } });
+    stampPolyline(&lat, 5, &.{ .{ .x = 9, .y = 3 }, .{ .x = 9, .y = 7 } });
+    stampPolyline(&lat, 6, &.{ .{ .x = 18, .y = 3 }, .{ .x = 18, .y = 7 } });
+
+    const taps = [_]sketch.Tap{
+        .{ .edge = 5, .node = 1, .at = .{ .x = 9, .y = 3 }, .landing = .{ .x = 9, .y = 8 } },
+        .{ .edge = 6, .node = 2, .at = .{ .x = 18, .y = 3 }, .landing = .{ .x = 18, .y = 8 }, .label = "long label" },
+    };
+    const stem = [_]sketch.Point{ .{ .x = 2, .y = 1 }, .{ .x = 2, .y = 3 } };
+    var s = emptySketch(20, 10, .TD);
+    s.rails = &[_]sketch.Rail{.{ .pivot = 0, .stem = &stem, .crossbar = .{ .{ .x = 2, .y = 3 }, .{ .x = 18, .y = 3 } }, .taps = &taps, .kind = .solid }};
+
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(labels.Omission.no_room, plan.edges[0].omitted.?);
+    var y: u32 = 0;
+    while (y < 10) : (y += 1) {
+        var x: u32 = 0;
+        while (x < 20) : (x += 1) try testing.expectEqual(@as(u21, 0), cellChar(lat, x, y));
+    }
+}
+
+test "the longest own run hosts the label before the middle segment by index" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var lat = try makeLattice(alloc, 16, 18);
+    const poly = [_]sketch.Point{ .{ .x = 2, .y = 0 }, .{ .x = 2, .y = 5 }, .{ .x = 8, .y = 5 }, .{ .x = 8, .y = 15 } };
+    stampPolyline(&lat, 3, &poly);
+    var e = makeEdge(3, &poly, "ok");
+    e.to = 9;
+    const edges = [_]sketch.EdgePath{e};
+    var s = emptySketch(16, 18, .TD);
+    s.edges = &edges;
+
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(labels.Form.on_run, plan.edges[0].form.?);
+    try testing.expect(plan.edges[0].first_choice);
+    try testing.expectEqual(@as(u21, 'o'), cellChar(lat, 8, 10));
+    try testing.expectEqual(@as(u21, 'k'), cellChar(lat, 9, 10));
+    try testing.expectEqual(@as(u21, 0), cellChar(lat, 2, 2));
+}
+
+test "an on-run trial on a short own run beats a beside trial on the long run" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    var lat = try makeLattice(alloc, 26, 12);
+    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 20, .y = 3 }, .{ .x = 20, .y = 8 } };
+    stampPolyline(&lat, 4, &poly);
+    lat.at(10, 3).occupant.edge_segment.cohabit = .joined;
+    var e = makeEdge(4, &poly, "ok");
+    e.to = 9;
+    const edges = [_]sketch.EdgePath{e};
+    var s = emptySketch(26, 12, .TD);
+    s.edges = &edges;
+
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(labels.Form.on_run, plan.edges[0].form.?);
+    try testing.expect(!plan.edges[0].first_choice);
+    try testing.expectEqual(@as(u32, 1), plan.displaced());
+    try testing.expectEqual(@as(u21, 'o'), cellChar(lat, 20, 5));
+    var x: u32 = 0;
+    while (x < 26) : (x += 1) {
+        try testing.expectEqual(@as(u21, 0), cellChar(lat, x, 2));
+        try testing.expectEqual(@as(u21, 0), cellChar(lat, x, 4));
+    }
 }
 
 test "edge label falls back below the segment when above is out of bounds" {

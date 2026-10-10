@@ -1,95 +1,19 @@
-const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
 const geo = @import("geometry.zig");
 
-const MAX_SEGS: usize = 32;
-
-pub fn tryOnRunEdge(lat: *lattice.Lattice, ep: sketch.EdgePath, run: lw.Run) bool {
-    if (ep.polyline.len < 2 or run.cell_count == 0) return false;
-    const ends = [2]lattice.NodeId{ ep.from, ep.to };
-    const first: ink.Axis = if (longestInterior(ep.polyline, .horizontal) > longestInterior(ep.polyline, .vertical)) .horizontal else .vertical;
-    if (tryAxis(lat, ep, ends, first, run)) return true;
-    return tryAxis(lat, ep, ends, if (first == .horizontal) .vertical else .horizontal, run);
-}
-
-pub fn tryOnRunTap(lat: *lattice.Lattice, rail: sketch.Rail, tap: sketch.Tap, run: lw.Run) bool {
+pub fn tryOnRun(lat: *lattice.Lattice, h: ink.Host, run: lw.Run) bool {
     if (run.cell_count == 0) return false;
-    if (tap.at.x != tap.landing.x or tap.at.y == tap.landing.y) return false;
-    return tryHost(lat, hostOf(tap.edge, .{ rail.pivot, tap.node }, tap.at, tap.landing), run);
-}
-
-fn hostOf(edge: lattice.EdgeId, ends: [2]lattice.NodeId, a: sketch.Point, b: sketch.Point) ink.Host {
-    return .{
-        .edge = edge,
-        .ends = ends,
-        .axis = if (a.x == b.x) .vertical else .horizontal,
-        .lo = .{ .x = @min(a.x, b.x), .y = @min(a.y, b.y) },
-        .hi = .{ .x = @max(a.x, b.x), .y = @max(a.y, b.y) },
-    };
-}
-
-fn isAxis(p: sketch.Point, q: sketch.Point, axis: ink.Axis) bool {
-    return switch (axis) {
-        .vertical => p.x == q.x and p.y != q.y,
-        .horizontal => p.y == q.y and p.x != q.x,
-    };
-}
-
-fn interior(p: sketch.Point, q: sketch.Point) i32 {
-    return @as(i32, @intCast(@max(@abs(p.x - q.x), @abs(p.y - q.y)))) - 1;
-}
-
-fn longestInterior(polyline: []const sketch.Point, axis: ink.Axis) i32 {
-    var best: i32 = 0;
-    for (polyline[0 .. polyline.len - 1], polyline[1..]) |p, q| {
-        if (isAxis(p, q, axis)) best = @max(best, interior(p, q));
-    }
-    return best;
-}
-
-fn tryAxis(lat: *lattice.Lattice, ep: sketch.EdgePath, ends: [2]lattice.NodeId, axis: ink.Axis, run: lw.Run) bool {
-    if (axis == .vertical) {
-        for (ep.polyline[0 .. ep.polyline.len - 1], ep.polyline[1..]) |p, q| {
-            if (isAxis(p, q, .vertical) and tryHost(lat, hostOf(ep.id, ends, p, q), run)) return true;
-        }
-        return false;
-    }
-    const nsegs = @min(ep.polyline.len - 1, MAX_SEGS);
-    var tried = [_]bool{false} ** MAX_SEGS;
-    var k: usize = 0;
-    while (k < nsegs) : (k += 1) {
-        var pick: ?usize = null;
-        var pick_len: i32 = -1;
-        for (0..nsegs) |i| {
-            const p = ep.polyline[i];
-            const q = ep.polyline[i + 1];
-            if (tried[i] or !isAxis(p, q, .horizontal)) continue;
-            if (interior(p, q) > pick_len) {
-                pick_len = interior(p, q);
-                pick = i;
-            }
-        }
-        const idx = pick orelse return false;
-        tried[idx] = true;
-        if (tryHost(lat, hostOf(ep.id, ends, ep.polyline[idx], ep.polyline[idx + 1]), run)) return true;
-    }
-    return false;
-}
-
-fn tryHost(lat: *lattice.Lattice, h: ink.Host, run: lw.Run) bool {
     const cc: i32 = @intCast(run.cell_count);
     const lo: i32, const hi: i32 = switch (h.axis) {
         .vertical => .{ h.lo.y + 1, h.hi.y - 1 },
         .horizontal => .{ h.lo.x + 2, h.hi.x - 1 - cc },
     };
     if (lo > hi) return false;
-    const mid: i32 = @divTrunc(lo + hi, 2);
-    var d: i32 = 0;
-    while (mid - d >= lo or mid + d <= hi) : (d += 1) {
-        if (mid - d >= lo and tryAt(lat, h, mid - d, run)) return true;
-        if (d > 0 and mid + d <= hi and tryAt(lat, h, mid + d, run)) return true;
+    var it = ink.MiddleOut.init(lo, hi);
+    while (it.next()) |t| {
+        if (tryAt(lat, h, t, run)) return true;
     }
     return false;
 }
