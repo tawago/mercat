@@ -56,12 +56,8 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
         std.log.warn("mermaid/entry: ladder failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 ladder error");
     };
-    const sketch_val = chosen.sketch;
-
-    const raster_report = raster.rasterize(aa, sketch_val, options.subgraph_edges) catch |err| {
-        std.log.warn("mermaid rasterize failed: {s}", .{@errorName(err)});
-        return fallback(source, "v2 raster error");
-    };
+    const sketch_val = chosen.cand.sketch;
+    const raster_report = chosen.report;
 
     var warnings: std.Io.Writer.Allocating = .init(aa);
     writeOmissions(&warnings.writer, graph, sketch_val, raster_report.label_plan) catch {};

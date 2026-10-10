@@ -23,8 +23,8 @@ fn render(a: std.mem.Allocator, source: []const u8, width: u32) !Rendered {
     const built = try permits.build(a, graph, .joined);
     const plan = built.plan;
     const winner = try select.choose(a, graph, &plan, width, .bridge);
-    const report = try raster.rasterize(a, winner.sketch, .bridge);
-    return .{ .graph = graph, .sketch = winner.sketch, .report = report };
+    const report = try raster.rasterize(a, winner.cand.sketch, .bridge);
+    return .{ .graph = graph, .sketch = winner.cand.sketch, .report = report };
 }
 
 fn ownerOf(cell: *const lattice.Cell) ?ledger.EdgeId {
@@ -301,7 +301,7 @@ test "regression corpus renders with no raster defect" {
         const a = arena.allocator();
         const graph = try parse(a, c.source);
         const plan = if (c.resolve) (try select.resolvePermits(a, graph)).plan else (try permits.build(a, graph, .joined)).plan;
-        const sketch = if (c.natural) naturalRaw(try select.enumerateAll(a, graph, &plan, w)) else (try select.choose(a, graph, &plan, w, .bridge)).sketch;
+        const sketch = if (c.natural) naturalRaw(try select.enumerateAll(a, graph, &plan, w)) else (try select.choose(a, graph, &plan, w, .bridge)).cand.sketch;
         const report = try raster.rasterize(a, sketch, .bridge);
         try c.checks.expectClean(report);
         if (c.stubs) try testing.expectEqual(@as(u32, 0), stubCells(&report.lattice));

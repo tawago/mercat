@@ -74,16 +74,16 @@ test "a clustered render's rail bundles come from its piece plan and survive the
     const permits = (try permits_mod.build(a, g, .joined)).plan;
     const winner = try select.choose(a, g, &permits, 120, .bridge);
 
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.sharing.realized.selected_bundles.len);
-    const rail = winner.sketch.sharing.realized.selected_bundles[0];
+    try std.testing.expectEqual(@as(usize, 1), winner.cand.sketch.sharing.realized.selected_bundles.len);
+    const rail = winner.cand.sketch.sharing.realized.selected_bundles[0];
     try std.testing.expectEqual(@as(usize, 3), rail.members.len);
-    try std.testing.expect(winner.sketch.sharing.bundles.len > 0);
-    for (winner.sketch.sharing.bundles) |set| {
+    try std.testing.expect(winner.cand.sketch.sharing.bundles.len > 0);
+    for (winner.cand.sketch.sharing.bundles) |set| {
         try std.testing.expect(set.origin == .selected_bundle or set.origin == .port_share);
         try std.testing.expect(set.members.len >= 2);
     }
     var plan_sets: usize = 0;
-    for (winner.sketch.sharing.bundles) |set| {
+    for (winner.cand.sketch.sharing.bundles) |set| {
         if (set.origin != .selected_bundle) continue;
         plan_sets += 1;
         try std.testing.expectEqualSlices(ledger.EdgeId, rail.members, set.members);
@@ -117,14 +117,16 @@ test "the audit prices the raster that ships: the subgraph-edge mode changes the
     const permits = try permitsFor(a, g);
     const winner = try select.choose(a, g, &permits, 90, .cross);
 
-    const shipped = try raster.rasterize(a, winner.sketch, .cross);
-    const priced = try select.audit(a, winner.sketch, .cross);
+    const shipped = winner.report;
+    const priced = try select.audit(a, winner.cand.sketch, .cross);
+    const redrawn = try raster.rasterize(a, winner.cand.sketch, .cross);
+    try std.testing.expectEqualDeep(redrawn.lattice.cells, shipped.lattice.cells);
     try std.testing.expectEqual(shipped.arrow_base.violations, priced.arrow_base);
     try std.testing.expectEqual(shipped.crossings.foreign_junction_violation, priced.foreign_junction);
     try std.testing.expectEqual(shipped.crossings.arrowhead_transit_violation, priced.arrowhead_transit);
     try std.testing.expectEqual(shipped.edge_cells_lost, priced.edge_cells_lost);
 
-    const counterfactual = try select.audit(a, winner.sketch, .bridge);
+    const counterfactual = try select.audit(a, winner.cand.sketch, .bridge);
     try std.testing.expect(counterfactual.arrow_base != priced.arrow_base);
 }
 

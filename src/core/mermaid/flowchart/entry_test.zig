@@ -3,7 +3,6 @@ const ledger = @import("base/ledger.zig");
 const ladder = @import("budget.zig");
 const entry = @import("entry.zig");
 const select = @import("select.zig");
-const raster = @import("raster.zig");
 const parse = @import("parse.zig").parse;
 
 test "V-D-IR-07: a clustered graph's bundles ride piece plans; the root plan stays skipped" {
@@ -136,7 +135,7 @@ test "declared identity: a clustered self-loop is named by its declared ends, no
     const chosen = try select.choose(a, graph, &result.plan, 120, .bridge);
 
     var loops: usize = 0;
-    for (chosen.sketch.edges) |e| {
+    for (chosen.cand.sketch.edges) |e| {
         const declared = graph.edgeById(e.origin) orelse return error.UndeclaredOrigin;
         if (e.from != e.to) continue;
         loops += 1;
@@ -145,7 +144,7 @@ test "declared identity: a clustered self-loop is named by its declared ends, no
         try std.testing.expect(!std.mem.eql(u8, "Q", rawId(graph, e.from)));
     }
     try std.testing.expectEqual(@as(usize, 1), loops);
-    for (chosen.sketch.rails) |rail| for (rail.taps) |tap| {
+    for (chosen.cand.sketch.rails) |rail| for (rail.taps) |tap| {
         _ = graph.edgeById(tap.origin) orelse return error.UndeclaredOrigin;
     };
 }
@@ -163,10 +162,9 @@ test "omission report: a label with no room is warned once, by its declared edge
     );
     const result = try select.resolvePermits(a, graph);
     const chosen = try select.choose(a, graph, &result.plan, 120, .bridge);
-    const report = try raster.rasterize(a, chosen.sketch, .bridge);
 
     var out: std.Io.Writer.Allocating = .init(a);
-    try entry.writeOmissions(&out.writer, graph, chosen.sketch, report.label_plan);
+    try entry.writeOmissions(&out.writer, graph, chosen.cand.sketch, chosen.report.label_plan);
     try std.testing.expectEqualStrings(
         "mermaid: label \"verified\" on edge 0 (A -> B) has no room and is not drawn\n",
         out.written(),
