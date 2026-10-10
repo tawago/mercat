@@ -64,6 +64,25 @@ pub fn layout(
     return result;
 }
 
+pub fn flowRanks(allocator: std.mem.Allocator, graph: sg.SemGraph) CoordsError![]u32 {
+    var flow = graph;
+    flow.direction = .TD;
+    var lg = sugiyama.assignLayers(allocator, flow) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.EmptyGraph, error.InconsistentEdge => return error.EmptyGraph,
+    };
+    defer lg.deinit(allocator);
+    const ranks = try allocator.alloc(u32, graph.nodes.len);
+    @memset(ranks, 0);
+    for (lg.layers, 0..) |layer, li| for (layer) |v| switch (lg.nodes[v]) {
+        .real => |id| if (id < ranks.len) {
+            ranks[id] = @intCast(li);
+        },
+        .virtual => {},
+    };
+    return ranks;
+}
+
 fn buildSketch(
     a: std.mem.Allocator,
     graph: sg.SemGraph,

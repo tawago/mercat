@@ -559,7 +559,7 @@ fn topToFrameGap(s: sketch.Sketch) !u32 {
     return @intCast(frame.rect.y - bottom);
 }
 
-test "a labeled fan into sibling subgraphs reserves no on-run rows" {
+test "a labeled fan into sibling subgraphs reserves no on-run rows in the outer gap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -580,9 +580,11 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
 
     const sp = try recurse.layoutPieces(a, plain, .{ .max_width = 120 });
     const sl = try recurse.layoutPieces(a, labeled, .{ .max_width = 120 });
+    const bare = try recurse.layoutPieces(a, labeled, .{ .max_width = 120, .crossing_room = false });
 
     try std.testing.expectEqual(try topToFrameGap(sp), try topToFrameGap(sl));
-    try std.testing.expectEqual(sp.bbox.h, sl.bbox.h);
+    try std.testing.expectEqual(sp.bbox.h, bare.bbox.h);
+    try std.testing.expectEqual(sp.bbox.h + 2, sl.bbox.h);
 
     const top = placementNamed(sl, "Top") orelse return error.TopNotPlaced;
     var crossings: usize = 0;

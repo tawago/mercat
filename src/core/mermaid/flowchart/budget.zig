@@ -91,6 +91,10 @@ pub fn run(
     opts.bridge_build = transform.bridgeBuild();
     const g = rotateForRung(graph, rung);
     var s = try recurse.layoutPieces(arena, g, opts);
+    if (hasWidthOverflow(s.diagnostics) and recurse.hasLabelledCrossing(g)) {
+        opts.crossing_room = false;
+        s = try recurse.layoutPieces(arena, g, opts);
+    }
     if (hasWidthOverflow(s.diagnostics)) {
         opts.label_room = false;
         s = try recurse.layoutPieces(arena, g, opts);

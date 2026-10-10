@@ -27,11 +27,14 @@ pub fn entryInsetFor(
     sr: split_mod.SplitResult,
     children: []const Clustered,
     super: split_mod.SuperNode,
+    scale: u32,
 ) entry_inset.EntryInset {
     const child = children[super.child_piece];
     return entry_inset.entryArrivalInset(
         sr.arrivals,
+        sr.departures,
         super,
+        scale,
         child.sketch,
         child.input_of,
         sr.pieces[super.child_piece].orig_ids,
@@ -109,7 +112,7 @@ const Stitcher = struct {
         const offsets = try arena.alloc(Offset, sr.supers.len);
         for (sr.supers, offsets) |super, *off| {
             const pad = superPad(scale, super.synthetic);
-            const inset = entryInsetFor(sr, children, super);
+            const inset = entryInsetFor(sr, children, super, scale);
             const at = placementOf(outer.nodes, super.outer_node).rect;
             off.* = .{
                 .dx = at.x + @as(i32, @intCast(pad.x)) + inset.dxExtra(),

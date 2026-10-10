@@ -169,3 +169,55 @@ test "single-level disjoint subgraphs cut into outer + children" {
     try std.testing.expectEqual(@as(usize, 1), r.supers[0].child_piece);
     try std.testing.expectEqual(@as(usize, 2), r.supers[1].child_piece);
 }
+
+test "a crossing label's room goes to the arrival when its member is lone, else to a lone departure, never to a leg against the flow" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const nodes = [_]sg.Node{
+        .{ .id = 0, .raw_id = "A", .label = "A", .shape = .rect, .classes = &.{}, .cluster = 0 },
+        .{ .id = 1, .raw_id = "B", .label = "B", .shape = .rect, .classes = &.{}, .cluster = 1 },
+        .{ .id = 2, .raw_id = "C", .label = "C", .shape = .rect, .classes = &.{}, .cluster = 1 },
+        .{ .id = 3, .raw_id = "T", .label = "T", .shape = .rect, .classes = &.{}, .cluster = null },
+    };
+    const edges = [_]sg.Edge{
+        .{ .id = 0, .from = 0, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = "ab" },
+        .{ .id = 1, .from = 3, .to = 2, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = "tcc" },
+    };
+    const m0 = [_]sg.NodeId{0};
+    const m1 = [_]sg.NodeId{ 1, 2 };
+    const clusters = [_]sg.Cluster{
+        .{ .id = 0, .raw_id = "c0", .label = "C0", .parent = null, .members = &m0, .sub_clusters = &.{} },
+        .{ .id = 1, .raw_id = "c1", .label = "C1", .parent = null, .members = &m1, .sub_clusters = &.{} },
+    };
+    const g: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &clusters, .classes = &.{}, .arena = null };
+
+    const flow = [_]u32{ 0, 0, 1 };
+    const members = try split.giveRoom(a, g, try split.split(a, g, .{}), .{}, &flow);
+    try std.testing.expectEqual(@as(usize, 2), members.arrivals.len);
+    try std.testing.expectEqual(@as(u32, 2), members.arrivals[0].label_w);
+    try std.testing.expectEqual(@as(u32, 3), members.arrivals[1].label_w);
+    try std.testing.expectEqual(@as(u32, 0), members.departures[0].label_w);
+
+    const into_b = [_]sg.Edge{ edges[0], .{ .id = 1, .from = 3, .to = 1, .kind = .solid, .arrow_from = .none, .arrow_to = .filled, .label = "tcc" } };
+    const same: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &into_b, .clusters = &clusters, .classes = &.{}, .arena = null };
+    const shared = try split.giveRoom(a, same, try split.split(a, same, .{}), .{}, &flow);
+    for (shared.arrivals) |arr| try std.testing.expectEqual(@as(u32, 0), arr.label_w);
+    try std.testing.expectEqual(@as(usize, 1), shared.departures.len);
+    try std.testing.expectEqual(@as(u32, 2), shared.departures[0].label_w);
+
+    const one: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = edges[0..1], .clusters = &clusters, .classes = &.{}, .arena = null };
+    const lone = try split.giveRoom(a, one, try split.split(a, one, .{}), .{}, &flow);
+    try std.testing.expectEqual(@as(u32, 2), lone.arrivals[0].label_w);
+    try std.testing.expectEqual(@as(u32, 0), lone.departures[0].label_w);
+
+    const against = [_]u32{ 0, 1, 0 };
+    const back = try split.giveRoom(a, one, try split.split(a, one, .{}), .{}, &against);
+    try std.testing.expectEqual(@as(u32, 0), back.arrivals[0].label_w);
+    try std.testing.expectEqual(@as(u32, 0), back.departures[0].label_w);
+
+    const off = try split.split(a, g, .{});
+    for (off.arrivals) |arr| try std.testing.expectEqual(@as(u32, 0), arr.label_w);
+    for (off.departures) |d| try std.testing.expectEqual(@as(u32, 0), d.label_w);
+}

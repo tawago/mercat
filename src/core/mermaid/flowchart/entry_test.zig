@@ -240,3 +240,209 @@ test "label room: a merged arrival claims no room on the shared trunk" {
     const out = (try entry.render(a, source, .{ .max_width = 120 })).output;
     try std.testing.expect(std.mem.indexOf(u8, out, "┴─▶") != null);
 }
+
+const crossing_labels =
+    \\flowchart TD
+    \\  subgraph S[Work]
+    \\    B[Shape] --> C[Check]
+    \\  end
+    \\  A[Input] -->|verified| B
+    \\  C -->|finished| D[Output]
+    \\  A -->|bypass| D
+    \\
+;
+
+const Grid = struct {
+    rows: []const []const u21,
+
+    fn of(a: std.mem.Allocator, out: []const u8) !Grid {
+        var rows: std.ArrayList([]const u21) = .empty;
+        var it = std.mem.splitScalar(u8, out, '\n');
+        while (it.next()) |line| {
+            var cells: std.ArrayList(u21) = .empty;
+            var cps = (try std.unicode.Utf8View.init(line)).iterator();
+            while (cps.nextCodepoint()) |cp| try cells.append(a, cp);
+            try rows.append(a, cells.items);
+        }
+        return .{ .rows = rows.items };
+    }
+
+    fn at(g: Grid, x: usize, y: usize) u21 {
+        if (y >= g.rows.len or x >= g.rows[y].len) return ' ';
+        return g.rows[y][x];
+    }
+
+    fn find(g: Grid, word: []const u8) ?struct { x: usize, y: usize } {
+        for (g.rows, 0..) |row, y| {
+            var x: usize = 0;
+            while (x + word.len <= row.len) : (x += 1) {
+                for (word, 0..) |ch, i| {
+                    if (row[x + i] != ch) break;
+                } else return .{ .x = x, .y = y };
+            }
+        }
+        return null;
+    }
+
+    fn framedRow(g: Grid, y: usize, lo: usize, hi: usize) bool {
+        var x = lo;
+        while (x > 0 and g.at(x - 1, y) == ' ') x -= 1;
+        var r = hi;
+        while (r < g.rows[y].len and g.at(r, y) == ' ') r += 1;
+        return x > 0 and g.at(x - 1, y) == '│' and g.at(r, y) == '│';
+    }
+};
+
+test "crossing label room: a TD label entering a subgraph sits on its own run inside the frame, above the head" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_]u32{ 60, 120 }) |w| {
+        try std.testing.expectEqual(@as(u32, 0), (try chooseAt(a, crossing_labels, w)).report.label_plan.dropped());
+        const g = try Grid.of(a, (try entry.render(a, crossing_labels, .{ .max_width = w })).output);
+        const p = g.find("verified") orelse return error.LabelNotDrawn;
+        const run = p.x + (8 - 1) / 2;
+        try std.testing.expect(g.framedRow(p.y, p.x, p.x + 8));
+        try std.testing.expectEqual(@as(u21, '│'), g.at(run, p.y - 1));
+        try std.testing.expectEqual(@as(u21, '│'), g.at(run, p.y + 1));
+        try std.testing.expectEqual(@as(u21, '▼'), g.at(run, p.y + 2));
+        try std.testing.expectEqual(@as(u21, '┌'), g.at(run - 4, p.y + 3));
+    }
+}
+
+test "crossing label room: a TD label leaving a subgraph sits on its own run inside the frame, below the port" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_]u32{ 60, 120 }) |w| {
+        const g = try Grid.of(a, (try entry.render(a, crossing_labels, .{ .max_width = w })).output);
+        const p = g.find("finished") orelse return error.LabelNotDrawn;
+        const run = p.x + (8 - 1) / 2;
+        try std.testing.expect(g.framedRow(p.y, p.x, p.x + 8));
+        try std.testing.expectEqual(@as(u21, '│'), g.at(run, p.y - 1));
+        try std.testing.expectEqual(@as(u21, '┬'), g.at(run, p.y - 2));
+        try std.testing.expectEqual(@as(u21, '│'), g.at(run, p.y + 1));
+        try std.testing.expectEqual(@as(u21, '└'), g.at(0, p.y + 2));
+    }
+}
+
+test "crossing label room: an LR label entering a subgraph sits inline on its run inside the frame" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const lr = "flowchart LR" ++ crossing_labels["flowchart TD".len..];
+    const chosen = try chooseAt(a, lr, 120);
+    try std.testing.expectEqual(sem_graph.Direction.LR, chosen.cand.sketch.direction);
+    try std.testing.expectEqual(@as(u32, 0), chosen.report.label_plan.dropped());
+    const g = try Grid.of(a, (try entry.render(a, lr, .{ .max_width = 120 })).output);
+    const p = g.find("verified") orelse return error.LabelNotDrawn;
+    try std.testing.expectEqual(@as(u21, '─'), g.at(p.x - 1, p.y));
+    try std.testing.expectEqual(@as(u21, '▶'), g.at(p.x + 9, p.y));
+    try std.testing.expectEqual(@as(u21, '│'), g.at(p.x + 10, p.y));
+    var wall = p.x - 1;
+    while (g.at(wall, p.y) == '─') wall -= 1;
+    try std.testing.expectEqual(@as(u21, '│'), g.at(wall, p.y));
+    try std.testing.expectEqual(@as(u21, '│'), g.at(wall, p.y - 1));
+}
+
+fn straightToFrame(g: Grid, word: []const u8, across: bool) !void {
+    const p = g.find(word) orelse return error.LabelNotDrawn;
+    const run = p.x + (word.len - 1) / 2;
+    var ends: [2]u21 = undefined;
+    var beyond: [2]u21 = undefined;
+    for ([2]i32{ -1, 1 }, 0..) |dy, k| {
+        var y: i32 = @as(i32, @intCast(p.y)) + dy;
+        while (g.at(run, @intCast(y)) == '│') y += dy;
+        ends[k] = g.at(run, @intCast(y));
+        beyond[k] = g.at(run, @intCast(y + dy));
+    }
+    const wall: usize = if (ends[0] == '─') 0 else 1;
+    try std.testing.expectEqual(@as(u21, '─'), ends[wall]);
+    if (across) try std.testing.expect(std.mem.indexOfScalar(u21, &.{ '│', '▲', '▼' }, beyond[wall]) != null);
+    try std.testing.expect(std.mem.indexOfScalar(u21, &.{ '▲', '▼', '┬', '┴' }, ends[1 - wall]) != null);
+}
+
+test "crossing label room: the leg between the member's port and the frame has no corner" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const wide =
+        \\flowchart TD
+        \\  subgraph S[Work]
+        \\    B[Shape] --> C[Check]
+        \\  end
+        \\  A[Input] -->|a very long verified label here| B
+        \\  C -->|another very long finished label| D[Output]
+        \\
+    ;
+    const both_ways =
+        \\flowchart TD
+        \\  subgraph S[Work]
+        \\    B[Shape] --> C[Check]
+        \\  end
+        \\  A[Input] <-->|both ways| B
+        \\  C ---|plain link| D[Output]
+        \\
+    ;
+    const pair =
+        \\flowchart LR
+        \\  subgraph S[Work]
+        \\    B[Shape] --> C[Check]
+        \\  end
+        \\  A[Input] -->|verified| B
+        \\  C -->|finished| D[Output]
+        \\
+    ;
+    const cases = [_]struct { src: []const u8, w: u32, words: []const []const u8, across: bool = true }{
+        .{ .src = crossing_labels, .w = 60, .words = &.{ "verified", "finished" }, .across = false },
+        .{ .src = crossing_labels, .w = 120, .words = &.{ "verified", "finished" }, .across = false },
+        .{ .src = wide, .w = 90, .words = &.{ "a very long verified label here", "another very long finished label" } },
+        .{ .src = both_ways, .w = 60, .words = &.{ "both ways", "plain link" } },
+        .{ .src = pair, .w = 60, .words = &.{ "verified", "finished" } },
+    };
+    for (cases) |c| {
+        const g = try Grid.of(a, (try entry.render(a, c.src, .{ .max_width = c.w })).output);
+        for (c.words) |word| try straightToFrame(g, word, c.across);
+    }
+}
+
+fn rowsOf(a: std.mem.Allocator, source: []const u8) !usize {
+    const out = (try entry.render(a, source, .{ .max_width = 60 })).output;
+    return std.mem.count(u8, out, "\n");
+}
+
+test "crossing label room: a crossing against the flow reserves no room inside the frame" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const leaving = [2][]const u8{
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --> B\n  C -->|back again| A\n",
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --> B\n  C --> A\n",
+    };
+    const entering = [2][]const u8{
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --- B\n  C --> D[Output]\n  D -->|back again| B\n",
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --- B\n  C --> D[Output]\n  D --> B\n",
+    };
+    const entering_headed = [2][]const u8{
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --> B\n  C --> D[Output]\n  D -->|back again| B\n",
+        "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] --> B\n  C --> D[Output]\n  D --> B\n",
+    };
+    for ([_][2][]const u8{ leaving, entering, entering_headed }) |pair| {
+        try std.testing.expectEqual(try rowsOf(a, pair[1]), try rowsOf(a, pair[0]));
+    }
+}
+
+test "crossing label room: a back edge into the subgraph leaves a labelled forward arrival its room" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_][]const u8{ "B", "C" }) |back_to| {
+        const source = try std.fmt.allocPrint(a, "flowchart TD\n  subgraph S[Work]\n    B[Shape] --> C[Check]\n  end\n  A[Input] -->|verified| B\n  C --> D[Output]\n  D --> {s}\n", .{back_to});
+        const g = try Grid.of(a, (try entry.render(a, source, .{ .max_width = 90 })).output);
+        const p = g.find("verified") orelse return error.LabelNotDrawn;
+        const run = p.x + (8 - 1) / 2;
+        try std.testing.expect(g.framedRow(p.y, p.x, p.x + 8));
+        try std.testing.expectEqual(@as(u21, '│'), g.at(run, p.y + 1));
+        try std.testing.expectEqual(@as(u21, '▼'), g.at(run, p.y + 2));
+    }
+}

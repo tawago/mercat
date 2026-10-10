@@ -1,13 +1,14 @@
 const std = @import("std");
+const prim = @import("prim");
 const sg = @import("../sem_graph.zig");
 const sketch = @import("../sketch.zig");
 const bridge_types = @import("bridge_types.zig");
 
 pub const Crossing = bridge_types.Crossing;
 
-pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4 };
+pub const Arrival = struct { to: sg.NodeId, side: sketch.Dir4, label_w: u32 = 0 };
 
-pub const Departure = struct { from: sg.NodeId, side: sketch.Dir4 };
+pub const Departure = struct { from: sg.NodeId, side: sketch.Dir4, label_w: u32 = 0, tail: bool = false };
 
 pub const Inherited = struct {
     arrivals: []const Arrival = &.{},
@@ -57,7 +58,11 @@ pub const SplitResult = struct {
         var out: std.ArrayListUnmanaged(Arrival) = .empty;
         for (self.arrivals) |a| {
             for (self.pieces[piece_idx].orig_ids, 0..) |o, i| {
-                if (o == a.to) try out.append(arena, .{ .to = @intCast(i), .side = a.side });
+                if (o == a.to) {
+                    var local = a;
+                    local.to = @intCast(i);
+                    try out.append(arena, local);
+                }
             }
         }
         return out.toOwnedSlice(arena);
@@ -67,7 +72,11 @@ pub const SplitResult = struct {
         var out: std.ArrayListUnmanaged(Departure) = .empty;
         for (self.departures) |d| {
             for (self.pieces[piece_idx].orig_ids, 0..) |o, i| {
-                if (o == d.from) try out.append(arena, .{ .from = @intCast(i), .side = d.side });
+                if (o == d.from) {
+                    var local = d;
+                    local.from = @intCast(i);
+                    try out.append(arena, local);
+                }
             }
         }
         return out.toOwnedSlice(arena);
@@ -96,6 +105,21 @@ pub const SplitResult = struct {
 pub fn split(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
     if (cuttable(graph)) return cut(arena, graph, inherited);
     return identity(arena, graph, inherited);
+}
+
+pub fn giveRoom(arena: std.mem.Allocator, graph: sg.SemGraph, sr: SplitResult, inherited: Inherited, ranks: []const u32) error{OutOfMemory}!SplitResult {
+    var out = sr;
+    const legs = try legsOf(arena, graph, sr.crossings, inherited, .{
+        .graph = graph,
+        .crossings = sr.crossings,
+        .inherited = inherited,
+        .supers = sr.supers,
+        .outer_ids = sr.pieces[0].orig_ids,
+        .ranks = ranks,
+    });
+    out.arrivals = legs.arrivals;
+    out.departures = legs.departures;
+    return out;
 }
 
 fn identity(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error{OutOfMemory}!SplitResult {
@@ -166,23 +190,82 @@ fn cut(arena: std.mem.Allocator, graph: sg.SemGraph, inherited: Inherited) error
     const ob = try buildOuter(arena, graph, tops.items, supers);
     pieces[0] = ob.piece;
 
-    var arrivals: std.ArrayListUnmanaged(Arrival) = .empty;
-    try arrivals.appendSlice(arena, inherited.arrivals);
-    var departures: std.ArrayListUnmanaged(Departure) = .empty;
-    try departures.appendSlice(arena, inherited.departures);
-    for (ob.crossings) |c| {
-        if (c.arrow_to != .none) try arrivals.append(arena, .{ .to = c.to, .side = entrySide(graph.direction) });
-        if (topClusterOf(graph, c.from) != null) try departures.append(arena, .{ .from = c.from, .side = exitSide(graph.direction) });
-    }
+    const legs = try legsOf(arena, graph, ob.crossings, inherited, null);
 
     return .{
         .pieces = pieces,
         .supers = supers,
         .crossings = ob.crossings,
-        .arrivals = try arrivals.toOwnedSlice(arena),
-        .departures = try departures.toOwnedSlice(arena),
+        .arrivals = legs.arrivals,
+        .departures = legs.departures,
         .orig_node_count = graph.nodes.len,
     };
+}
+
+const LegLists = struct { arrivals: []const Arrival, departures: []const Departure };
+
+fn legsOf(arena: std.mem.Allocator, graph: sg.SemGraph, crossings: []const Crossing, inherited: Inherited, room: ?Legs) error{OutOfMemory}!LegLists {
+    var arrivals: std.ArrayListUnmanaged(Arrival) = .empty;
+    try arrivals.appendSlice(arena, inherited.arrivals);
+    var departures: std.ArrayListUnmanaged(Departure) = .empty;
+    try departures.appendSlice(arena, inherited.departures);
+    for (crossings) |c| {
+        const to_top = if (c.arrow_to != .none) topClusterOf(graph, c.to) else null;
+        const from_top = topClusterOf(graph, c.from);
+        var at_arrival: u32 = 0;
+        var at_departure: u32 = 0;
+        const w: u32 = if (c.label) |label| prim.displayWidth(label) else 0;
+        if (room) |legs| {
+            if (w > 0 and legs.forward(c)) {
+                if (to_top != null and legs.lone(c.to, true)) {
+                    at_arrival = w;
+                } else if (from_top != null and legs.lone(c.from, false)) {
+                    at_departure = w;
+                }
+            }
+        }
+        if (c.arrow_to != .none) try arrivals.append(arena, .{ .to = c.to, .side = entrySide(graph.direction), .label_w = at_arrival });
+        if (from_top != null) try departures.append(arena, .{ .from = c.from, .side = exitSide(graph.direction), .label_w = at_departure, .tail = c.arrow_from != .none });
+    }
+    return .{ .arrivals = try arrivals.toOwnedSlice(arena), .departures = try departures.toOwnedSlice(arena) };
+}
+
+const Legs = struct {
+    graph: sg.SemGraph,
+    crossings: []const Crossing,
+    inherited: Inherited,
+    supers: []const SuperNode,
+    outer_ids: []const sg.NodeId,
+    ranks: []const u32,
+
+    fn forward(self: Legs, c: Crossing) bool {
+        const rf = outerRepr(self.graph, self.supers, self.outer_ids, c.from);
+        const rt = outerRepr(self.graph, self.supers, self.outer_ids, c.to);
+        return self.ranks[rt] > self.ranks[rf];
+    }
+
+    fn lone(self: Legs, member: sg.NodeId, arrival: bool) bool {
+        var n: usize = 0;
+        for (self.crossings) |c| {
+            if (arrival and c.arrow_to == .none) continue;
+            if (!self.forward(c)) continue;
+            n += @intFromBool((if (arrival) c.to else c.from) == member);
+        }
+        if (arrival) {
+            for (self.inherited.arrivals) |a| n += @intFromBool(a.to == member);
+        } else {
+            for (self.inherited.departures) |d| n += @intFromBool(d.from == member);
+        }
+        return n == 1;
+    }
+};
+
+pub fn hasLabelledCrossing(graph: sg.SemGraph) bool {
+    for (graph.edges) |e| {
+        if (e.labelText() == null or e.from == e.to) continue;
+        if (graph.clusterOf(e.from) != graph.clusterOf(e.to)) return true;
+    }
+    return false;
 }
 
 const OuterBuild = struct { piece: Piece, crossings: []const Crossing };

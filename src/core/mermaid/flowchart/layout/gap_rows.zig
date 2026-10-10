@@ -77,9 +77,10 @@ fn labelRoom(c: Census, e: sg.Edge, gap: u32, tcol: i32, straight: bool) ?Claim 
     const w: i32 = @intCast(prim.displayWidth(label));
     const along: u32 = if (c.graph.direction == .TD) 1 else @intCast(w);
     const heads = @as(u32, @intFromBool(e.arrow_to != .none)) + @intFromBool(straight and e.arrow_from != .none);
-    const lo = if (c.graph.direction == .TD) tcol - @divTrunc(w - 1, 2) - 2 else tcol;
-    const hi = if (c.graph.direction == .TD) tcol + @divTrunc(w, 2) + 2 else tcol;
-    return .{ .gap = gap, .lo = lo, .hi = hi, .height = along + heads, .kind = .run, .pin = 0 };
+    const side: i32 = @intCast(prim.label_side_clearance);
+    const lo = if (c.graph.direction == .TD) tcol - @divTrunc(w - 1, 2) - side else tcol;
+    const hi = if (c.graph.direction == .TD) tcol + @divTrunc(w, 2) + side else tcol;
+    return .{ .gap = gap, .lo = lo, .hi = hi, .height = prim.labelRunCells(along, heads) - 2 * prim.label_run_margin, .kind = .run, .pin = 0 };
 }
 
 fn fusedAnywhere(bundles: pb.RealizedBundles, edge: sg.EdgeId) bool {
