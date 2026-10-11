@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.2]
+
 ### Markdown
 
 - **Blocks inside list items render.** Code blocks, quotes, tables, extra
@@ -155,6 +157,15 @@ All notable changes to this project will be documented in this file.
 
 ### Diagrams
 
+- **Flowchart edge labels no longer go missing (#10).** Each labeled edge gets
+  its own run, and the label sits on it. A labeled edge into or out of a
+  subgraph draws its label inside the frame. Diagrams with labeled edges grow
+  by a few rows (top-down) or columns (left-right).
+- **Labels never lie.** A label is never drawn where a reader would give it to
+  another edge. When no honest place exists, mercat leaves the label out and
+  prints one warning naming the edge, e.g.
+  `mermaid: label "back again" on edge 3 (D -> B) has no faithful place and is
+  not drawn`.
 - The open Mermaid issues (#57-#85, tracked in #86) each carry a minimal
   reproduction in the GitHub issue itself.
 

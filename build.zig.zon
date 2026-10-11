@@ -1,6 +1,6 @@
 .{
     .name = .mercat,
-    .version = "0.3.1",
+    .version = "0.3.2",
     .minimum_zig_version = "0.15.1",
     .fingerprint = 0xf453b7b757b381ee,
     .dependencies = .{
