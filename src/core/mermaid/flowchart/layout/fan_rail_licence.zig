@@ -4,6 +4,7 @@ const tie_break = @import("../base/tie_break.zig");
 const rc = @import("../base/rail_closure.zig");
 const fan_mod = @import("fan.zig");
 const sugiyama = @import("sugiyama.zig");
+const bundle_commit = @import("bundle_commit.zig");
 
 const Fan = fan_mod.Fan;
 
@@ -45,7 +46,7 @@ pub fn refuseUndeclared(
         a.free(claim.members);
         claim.members = try kept.toOwnedSlice(a);
         if (claim.members.len < 2) continue;
-        claim.verdict = try rc.decide(a, claim.members, try backersOf(a, graph, claim.members));
+        claim.verdict = try rc.decide(a, claim.members, try bundle_commit.backersOf(a, graph, claim.members));
         claim.claiming = claim.verdict.outcome == .keep or claim.verdict.outcome == .salvage;
     }
 
@@ -111,31 +112,10 @@ fn membersOf(
         out.append(a, .{
             .edge = p.edge_id,
             .leaf = leaf,
-            .kind = kindOrdinal(edge.kind),
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
             .arrow_free = sg.arrowFree(edge),
             .undecorated = sg.undecorated(edge),
         }) catch return error.OutOfMemory;
-    }
-    return out.toOwnedSlice(a);
-}
-
-fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member) error{OutOfMemory}![]rc.Backer {
-    var out: std.ArrayListUnmanaged(rc.Backer) = .empty;
-    for (graph.edges) |edge| {
-        if (edge.from == edge.to) continue;
-        var is_member = false;
-        for (members) |m| {
-            if (m.edge == edge.id) is_member = true;
-        }
-        if (is_member) continue;
-        try out.append(a, .{
-            .edge = edge.id,
-            .a = edge.from,
-            .b = edge.to,
-            .kind = kindOrdinal(edge.kind),
-            .undecorated = sg.undecorated(edge),
-            .unlabeled = edge.label == null or edge.label.?.len == 0,
-        });
     }
     return out.toOwnedSlice(a);
 }
@@ -164,8 +144,4 @@ fn nodeId(lg: sugiyama.LayeredGraph, idx: u32) sg.NodeId {
         .real => |id| id,
         .virtual => 0,
     };
-}
-
-fn kindOrdinal(kind: sg.EdgeKind) u8 {
-    return tie_break.edgeKindOrdinal(kind);
 }

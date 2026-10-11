@@ -8,6 +8,8 @@ const cluster_stitch = @import("cluster/stitch.zig");
 
 pub const RecurseError = coords.CoordsError || cluster_stitch.StitchError;
 
+pub const hasLabelledCrossing = cluster_split.hasLabelledCrossing;
+
 pub fn layoutPieces(
     arena: std.mem.Allocator,
     graph: sem_graph.SemGraph,
@@ -22,7 +24,8 @@ pub fn layoutClustered(
     opts: coords.LayoutOptions,
     inherited: cluster_split.Inherited,
 ) RecurseError!cluster_stitch.Clustered {
-    const sr = try cluster_split.split(arena, graph, inherited);
+    var sr = try cluster_split.split(arena, graph, inherited);
+    if (opts.crossing_room and !sr.isFlat()) sr = try cluster_split.giveRoom(arena, graph, sr, inherited, try coords.flowRanks(arena, sr.pieces[0].graph));
 
     if (sr.isFlat()) {
         var flat_opts = opts;
@@ -71,7 +74,7 @@ pub fn stitchOuter(
     const fixed = try arena.alloc(coords.FixedSize, sr.supers.len);
     for (sr.supers, 0..) |super, i| {
         const sz = cluster_stitch.superSize(children[super.child_piece].sketch.bbox, opts.spacing_scale, super.synthetic);
-        const ei = cluster_stitch.entryInsetFor(sr, children, super);
+        const ei = cluster_stitch.entryInsetFor(sr, children, super, opts.spacing_scale);
         fixed[i] = .{ .node = super.outer_node, .w = sz.w + ei.wExtra(), .h = sz.h + ei.hExtra(), .synthetic = super.synthetic };
     }
     var outer_opts = opts;

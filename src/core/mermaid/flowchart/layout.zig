@@ -64,6 +64,25 @@ pub fn layout(
     return result;
 }
 
+pub fn flowRanks(allocator: std.mem.Allocator, graph: sg.SemGraph) CoordsError![]u32 {
+    var flow = graph;
+    flow.direction = .TD;
+    var lg = sugiyama.assignLayers(allocator, flow) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.EmptyGraph, error.InconsistentEdge => return error.EmptyGraph,
+    };
+    defer lg.deinit(allocator);
+    const ranks = try allocator.alloc(u32, graph.nodes.len);
+    @memset(ranks, 0);
+    for (lg.layers, 0..) |layer, li| for (layer) |v| switch (lg.nodes[v]) {
+        .real => |id| if (id < ranks.len) {
+            ranks[id] = @intCast(li);
+        },
+        .virtual => {},
+    };
+    return ranks;
+}
+
 fn buildSketch(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -100,7 +119,7 @@ fn buildSketch(
     const predicted_ports = try port_plan.predict(a, graph, lg, geom, decision.attachments, decision.bundles, decision.port_active);
     const supers = try a.alloc(gap_rows.Super, opts.fixed_sizes.len);
     for (opts.fixed_sizes, supers) |fixed, *sup| sup.* = .{ .node = fixed.node, .drawn = !fixed.synthetic };
-    const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures);
+    const rows = try gap_rows.buildPiece(a, graph, lg, geom, fans, decision.bundles, predicted_ports, v_sp_per_gap, supers, opts.departures, opts.label_room);
     restack(lg, geom, layer_h, v_sp_per_gap, rows);
 
     mirror.applyDirection(geom, graph.direction);

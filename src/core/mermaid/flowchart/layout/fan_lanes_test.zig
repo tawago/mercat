@@ -34,7 +34,7 @@ pub fn buildPiece(
         .real => |id| try indexed.real_index.put(a, id, @intCast(idx)),
         .virtual => {},
     };
-    return gap_rows.buildPiece(a, graph, indexed, placed, fans, bundles, plan, bases, supers, departures);
+    return gap_rows.buildPiece(a, graph, indexed, placed, fans, bundles, plan, bases, supers, departures, true);
 }
 
 pub fn mkLg(

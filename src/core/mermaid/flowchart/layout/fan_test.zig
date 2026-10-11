@@ -332,3 +332,10 @@ test "a fan-in tap label crowded by a neighbouring fan's drop unshares" {
     try testing.expect(peers_p[1].shared);
     try testing.expect(peers_q[0].shared);
 }
+
+test "two labels keep two blank cells between them; a bare stroke keeps one beside a label" {
+    try testing.expect(fan.labelsOverlap(0, 5, 6, 5));
+    try testing.expect(!fan.labelsOverlap(0, 5, 7, 5));
+    try testing.expect(fan.labelsOverlap(0, 5, 3, 0));
+    try testing.expect(!fan.labelsOverlap(0, 5, 4, 0));
+}

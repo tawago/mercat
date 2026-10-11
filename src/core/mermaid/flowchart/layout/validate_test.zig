@@ -69,7 +69,7 @@ test "ok sketch passes all validators and tallies all-zero" {
 
     const result = try validate(a, s);
     try testing.expect(result == .ok);
-    try testing.expectEqual(validate_mod.Counts{}, validate_mod.counts(result, s));
+    try testing.expectEqual(validate_mod.Counts{}, validate_mod.counts(result));
 }
 
 test "edge through node interior is flagged and tallied under its own kind" {
@@ -105,10 +105,9 @@ test "edge through node interior is flagged and tallied under its own kind" {
         if (v.kind == .path_through_interior) saw_interior = true;
     }
     try testing.expect(saw_interior);
-    const c = validate_mod.counts(result, s);
+    const c = validate_mod.counts(result);
     try testing.expect(c.path_through_interior >= 1);
     try testing.expectEqual(@as(u32, 0), c.edge_unrouted);
-    try testing.expectEqual(@as(u32, 0), c.bbox_overflow);
 }
 
 test "checkPathInteriors exempts a segment adjacent to its own edge's endpoint but flags a genuine cross by an unrelated edge" {
@@ -148,27 +147,6 @@ test "checkPathInteriors exempts a segment adjacent to its own edge's endpoint b
     try testing.expectEqual(validate_mod.Violation.Kind.path_through_interior, v_foreign.items[0].kind);
 }
 
-test "counts: over-budget bbox reports bbox_overflow without a Violation" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const s: sketch.Sketch = .{
-        .bbox = .{ .x = 0, .y = 0, .w = 100, .h = 5 },
-        .direction = .LR,
-        .nodes = &.{},
-        .clusters = &.{},
-        .edges = &.{},
-        .diagnostics = &.{},
-        .budget = .{ .max_width = 80, .rung = 0 },
-    };
-
-    const vr = try validate(a, s);
-    try testing.expect(vr == .ok);
-    const c = validate_mod.counts(vr, s);
-    try testing.expectEqual(@as(u32, 1), c.bbox_overflow);
-}
-
 test "an edge with no polyline counts as unrouted" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
@@ -187,6 +165,6 @@ test "an edge with no polyline counts as unrouted" {
         .diagnostics = &.{},
         .budget = .{ .max_width = 80, .rung = 0 },
     };
-    const c = validate_mod.counts(try validate(a, s), s);
+    const c = validate_mod.counts(try validate(a, s));
     try testing.expectEqual(@as(u32, 1), c.edge_unrouted);
 }

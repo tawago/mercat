@@ -146,10 +146,12 @@ fn labelFootprint(
     } else .{};
     const anchor = prim.edgeLabelAnchor(seg.a.x, seg.a.y, seg.b.x, seg.b.y, lbl_w, ctx);
     const mid_x: i32 = @divTrunc(seg.a.x + seg.b.x, 2);
+    const roomed = !back_ctx and seg.a.x == seg.b.x and @abs(seg.b.y - seg.a.y) >= 4;
+    const lx = if (roomed) seg.a.x - @divTrunc(@as(i32, @intCast(lbl_w)) - 1, 2) else anchor.x;
     return .{
-        .lx = anchor.x,
+        .lx = lx,
         .ly = anchor.y,
-        .lend_x = anchor.x + @as(i32, @intCast(lbl_w)),
+        .lend_x = lx + @as(i32, @intCast(lbl_w)),
         .left_of_run = anchor.x < mid_x + 2,
     };
 }

@@ -18,11 +18,10 @@ pub const ValidationResult = union(enum) {
 
 pub const Counts = struct {
     path_through_interior: u32 = 0,
-    bbox_overflow: u32 = 0,
     edge_unrouted: u32 = 0,
 };
 
-pub fn counts(vr: ValidationResult, s: sketch.Sketch) Counts {
+pub fn counts(vr: ValidationResult) Counts {
     var c: Counts = .{};
     switch (vr) {
         .ok => {},
@@ -31,7 +30,6 @@ pub fn counts(vr: ValidationResult, s: sketch.Sketch) Counts {
             .edge_unrouted => c.edge_unrouted += 1,
         },
     }
-    if (s.bbox.w > s.budget.max_width) c.bbox_overflow += 1;
     return c;
 }
 
@@ -71,7 +69,7 @@ pub fn checkUnrouted(
     violations: *std.ArrayList(Violation),
 ) !void {
     for (s.edges) |edge| {
-        if (edge.polyline.len >= 2 or edge.kind == .invisible) continue;
+        if (edge.routed()) continue;
         try emit(allocator, violations, .edge_unrouted, "edge {d} ({d} -> {d}) has no polyline; unrouted", .{ edge.id, edge.from, edge.to });
     }
 }

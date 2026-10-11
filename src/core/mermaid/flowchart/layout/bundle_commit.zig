@@ -16,6 +16,27 @@ pub fn effectivePlan(a: std.mem.Allocator, graph: sg.SemGraph, root: ?*const pb.
     return piece.plan;
 }
 
+/// The declared edges that may back a pair a rail of `members` connects. In a cluster piece the
+/// stand-ins for crossings declare nothing and back nothing.
+pub fn backersOf(a: std.mem.Allocator, graph: sg.SemGraph, members: []const rc.Member) error{OutOfMemory}![]rc.Backer {
+    var piece = false;
+    for (graph.edges) |edge| piece = piece or edge.origin != sg.SENTINEL;
+    var out: std.ArrayListUnmanaged(rc.Backer) = .empty;
+    outer: for (graph.edges) |edge| {
+        if (edge.from == edge.to or (piece and edge.origin == sg.SENTINEL)) continue;
+        for (members) |m| if (m.edge == edge.id) continue :outer;
+        try out.append(a, .{
+            .edge = edge.id,
+            .a = edge.from,
+            .b = edge.to,
+            .kind = tie_break.edgeKindOrdinal(edge.kind),
+            .undecorated = sg.undecorated(edge),
+            .unlabeled = edge.labelText() == null,
+        });
+    }
+    return out.toOwnedSlice(a);
+}
+
 /// Where one candidate bundle stands while the phases run.
 const Slot = union(enum) {
     /// No rail: fewer than two members stand, or a member is reversed.
@@ -78,20 +99,7 @@ fn closureLicence(c: Ctx, group: pb.CandidateBundle, rail: []const pb.EdgeId) er
             .undecorated = sg.undecorated(edge),
         };
     }
-    var backers: std.ArrayListUnmanaged(rc.Backer) = .empty;
-    for (c.graph.edges) |edge| {
-        if (edge.from == edge.to or pb.containsEdge(rail, edge.id)) continue;
-        if (c.plan.scope == .piece and edge.origin == sg.SENTINEL) continue;
-        try backers.append(c.a, .{
-            .edge = edge.id,
-            .a = edge.from,
-            .b = edge.to,
-            .kind = tie_break.edgeKindOrdinal(edge.kind),
-            .undecorated = sg.undecorated(edge),
-            .unlabeled = edge.label == null or edge.label.?.len == 0,
-        });
-    }
-    const verdict = try rc.decide(c.a, members, backers.items);
+    const verdict = try rc.decide(c.a, members, try backersOf(c.a, c.graph, members));
     if (verdict.outcome == .refuse) return .refused;
     return .{ .rail = .{ .members = verdict.members, .discharges = verdict.discharges } };
 }

@@ -3,6 +3,7 @@ const parse = @import("../parse.zig").parse;
 const permits = @import("../ledger/permits.zig");
 const bundle_commit = @import("bundle_commit.zig");
 const pb = @import("../base/ledger.zig");
+const rc = @import("../base/rail_closure.zig");
 
 fn nodeId(graph: anytype, raw: []const u8) u32 {
     for (graph.nodes) |n| if (std.mem.eql(u8, n.raw_id, raw)) return n.id;
@@ -268,12 +269,39 @@ test "a stand-in edge backs no pair of a piece's rail" {
     var piece = graph;
     piece.edges = edges;
 
-    const flat = (try permits.build(a, piece, .joined)).plan;
-    const backed = try bundle_commit.realize(a, piece, &flat, &.{}, &.{});
+    const flat = (try permits.build(a, graph, .joined)).plan;
+    const backed = try bundle_commit.realize(a, graph, &flat, &.{}, &.{});
     try std.testing.expectEqualSlices(u32, &.{pair}, backed.discharged);
 
     const own = (try permits.buildPiece(a, piece)).plan;
     const refused = try bundle_commit.realize(a, piece, &own, &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 0), refused.selected_bundles.len);
     try std.testing.expectEqual(@as(usize, 0), refused.discharged.len);
+}
+
+test "the backers of a piece are its declared edges; a flat graph's are all its edges" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const graph = try parse(a, "flowchart TD\n  A --- Z\n  B --- Z\n  A --- B\n  B --- A\n  C --> C\n");
+    const za = edgeIdOf(graph, "A", "Z");
+    const pair = edgeIdOf(graph, "A", "B");
+    const back = edgeIdOf(graph, "B", "A");
+    const members = [_]rc.Member{
+        .{ .edge = za, .leaf = nodeId(graph, "A"), .kind = 0, .arrow_free = true, .undecorated = true },
+        .{ .edge = edgeIdOf(graph, "B", "Z"), .leaf = nodeId(graph, "B"), .kind = 0, .arrow_free = true, .undecorated = true },
+    };
+
+    const flat = try bundle_commit.backersOf(a, graph, &members);
+    try std.testing.expectEqual(@as(usize, 2), flat.len);
+    try std.testing.expectEqual(pair, flat[0].edge);
+    try std.testing.expectEqual(back, flat[1].edge);
+
+    const edges = try a.dupe(@TypeOf(graph.edges[0]), graph.edges);
+    for (edges) |*e| e.origin = if (e.id == pair) std.math.maxInt(u32) else e.id;
+    var piece = graph;
+    piece.edges = edges;
+    const declared = try bundle_commit.backersOf(a, piece, &members);
+    try std.testing.expectEqual(@as(usize, 1), declared.len);
+    try std.testing.expectEqual(back, declared[0].edge);
 }

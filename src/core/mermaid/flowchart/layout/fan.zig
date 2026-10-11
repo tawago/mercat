@@ -19,6 +19,19 @@ pub fn effectiveLane(f: Fan, peer_lane: u32) u32 {
 
 pub const LABEL_RUN_EXTRA_ROWS: u32 = 3;
 
+/// Whether a label of width `w` centred on `cx` crowds a label of width `qw` centred on `qx`,
+/// or the bare stroke at `qx` when `qw` is 0.
+pub fn labelsOverlap(cx: i32, w: u32, qx: i32, qw: u32) bool {
+    const wi: i32 = @intCast(w);
+    const left = cx - @divTrunc(wi - 1, 2);
+    const right = cx + @divTrunc(wi, 2);
+    if (qw == 0) return left - 2 < qx and qx < right + 2;
+    const qwi: i32 = @intCast(qw);
+    const q_left = qx - @divTrunc(qwi - 1, 2);
+    const q_right = qx + @divTrunc(qwi, 2);
+    return !(right + 3 <= q_left or q_right + 3 <= left);
+}
+
 pub fn detect(
     a: std.mem.Allocator,
     graph: sg.SemGraph,
@@ -95,14 +108,8 @@ fn anyPeerLabeled(graph: sg.SemGraph, peers: []const FanEdge) bool {
 }
 
 fn peerLabel(graph: sg.SemGraph, edge_id: u32) ?[]const u8 {
-    for (graph.edges) |e| {
-        if (e.id != edge_id) continue;
-        if (e.label) |lbl| {
-            if (lbl.len > 0) return lbl;
-        }
-        return null;
-    }
-    return null;
+    const edge = graph.edgeById(edge_id) orelse return null;
+    return edge.labelText();
 }
 
 pub fn refreshLabelWidths(graph: sg.SemGraph, fans: []Fan) void {
@@ -122,26 +129,16 @@ pub fn gateFanInSharedLabels(comptime G: type, fans: []Fan, geom: []const G) voi
         for (f.peers) |p| {
             if (!p.shared or p.label_width == 0) continue;
             const cx = centerX(G, geom, p.peer_idx);
-            const w: i32 = @intCast(p.label_width);
-            const left = cx - @divTrunc(w - 1, 2);
-            const right = cx + @divTrunc(w, 2);
             for (f.peers) |q| {
                 if (q.peer_idx == p.peer_idx or !q.shared) continue;
-                const qx = centerX(G, geom, q.peer_idx);
-                if (q.label_width != 0) {
-                    const qw: i32 = @intCast(q.label_width);
-                    const q_left = qx - @divTrunc(qw - 1, 2);
-                    const q_right = qx + @divTrunc(qw, 2);
-                    if (!(right + 3 <= q_left or q_right + 3 <= left)) infeasible = true;
-                } else if (left - 2 < qx and qx < right + 2) infeasible = true;
+                if (labelsOverlap(cx, p.label_width, centerX(G, geom, q.peer_idx), q.label_width)) infeasible = true;
             }
             for (fans) |g| {
                 if (g.source_layer != f.source_layer or g.pivot_idx == f.pivot_idx) continue;
-                if (left - 2 < centerX(G, geom, g.pivot_idx) and centerX(G, geom, g.pivot_idx) < right + 2) infeasible = true;
+                if (labelsOverlap(cx, p.label_width, centerX(G, geom, g.pivot_idx), 0)) infeasible = true;
                 for (g.peers) |q| {
                     if (!q.shared) continue;
-                    const qx = centerX(G, geom, q.peer_idx);
-                    if (left - 2 < qx and qx < right + 2) infeasible = true;
+                    if (labelsOverlap(cx, p.label_width, centerX(G, geom, q.peer_idx), 0)) infeasible = true;
                 }
             }
         }

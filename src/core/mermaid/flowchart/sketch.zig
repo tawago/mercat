@@ -90,6 +90,11 @@ pub const EdgePath = struct {
     kind: EdgeKind,
     role: EdgeRole = .forward,
     label_left_of_run: bool = false,
+    origin: EdgeId = std.math.maxInt(EdgeId),
+
+    pub fn routed(self: EdgePath) bool {
+        return self.polyline.len >= 2 or self.kind == .invisible;
+    }
 };
 
 pub const Tap = struct {
@@ -100,6 +105,7 @@ pub const Tap = struct {
     label: ?[]const u8 = null,
     arrow: ArrowKind = .filled,
     continues: bool = false,
+    origin: EdgeId = std.math.maxInt(EdgeId),
 };
 
 pub const Rail = struct {

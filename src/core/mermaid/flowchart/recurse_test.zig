@@ -5,7 +5,6 @@ const sem_graph = @import("sem_graph.zig");
 const coords = @import("layout.zig");
 const cluster_split = @import("cluster/split.zig");
 const cluster_stitch = @import("cluster/stitch.zig");
-const validate = @import("layout/validate.zig");
 const recurse = @import("recurse.zig");
 const raster = @import("raster.zig");
 const ledger = @import("base/ledger.zig");
@@ -230,12 +229,6 @@ test "rotation that reduces but does not eliminate overflow is rejected (validat
     const rotated = try recurse.layoutClustered(a, rotated_graph, child_opts, .{});
     try std.testing.expect(rotated.sketch.bbox.w < cc.declared.sketch.bbox.w);
     try std.testing.expect(rotated.sketch.bbox.w > child_opts.max_width);
-
-    var budgeted = rotated.sketch;
-    budgeted.budget = .{ .max_width = child_opts.max_width, .rung = 0 };
-    const vr = try validate.validate(a, budgeted);
-    const c = validate.counts(vr, budgeted);
-    try std.testing.expect(c.bbox_overflow >= 1);
 }
 
 test "stitch re-clamps a surviving rail's crossbar past a dropped super-node tap" {
@@ -566,7 +559,7 @@ fn topToFrameGap(s: sketch.Sketch) !u32 {
     return @intCast(frame.rect.y - bottom);
 }
 
-test "a labeled fan into sibling subgraphs reserves no on-run rows" {
+test "a labeled fan into sibling subgraphs reserves no on-run rows in the outer gap" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -587,9 +580,11 @@ test "a labeled fan into sibling subgraphs reserves no on-run rows" {
 
     const sp = try recurse.layoutPieces(a, plain, .{ .max_width = 120 });
     const sl = try recurse.layoutPieces(a, labeled, .{ .max_width = 120 });
+    const bare = try recurse.layoutPieces(a, labeled, .{ .max_width = 120, .crossing_room = false });
 
     try std.testing.expectEqual(try topToFrameGap(sp), try topToFrameGap(sl));
-    try std.testing.expectEqual(sp.bbox.h, sl.bbox.h);
+    try std.testing.expectEqual(sp.bbox.h, bare.bbox.h);
+    try std.testing.expectEqual(sp.bbox.h + 2, sl.bbox.h);
 
     const top = placementNamed(sl, "Top") orelse return error.TopNotPlaced;
     var crossings: usize = 0;

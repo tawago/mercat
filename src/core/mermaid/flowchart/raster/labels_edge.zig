@@ -1,182 +1,144 @@
-const std = @import("std");
-const prim = @import("prim");
-const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const lw = @import("labels_write.zig");
 const ink = @import("labels_ink.zig");
+const geo = @import("geometry.zig");
 
-const log = std.log.scoped(.@"mermaid.raster.labels");
+pub const Omission = enum { unrouted_host, no_room, no_faithful_place };
 
-const Pass = enum { own_adjacent, own_nearest, any, any_solid };
-const passes = [4]Pass{ .own_adjacent, .own_nearest, .any, .any_solid };
+pub const Verdict = enum { placed, no_room, no_faithful_place };
 
-const OWN_ADJ_RADIUS: u32 = 2;
-const OWN_NEAR_RADIUS: u32 = 4;
-
-pub const SegPair = struct { a: sketch.Point, b: sketch.Point };
-
-pub fn pickMidSegment(poly: []const sketch.Point) ?SegPair {
-    var count: usize = 0;
-    for (poly[0 .. poly.len - 1], 0..) |p, i| {
-        const q = poly[i + 1];
-        if (p.x != q.x or p.y != q.y) count += 1;
-    }
-    if (count == 0) return null;
-    const target = count / 2;
-    var seen: usize = 0;
-    for (poly[0 .. poly.len - 1], 0..) |p, i| {
-        const q = poly[i + 1];
-        if (p.x == q.x and p.y == q.y) continue;
-        if (seen == target) return .{ .a = p, .b = q };
-        seen += 1;
-    }
-    return null;
+pub fn beside(lat: *lattice.Lattice, hosts: []const ink.Host, run: lw.Run, left_of_run: bool) Verdict {
+    var refused = false;
+    for (hosts) |h| switch (tryHost(lat, run, h, left_of_run)) {
+        .placed => return .placed,
+        .no_faithful_place => refused = true,
+        .no_room => {},
+    };
+    return if (refused) .no_faithful_place else .no_room;
 }
 
-pub const Placement = enum { at_anchor, displaced, dropped };
-
-pub fn placeEdgeLabel(
-    lat: *lattice.Lattice,
-    ep: sketch.EdgePath,
-    run: lw.Run,
-) Placement {
-    if (ep.polyline.len < 2) return .dropped;
-
-    const seg_pair = pickMidSegment(ep.polyline) orelse return .dropped;
-    return placeLabelAtSeg(lat, ep.id, run, seg_pair.a, seg_pair.b, ep.label_left_of_run, ep.polyline);
-}
-
-pub fn placeLabelAtSeg(
-    lat: *lattice.Lattice,
-    edge_id: u32,
-    run: lw.Run,
-    a: sketch.Point,
-    b: sketch.Point,
-    left_of_run: bool,
-    polyline: []const sketch.Point,
-) Placement {
-    const owner: ink.Owner = .{ .edge_id = edge_id, .polyline = polyline, .seg_a = a, .seg_b = b };
-
-    const anchor = anchorFor(a, b, left_of_run, run.width);
-    for (passes) |pass| {
-        if (tryWrite(lat, run, anchor.x, anchor.y, owner, pass)) return .at_anchor;
-
-        if (trySegment(lat, run, a, b, left_of_run, owner, pass)) return .displaced;
-
-        if (polyline.len >= 2) {
-            for (polyline[0 .. polyline.len - 1], 0..) |p, i| {
-                const q = polyline[i + 1];
-                if (p.x == q.x and p.y == q.y) continue;
-                if (p.x == a.x and p.y == a.y and q.x == b.x and q.y == b.y) continue;
-                if (trySegment(lat, run, p, q, left_of_run, owner, pass)) return .displaced;
+fn tryHost(lat: *lattice.Lattice, run: lw.Run, h: ink.Host, left_of_run: bool) Verdict {
+    var refused = false;
+    switch (h.axis) {
+        .horizontal => {
+            for ([2]i32{ h.lo.y - 1, h.lo.y + 1 }) |row| {
+                var it = ink.MiddleOut.init(h.lo.x, h.hi.x);
+                while (it.next()) |x| switch (tryWrite(lat, run, h, x, row)) {
+                    .placed => return .placed,
+                    .no_faithful_place => refused = true,
+                    .no_room => {},
+                };
             }
-        }
-    }
-
-    log.debug(
-        "raster/labels: edge {d} has no space for label (len={d}); skipping",
-        .{ edge_id, run.width },
-    );
-    return .dropped;
-}
-
-fn anchorFor(a: sketch.Point, b: sketch.Point, left_of_run: bool, label_w: u32) prim.LabelAnchor {
-    return if (left_of_run)
-        prim.leftOfRailAnchor(a.x, a.y, b.x, b.y, label_w)
-    else
-        prim.edgeLabelAnchor(a.x, a.y, b.x, b.y, label_w, .{});
-}
-
-fn trySegment(
-    lat: *lattice.Lattice,
-    run: lw.Run,
-    a: sketch.Point,
-    b: sketch.Point,
-    left_of_run: bool,
-    owner: ink.Owner,
-    pass: Pass,
-) bool {
-    const orig_len: u32 = run.width;
-
-    if (a.y == b.y) {
-        const mid_x: i32 = @divTrunc(a.x + b.x, 2);
-        const min_x = @min(a.x, b.x);
-        const max_x = @max(a.x, b.x);
-        const rows = [2]i32{ a.y - 1, a.y + 1 };
-        for (rows) |row| {
-            var d: i32 = 0;
-            while (mid_x - d >= min_x or mid_x + d <= max_x) : (d += 1) {
-                if (mid_x - d >= min_x and tryWrite(lat, run, mid_x - d, row, owner, pass)) return true;
-                if (d > 0 and mid_x + d <= max_x and tryWrite(lat, run, mid_x + d, row, owner, pass)) return true;
+        },
+        .vertical => {
+            const right_x: i32 = h.lo.x + 2;
+            const left_x: i32 = h.lo.x - 1 - @as(i32, @intCast(run.width));
+            const sides = if (left_of_run) [2]i32{ left_x, right_x } else [2]i32{ right_x, left_x };
+            for (sides) |x| {
+                var it = ink.MiddleOut.init(h.lo.y, h.hi.y);
+                while (it.next()) |y| switch (tryWrite(lat, run, h, x, y)) {
+                    .placed => return .placed,
+                    .no_faithful_place => refused = true,
+                    .no_room => {},
+                };
             }
-        }
-        return false;
+        },
     }
-
-    const mid_x: i32 = @divTrunc(a.x + b.x, 2);
-    const mid_y: i32 = @divTrunc(a.y + b.y, 2);
-    const min_y = @min(a.y, b.y);
-    const max_y = @max(a.y, b.y);
-    const right_x: i32 = mid_x + 2;
-    const left_x: i32 = mid_x - 1 - @as(i32, @intCast(orig_len));
-    const sides = if (left_of_run) [2]i32{ left_x, right_x } else [2]i32{ right_x, left_x };
-    for (sides) |x| {
-        var d: i32 = 0;
-        while (mid_y - d >= min_y or mid_y + d <= max_y) : (d += 1) {
-            if (mid_y - d >= min_y and tryWrite(lat, run, x, mid_y - d, owner, pass)) return true;
-            if (d > 0 and mid_y + d <= max_y and tryWrite(lat, run, x, mid_y + d, owner, pass)) return true;
-        }
-    }
-    return false;
+    return if (refused) .no_faithful_place else .no_room;
 }
 
-fn passAllows(
-    lat: *const lattice.Lattice,
-    owner: ink.Owner,
-    pass: Pass,
-    start_x: i32,
-    row: i32,
-    cell_count: u32,
-) bool {
-    if (pass == .any or pass == .any_solid) return true;
-    const d = ink.inkDistances(lat, owner, start_x, row, cell_count, OWN_NEAR_RADIUS);
-    const own = d.own orelse return false;
-    const limit: u32 = if (pass == .own_adjacent) OWN_ADJ_RADIUS else OWN_NEAR_RADIUS;
-    if (own > limit) return false;
-    if (d.foreign_edge) |f| {
-        if (own >= f) return false;
+fn tryWrite(lat: *lattice.Lattice, run: lw.Run, h: ink.Host, lx: i32, ly: i32) Verdict {
+    if (ly < 0 or @as(i64, ly) >= lat.height or lx < 0) return .no_room;
+    const cc: i32 = @intCast(run.cell_count);
+    if (@as(i64, lx) + cc > lat.width) return .no_room;
+    var x = lx;
+    while (x < lx + cc) : (x += 1) {
+        if (lat.atConst(@intCast(x), @intCast(ly)).occupant != .empty) return .no_room;
+    }
+    if (h.axis == .vertical) {
+        const gap = if (lx > h.lo.x) h.lo.x + 1 else h.lo.x - 1;
+        if (ink.relationAt(lat, h, gap, ly) != .none) return .no_room;
+    }
+    for ([_]i32{ lx - 2, lx - 1, lx + cc, lx + cc + 1 }) |sx| {
+        if (ink.relationAt(lat, h, sx, ly) == .label) return .no_room;
+    }
+    if (!faithful(lat, h, lx, ly, cc)) return .no_faithful_place;
+    lw.writeRun(lat, @intCast(lx), @intCast(ly), run);
+    return .placed;
+}
+
+fn faithful(lat: *const lattice.Lattice, h: ink.Host, sx: i32, row: i32, cc: i32) bool {
+    const ex = sx + cc - 1;
+    var owned = false;
+    switch (h.axis) {
+        .horizontal => {
+            var x = sx;
+            while (x <= ex) : (x += 1) {
+                if (!acrossAllows(lat, h, x, h.lo.y, &owned)) return false;
+            }
+        },
+        .vertical => if (!acrossAllows(lat, h, h.lo.x, row, &owned)) return false,
+    }
+    if (!owned) return false;
+
+    var x = sx;
+    while (x <= ex) : (x += 1) {
+        if (touches(lat, h, x, row - 1) or touches(lat, h, x, row + 1)) return false;
+    }
+    if (touches(lat, h, sx - 1, row) or touches(lat, h, ex + 1, row)) return false;
+
+    const host_distance: i32 = if (h.axis == .horizontal) 1 else 2;
+    var k: i32 = 1;
+    while (k <= host_distance) : (k += 1) {
+        var ring: Pull = .none;
+        x = sx;
+        while (x <= ex) : (x += 1) {
+            ring = ring.join(pull(lat, h, x, row - k, .horizontal)).join(pull(lat, h, x, row + k, .horizontal));
+        }
+        ring = ring.join(pull(lat, h, sx - k, row, .vertical)).join(pull(lat, h, ex + k, row, .vertical));
+        switch (ring) {
+            .none => {},
+            .own => return true,
+            .foreign => return false,
+        }
     }
     return true;
 }
 
-fn tryWrite(
-    lat: *lattice.Lattice,
-    run: lw.Run,
-    lx: i32,
-    ly: i32,
-    owner: ink.Owner,
-    pass: Pass,
-) bool {
-    if (ly < 0 or @as(i64, ly) >= lat.height) return false;
-    if (lx < 0) return false;
-    const cell_count = run.cell_count;
-    const start_x: u32 = @intCast(lx);
-    const row: u32 = @intCast(ly);
-    if (start_x + cell_count > lat.width) return false;
+const Pull = enum {
+    none,
+    own,
+    foreign,
 
-    if (!ink.spanIsolated(lat, owner, lx, ly, cell_count, pass == .any_solid)) return false;
-
-    var i: u32 = 0;
-    while (i < cell_count) : (i += 1) {
-        const cell = lat.atConst(start_x + i, row);
-        switch (cell.occupant) {
-            .empty => {},
-            else => return false,
-        }
+    fn join(a: Pull, b: Pull) Pull {
+        return @enumFromInt(@max(@intFromEnum(a), @intFromEnum(b)));
     }
+};
 
-    if (!passAllows(lat, owner, pass, lx, ly, cell_count)) return false;
+fn pull(lat: *const lattice.Lattice, h: ink.Host, x: i32, y: i32, axis: ink.Axis) Pull {
+    const m = (geo.cellAt(lat, x, y) orelse return .none).neighbours;
+    return switch (ink.relationAt(lat, h, x, y)) {
+        .private => if (ink.along(m, axis)) .own else .none,
+        .foreign_run, .joined => if (ink.along(m, axis) or m.toMask() == 0b1111) .foreign else .none,
+        else => .none,
+    };
+}
 
-    lw.writeRun(lat, start_x, row, run);
+fn acrossAllows(lat: *const lattice.Lattice, h: ink.Host, x: i32, y: i32, owned: *bool) bool {
+    switch (ink.relationAt(lat, h, x, y)) {
+        .joined, .foreign_run, .rail_interior => return false,
+        .private => {
+            const cell = geo.cellAt(lat, x, y) orelse return true;
+            if (ink.along(cell.neighbours, h.axis)) owned.* = true;
+        },
+        else => {},
+    }
     return true;
+}
+
+fn touches(lat: *const lattice.Lattice, h: ink.Host, x: i32, y: i32) bool {
+    return switch (ink.relationAt(lat, h, x, y)) {
+        .foreign_box, .rail_interior => true,
+        else => false,
+    };
 }

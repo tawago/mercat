@@ -124,7 +124,7 @@ pub fn derive(
             if (!isSelected(disp)) {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = if (reversed) reversedSide(direction) else forwardSide(direction, es);
-                const poolable = !reversed and (edge.label == null or edge.label.?.len == 0);
+                const poolable = !reversed and edge.labelText() == null;
                 const fused_u = if (poolable) fusedUnionIndex(bundles.fused, edge.id) else null;
                 if (fused_u) |ui| {
                     try fused_leaves.append(a, .{ .u = ui, .node = n, .side = sd, .es = es, .edge = edge.id });

@@ -115,6 +115,14 @@ pub const Shape = enum {
 pub const frame_inset_x: u32 = 3;
 pub const frame_inset_y: u32 = 1;
 
+pub const label_run_margin: u32 = 1;
+pub const label_side_clearance: u32 = 2;
+pub const label_box_clearance: u32 = 3;
+
+pub fn labelRunCells(along: u32, heads: u32) u32 {
+    return along + 2 * label_run_margin + heads;
+}
+
 pub fn framePadX(scale: u32) u32 {
     return if (scale == 0) frame_inset_x + 1 else 2;
 }

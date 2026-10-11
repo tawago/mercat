@@ -38,6 +38,14 @@ fn isCont(lat: lattice.Lattice, x: u32, y: u32) bool {
     };
 }
 
+fn stampRun(lat: *lattice.Lattice, edge: u32, x0: u32, x1: u32, y: u32) void {
+    var x = x0;
+    while (x <= x1) : (x += 1) lat.at(x, y).* = .{
+        .occupant = .{ .edge_segment = .{ .edge = edge, .kind = .solid } },
+        .neighbours = .{ .w = x > x0, .e = x < x1 },
+    };
+}
+
 fn emptySketch(bw: u32, bh: u32, dir: sketch.Direction) sketch.Sketch {
     return .{
         .bbox = .{ .x = 0, .y = 0, .w = bw, .h = bh },
@@ -117,8 +125,8 @@ test "wide cluster title advances by span and still closes the band" {
     var s = emptySketch(14, 6, .TD);
     s.clusters = &clusters;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     try testing.expectEqual(@as(u21, ' '), cellChar(lat, 2, 0));
     try testing.expectEqual(@as(u21, '日'), cellChar(lat, 3, 0));
@@ -144,9 +152,8 @@ test "edge-label probe reserves display cells: a wide label no longer overwrites
     var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 0), report.placed);
-    try testing.expectEqual(@as(u32, 1), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 1), plan.dropped());
 
     try testing.expect(switch (lat.atConst(4, 2).occupant) {
         .edge_segment => |seg| seg.edge == 77,
@@ -160,13 +167,14 @@ test "an edge label paints a wide scalar and an interned flag each as head + con
     const alloc = arena.allocator();
 
     var lat = try makeLattice(alloc, 12, 6);
-    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 9, .y = 3 } };
+    const poly = [_]sketch.Point{ .{ .x = 1, .y = 3 }, .{ .x = 8, .y = 3 } };
+    stampRun(&lat, 42, 1, 8, 3);
     const edges = [_]sketch.EdgePath{makeEdge(42, &poly, "\u{1F1EF}\u{1F1F5} 日")};
     var s = emptySketch(12, 6, .LR);
     s.edges = &edges;
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 1), report.placed);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 0), plan.dropped());
 
     var found = false;
     var x: u32 = 0;
@@ -188,24 +196,25 @@ test "blank-flank rule treats a continuation as a label neighbour" {
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 5, .y = 3 } };
+    const poly = [_]sketch.Point{ .{ .x = 3, .y = 3 }, .{ .x = 6, .y = 3 } };
     const edges = [_]sketch.EdgePath{makeEdge(5, &poly, "ab")};
     var s = emptySketch(8, 4, .LR);
     s.edges = &edges;
 
     var lat = try makeLattice(alloc, 8, 4);
+    stampRun(&lat, 5, 3, 6, 3);
     lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
     lat.at(3, 2).* = .{ .occupant = .label_cont, .neighbours = .{} };
 
-    const report = try labels.rasterizeLabels(alloc, &lat, s);
-    try testing.expectEqual(@as(u32, 0), report.placed);
-    try testing.expectEqual(@as(u32, 1), report.dropped);
+    const plan = try labels.rasterizeLabels(alloc, &lat, s);
+    try testing.expectEqual(@as(u32, 1), plan.dropped());
 
     var free_lat = try makeLattice(alloc, 8, 4);
+    stampRun(&free_lat, 5, 3, 6, 3);
     free_lat.at(2, 2).* = .{ .occupant = .{ .label_char = '日' }, .neighbours = .{} };
 
-    const free_report = try labels.rasterizeLabels(alloc, &free_lat, s);
-    try testing.expectEqual(@as(u32, 1), free_report.placed);
+    const free_plan = try labels.rasterizeLabels(alloc, &free_lat, s);
+    try testing.expectEqual(@as(u32, 0), free_plan.dropped());
 }
 
 fn glyphAt(lat: lattice.Lattice, x: u32, y: u32) ?lattice.Glyph {
@@ -242,8 +251,8 @@ test "node labels: a wide scalar writes head + continuation; an interned graphem
         var s = emptySketch(12, 5, .TD);
         s.nodes = &fixture.nodes;
 
-        const report = try labels.rasterizeLabels(alloc, &lat, s);
-        try testing.expectEqual(@as(u32, 1), report.placed);
+        const plan = try labels.rasterizeLabels(alloc, &lat, s);
+        try testing.expectEqual(@as(u32, 0), plan.dropped());
         if (ri == 0) try testing.expectEqual(@as(usize, 0), lat.glyphs.len);
         for (r.want, 1..) |w, x| switch (w) {
             .char => |c| try testing.expectEqual(c, cellChar(lat, @intCast(x), 1)),

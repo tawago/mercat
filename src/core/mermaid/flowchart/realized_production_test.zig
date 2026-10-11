@@ -36,7 +36,7 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
         const graph = try parse(a, reversed_fanin_source);
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, 94, .bridge);
-        const bundles = winner.sketch.sharing.realized;
+        const bundles = winner.cand.sketch.sharing.realized;
 
         var fi: ?pb.SelectedBundle = null;
         for (bundles.selected_bundles) |sj| {
@@ -65,7 +65,7 @@ test "forward-subset composition: reversed fan-in member independent, forward pa
             try std.testing.expect(!(s_sel and t_sel));
         }
         var has_d_rail = false;
-        for (winner.sketch.rails) |rail| {
+        for (winner.cand.sketch.rails) |rail| {
             if (rail.pivot == nodeId(graph, "D")) has_d_rail = true;
         }
         try std.testing.expect(has_d_rail);
@@ -100,11 +100,11 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     const graph = try parse(a, "flowchart TD\n  S --> A\n  S -.-> B\n  S ==> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    try std.testing.expectEqual(@as(usize, 0), winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 0), winner.cand.sketch.rails.len);
 
     var offsets: [3]u32 = undefined;
     var count: usize = 0;
-    for (winner.sketch.edges) |edge| if (edge.from == 0) {
+    for (winner.cand.sketch.edges) |edge| if (edge.from == 0) {
         offsets[count] = edge.port_from.offset;
         count += 1;
     };
@@ -112,7 +112,7 @@ test "V-D-PORT-01: mixed-kind 1x3 renders as three pitch-2 independent component
     std.mem.sort(u32, &offsets, {}, std.sort.asc(u32));
     try std.testing.expect(offsets[1] >= offsets[0] + 2 and offsets[2] >= offsets[1] + 2);
 
-    try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.sketch, .bridge)).edge_cells_lost);
+    try std.testing.expectEqual(@as(u32, 0), (try raster.rasterize(a, winner.cand.sketch, .bridge)).edge_cells_lost);
 }
 
 test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap conflict retained, never-both holds" {
@@ -122,9 +122,9 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
     const graph = try parse(a, "flowchart TD\n  S1 --> T1\n  S1 --> T2\n  S2 --> T2\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    const bundles = winner.sketch.sharing.realized;
+    const bundles = winner.cand.sketch.sharing.realized;
 
-    try std.testing.expectEqual(@as(usize, 1), winner.sketch.rails.len);
+    try std.testing.expectEqual(@as(usize, 1), winner.cand.sketch.rails.len);
     try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
 
     const sel_gi = groupIdx(plan.groups, bundles.selected_bundles[0].candidate_bundle);
@@ -141,14 +141,14 @@ test "V-D-PORT-16: incomplete 2x2 arrival re-merges the pure fan-in, overlap con
         const t_sel = rm.target != null and rm.target.? == .selected;
         try std.testing.expect(!(s_sel and t_sel));
     }
-    try expectNoFusedEdgeJunction(a, winner.sketch);
+    try expectNoFusedEdgeJunction(a, winner.cand.sketch);
 
     // The same mixing with the fan-out member declared first realizes one rail too.
     const other = try parse(a, "flowchart TD\n  S --> X\n  S --> A\n  B --> X\n");
     const other_plan = (try permits.build(a, other, .joined)).plan;
     const other_winner = try select.choose(a, other, &other_plan, 94, .bridge);
-    try std.testing.expectEqual(@as(usize, 1), other_winner.sketch.rails.len);
-    try expectNoFusedEdgeJunction(a, other_winner.sketch);
+    try std.testing.expectEqual(@as(usize, 1), other_winner.cand.sketch.rails.len);
+    try expectNoFusedEdgeJunction(a, other_winner.cand.sketch);
 }
 
 /// No forward or back-edge cell carries more than two arms: no fused edge junction.
@@ -170,7 +170,7 @@ test "V-D-PORT-16 corrected: a fan-out-pivot target DOES re-merge its pure fan-i
     const graph = try parse(a, "flowchart TD\n  A --> T\n  A --> Z\n  B --> T\n  T --> X\n  T --> Y\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    const bundles = winner.sketch.sharing.realized;
+    const bundles = winner.cand.sketch.sharing.realized;
 
     var fi_sel: ?pb.SelectedBundle = null;
     for (bundles.selected_bundles) |sj| {
@@ -222,7 +222,7 @@ fn renderPlain(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, width, .bridge);
-    return finishPlain(a, winner.sketch);
+    return finishPlain(a, winner.cand.sketch);
 }
 
 fn renderRotated(a: std.mem.Allocator, source: []const u8, width: u32) !Plain {
@@ -263,9 +263,9 @@ test "a salvaged rail is complete against the commitment the layout drew" {
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 60, .bridge);
     var rail_members: usize = 0;
-    for (winner.sketch.sharing.realized.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
+    for (winner.cand.sketch.sharing.realized.selected_bundles) |sj| rail_members = @max(rail_members, sj.members.len);
     try std.testing.expectEqual(@as(usize, 2), rail_members);
-    const report = try raster.rasterize(a, winner.sketch, .bridge);
+    const report = try raster.rasterize(a, winner.cand.sketch, .bridge);
     try std.testing.expectEqual(@as(u32, 0), report.edge_cells_lost);
 }
 
@@ -328,23 +328,23 @@ test "a directed complete bipartite keeps its TD star decomposition on clearing 
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, width, .bridge);
 
-        try std.testing.expectEqual(graph.direction, winner.sketch.direction);
-        try std.testing.expectEqual(@as(usize, 3), winner.sketch.rails.len);
-        for (winner.sketch.rails) |rail| {
+        try std.testing.expectEqual(graph.direction, winner.cand.sketch.direction);
+        try std.testing.expectEqual(@as(usize, 3), winner.cand.sketch.rails.len);
+        for (winner.cand.sketch.rails) |rail| {
             try std.testing.expectEqual(@as(usize, 3), rail.taps.len);
-            try std.testing.expectEqual(winner.sketch.rails[0].crossbar[0].y, rail.crossbar[0].y);
+            try std.testing.expectEqual(winner.cand.sketch.rails[0].crossbar[0].y, rail.crossbar[0].y);
         }
 
-        try std.testing.expectEqual(@as(usize, 1), winner.sketch.sharing.realized.fused.len);
-        try std.testing.expectEqual(@as(usize, 9), winner.sketch.sharing.realized.fused[0].len);
+        try std.testing.expectEqual(@as(usize, 1), winner.cand.sketch.sharing.realized.fused.len);
+        try std.testing.expectEqual(@as(usize, 9), winner.cand.sketch.sharing.realized.fused[0].len);
 
-        for (winner.sketch.rails) |rail| for (rail.taps) |tap| {
-            for (winner.sketch.rails) |other| for (other.taps) |t2| {
+        for (winner.cand.sketch.rails) |rail| for (rail.taps) |tap| {
+            for (winner.cand.sketch.rails) |other| for (other.taps) |t2| {
                 if (t2.node == tap.node) try std.testing.expectEqual(tap.at.x, t2.at.x);
             };
         };
 
-        try std.testing.expect(winner.sketch.bbox.w <= width);
+        try std.testing.expect(winner.cand.sketch.bbox.w <= width);
     }
 }
 
@@ -369,17 +369,17 @@ test "on the licence's lapse path a rail's junction still clears foreign taps" {
         const plan = (try permits.build(a, graph, .joined)).plan;
         const winner = try select.choose(a, graph, &plan, width, .bridge);
 
-        try std.testing.expect(winner.sketch.rails.len >= 2);
+        try std.testing.expect(winner.cand.sketch.rails.len >= 2);
         var rows_differ = false;
-        for (winner.sketch.rails) |rail| {
-            if (rail.crossbar[0].y != winner.sketch.rails[0].crossbar[0].y) rows_differ = true;
+        for (winner.cand.sketch.rails) |rail| {
+            if (rail.crossbar[0].y != winner.cand.sketch.rails[0].crossbar[0].y) rows_differ = true;
         }
         try std.testing.expect(rows_differ);
 
-        for (winner.sketch.rails) |rail| {
+        for (winner.cand.sketch.rails) |rail| {
             const stem_x = rail.stem[0].x;
             const junction_y = rail.crossbar[0].y;
-            for (winner.sketch.rails) |other| {
+            for (winner.cand.sketch.rails) |other| {
                 if (other.crossbar[0].y == junction_y) continue;
                 for (other.taps) |tap| {
                     if (tap.at.x != stem_x) continue;
@@ -399,7 +399,7 @@ fn railKeysAtD(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
     const graph = try parse(a, source);
     const plan = (try permits.build(a, graph, .joined)).plan;
     const winner = try select.choose(a, graph, &plan, 94, .bridge);
-    for (winner.sketch.sharing.realized.selected_bundles) |sj| {
+    for (winner.cand.sketch.sharing.realized.selected_bundles) |sj| {
         for (plan.groups) |g| if (g.id == sj.candidate_bundle and g.direction == .in and g.pivot == nodeId(graph, "D")) {
             const out = try a.alloc([]const u8, sj.members.len);
             for (sj.members, out) |m, *slot| {

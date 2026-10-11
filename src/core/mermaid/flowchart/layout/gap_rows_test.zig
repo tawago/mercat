@@ -295,6 +295,41 @@ test "an offset decorated terminal claims one row; a column-aligned or undecorat
     _ = &bare;
 }
 
+test "a labelled edge claims the rows its label needs on its own run: run, label, run and each head" {
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{1};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .reversed = false, .edge = 0 }};
+    var reversed = [_]sg.EdgeId{};
+    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const aligned = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 0, .w = 10 } };
+    const offset = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 20, .w = 10 } };
+    const cases = [_]struct { dir: sg.Direction, base: u32, from: sg.ArrowEnd, to: sg.ArrowEnd, geom: []const Geom, gap: u32, lane: u32 }{
+        .{ .dir = .TD, .base = 2, .from = .none, .to = .filled, .geom = &aligned, .gap = 4, .lane = 0 },
+        .{ .dir = .TD, .base = 2, .from = .none, .to = .none, .geom = &aligned, .gap = 3, .lane = 0 },
+        .{ .dir = .TD, .base = 2, .from = .filled, .to = .filled, .geom = &aligned, .gap = 5, .lane = 0 },
+        .{ .dir = .TD, .base = 2, .from = .none, .to = .filled, .geom = &offset, .gap = 5, .lane = 3 },
+        .{ .dir = .LR, .base = 4, .from = .none, .to = .filled, .geom = &aligned, .gap = 8, .lane = 0 },
+    };
+    for (cases) |c| {
+        var graph = try flt.mkGraph(aa, &edges);
+        const e = &@constCast(graph.edges)[0];
+        e.label = "carry";
+        e.arrow_from = c.from;
+        e.arrow_to = c.to;
+        graph.direction = c.dir;
+        const bases = [_]u32{c.base};
+        const ledger = try flt.buildPiece(aa, graph, lg, c.geom, &.{}, .{}, .{}, &bases, &.{}, &.{});
+        try testing.expectEqual(c.gap, c.base + ledger.extraRows(0));
+        try testing.expectEqual(c.lane, ledger.laneOfEdge(0, .exit));
+    }
+}
+
 test "a labeled fan claims its rail row and one label band however many members carry labels; an unlabeled fan claims one row" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
