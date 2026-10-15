@@ -1,9 +1,9 @@
 const std = @import("std");
-const build_options = @import("build_options");
+const exe_options = @import("exe_options");
 
 const testing = std.testing;
 
-const mercat_exe_path = build_options.mercat_exe_path;
+const mercat_exe_path = exe_options.mercat_exe_path;
 
 const Run = struct {
     exited_zero: bool,

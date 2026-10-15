@@ -38,6 +38,9 @@ pub fn build(b: *std.Build) void {
     const vaxis_dep = maybe_vaxis_dep.?;
     const uucode_mod = maybe_uucode_dep.?.module("uucode");
     koino_dep.module("koino").addImport("uucode", uucode_mod);
+    // PCRE's recursive matcher overflows the stack on long documents; koino's
+    // build does not set NO_RECURSE, so set it on its pcre library here.
+    (findLibrary(koino_dep.module("koino"), "pcre") orelse @panic("koino: no pcre library")).root_module.addCMacro("NO_RECURSE", "1");
     vaxis_dep.module("vaxis").addImport("uucode", uucode_mod);
     options.addOption([]const u8, "version", "0.3.2");
 
@@ -94,9 +97,8 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    const test_options = b.addOptions();
-    test_options.addOption([]const u8, "version", "0.3.2");
-    test_options.addOptionPath("mercat_exe_path", exe.getEmittedBin());
+    const exe_options = b.addOptions();
+    exe_options.addOptionPath("mercat_exe_path", exe.getEmittedBin());
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
@@ -110,7 +112,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    test_module.addOptions("build_options", test_options);
+    test_module.addOptions("build_options", options);
+    test_module.addOptions("exe_options", exe_options);
     test_module.addImport("koino", koino_dep.module("koino"));
     test_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     test_module.addImport("prim", prim_mod);
@@ -346,6 +349,17 @@ pub fn build(b: *std.Build) void {
             test_step.dependOn(&regress_cmd.step);
         }
     }
+}
+
+fn findLibrary(module: *std.Build.Module, name: []const u8) ?*std.Build.Step.Compile {
+    for (module.link_objects.items) |object| switch (object) {
+        .other_step => |compile| if (std.mem.eql(u8, compile.name, name)) return compile,
+        else => {},
+    };
+    for (module.import_table.values()) |imported| {
+        if (findLibrary(imported, name)) |found| return found;
+    }
+    return null;
 }
 
 fn linkExportFont(b: *std.Build, module: *std.Build.Module, stb_mod: *std.Build.Module) void {

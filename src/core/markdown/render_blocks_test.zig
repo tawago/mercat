@@ -188,3 +188,9 @@ test "kitchen-sink fixture and hostile input render in every built-in style with
         }
     }
 }
+
+test "the project README parses without exhausting the stack" {
+    var document = try markdown.parse(std.testing.allocator, @embedFile("readme_md"));
+    defer document.deinit(std.testing.allocator);
+    try std.testing.expect(document.blocks.len > 0);
+}
