@@ -260,7 +260,7 @@ pub fn build(b: *std.Build) void {
     const visual_samples_step = b.step("visual-samples", "Render curated mermaid samples to docs/visual-samples.html");
     visual_samples_step.dependOn(&visual_samples_cmd.step);
 
-    b.dependOnFileMetadata(b.path("eval/regress.zig"));
+    b.dependOnDirectoryMetadata(b.path("."));
     const has_eval = blk: {
         std.Io.Dir.cwd().access(b.graph.io, "eval/regress.zig", .{}) catch break :blk false;
         break :blk true;
