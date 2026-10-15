@@ -15,14 +15,18 @@ import {
   documentArgv,
   editedIn,
   isDoc,
+  isOlder,
   Lru,
   MISSING_HINT,
+  MOD_VERSION,
   newestFirst,
   paneTitle,
   printable,
   relativeTo,
   resolvePath,
   transcriptWidth,
+  upgradeHint,
+  versionOf,
 } from './mercat'
 
 const PANE = 'mercat'
@@ -70,13 +74,27 @@ function forgetDoc(path: string): void {
 }
 const isDocKeyOf = (path: string) => (key: string) => key.endsWith(`\n${path}`)
 
+function markMissing($: EngineInterface): void {
+  if (!isMercatMissing) $.ui.toast(MISSING_HINT)
+  isMercatMissing = true
+}
+
+async function checkVersion($: EngineInterface): Promise<void> {
+  try {
+    const run = await $.process.run(['mercat', '--version'], { timeoutMs: 3_000 })
+    const have = versionOf(run.stdout)
+    if (have !== undefined && isOlder(have, MOD_VERSION)) $.ui.toast(upgradeHint(have))
+  } catch {
+    markMissing($)
+  }
+}
+
 async function isAbsent($: EngineInterface): Promise<boolean> {
   try {
     await $.process.run(['mercat', '--version'], { timeoutMs: 3_000 })
     return false
   } catch {
-    if (!isMercatMissing) $.ui.toast(MISSING_HINT)
-    isMercatMissing = true
+    markMissing($)
     return true
   }
 }
@@ -131,6 +149,7 @@ export const register: Register = on => {
       argumentHint: '[file]',
       immediate: true,
     })
+    void checkVersion($)
     return next(e)
   })
 

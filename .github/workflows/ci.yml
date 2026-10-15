@@ -30,6 +30,9 @@ jobs:
       - name: Lint file length
         run: bash tools/check_line_count.sh
 
+      - name: Check versions agree
+        run: bash tools/check_versions.sh
+
       - name: Build
         run: zig build -Doptimize=ReleaseSafe
 

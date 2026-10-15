@@ -6,10 +6,11 @@ const SESSION = { surface: 'terminal', isInteractive: true, cwd: '/work' } as co
 const ART = '┌───┐\n│ A │\n└───┘'
 const DOC = '\x1b[1;38;5;81m# Title\x1b[0m\n\n\x1b]8;;https://x\x1b\\\x1b[4mlink\x1b[0m\x1b]8;;\x1b\\\n'
 
-type World = { stderr?: string; isMissing?: boolean; isFailing?: boolean; messages?: SessionMessage[]; files?: string[] }
+type World = { version?: string; stderr?: string; isMissing?: boolean; isFailing?: boolean; messages?: SessionMessage[]; files?: string[] }
 
 function world(on: On, given: World = {}) {
   const runs: Args<'process.run'>[] = []
+  const probes: Args<'process.run'>[] = []
   const opened: Args<'ui.open'>[] = []
   const toasts: string[] = []
   const drawn: string[] = []
@@ -20,8 +21,16 @@ function world(on: On, given: World = {}) {
 
   const gate = { hold: false, release: () => {} }
   on('process.run', async ($, e) => {
+    if (given.isMissing === true) {
+      ;(e.argv.includes('--version') ? probes : runs).push(e)
+      return { deny: 'spawn mercat ENOENT' }
+    }
+    if (e.argv.includes('--version')) {
+      probes.push(e)
+      const stdout = `mercat ${given.version ?? '0.3.2'}\n`
+      return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
     runs.push(e)
-    if (given.isMissing === true) return { deny: 'spawn mercat ENOENT' }
     if (given.isFailing === true && e.argv.includes('-')) return { deny: 'timed out' }
     const isDiagram = e.argv.includes('--format')
     const stdout = isDiagram ? `${ART}\n` : (contents.get(e.argv.at(-1)!) ?? DOC)
@@ -60,7 +69,7 @@ function world(on: On, given: World = {}) {
     return <Text>{e.props.text}</Text>
   })
 
-  return { runs, opened, toasts, drawn, invalidated, contents, gate, clock }
+  return { runs, probes, opened, toasts, drawn, invalidated, contents, gate, clock }
 }
 
 const reply = (text: string): RenderInput<'AssistantMessage'> => ({
@@ -151,7 +160,7 @@ describe('replies', () => {
     await w.clock.settle()
     expect(w.drawn.every(text => text.includes('```mermaid'))).toBe(true)
     expect(w.toasts).toEqual(['mercat not found on PATH — brew install tawago/tap/mercat'])
-    expect(w.runs.map(r => r.argv.at(-1)), 'one render, one probe').toEqual(['-', '--version'])
+    expect(w.runs.length, 'no render retries').toBeLessThanOrEqual(1)
   })
 
   test('a failed run with mercat present is cached, no hint', async ($, on) => {
@@ -163,7 +172,22 @@ describe('replies', () => {
     await w.clock.settle()
     expect(w.drawn.at(-1)).toBe(MERMAID)
     expect(w.toasts).toEqual([])
-    expect(w.runs.map(r => r.argv.at(-1))).toEqual(['-', '--version'])
+    expect(w.runs.map(r => r.argv.at(-1))).toEqual(['-'])
+  })
+
+  test('an older mercat gets one upgrade hint at start; a current one gets none', async ($, on) => {
+    const w = world(on, { version: '0.3.1' })
+    await $.session.start(SESSION)
+    await w.clock.settle()
+    expect(w.toasts).toEqual(['mercat 0.3.1 is older than this mod (0.3.2) — brew upgrade tawago/tap/mercat'])
+  })
+
+  test('a current mercat gets no hint', async ($, on) => {
+    const w = world(on)
+    await $.session.start(SESSION)
+    await w.clock.settle()
+    expect(w.probes).toHaveLength(1)
+    expect(w.toasts).toEqual([])
   })
 })
 

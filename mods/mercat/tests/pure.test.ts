@@ -6,6 +6,8 @@ import { mermaidFences, rewrite, split, textFence } from '../hooks/fences'
 import {
   diagramInput,
   clipNoteOf,
+  isOlder,
+  versionOf,
   diagramOf,
   editedIn,
   paneTitle,
@@ -121,6 +123,10 @@ describe('mercat helpers', () => {
       '⚠ mercat: diagram clipped, needs 121 columns, has 93. Widen the terminal to see it whole.',
     )
     expect(clipNoteOf('')).toBeUndefined()
+    expect(versionOf('mercat 0.3.2\n')).toBe('0.3.2')
+    expect(isOlder('0.3.1', '0.3.2')).toBe(true)
+    expect(isOlder('0.10.0', '0.9.9')).toBe(false)
+    expect(isOlder('0.3.2', '0.3.2')).toBe(false)
     expect(diagramOf(run('  \n'))).toBeUndefined()
   })
 

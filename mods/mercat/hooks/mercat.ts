@@ -1,5 +1,6 @@
 import type { ProcessRunResult, SessionMessage } from 'claude-code'
 
+export const MOD_VERSION = '0.3.2'
 export const MIN_WIDTH = 20
 export const MAX_WIDTH = 1000
 export const TRANSCRIPT_MARGIN = 1
@@ -30,6 +31,18 @@ export function diagramOf(run: ProcessRunResult): string | undefined {
     !/^[ \t]*`{3,}mermaid/im.test(out)
   return isDrawn ? out : undefined
 }
+
+export const versionOf = (stdout: string) => /(\d+)\.(\d+)\.(\d+)/.exec(stdout)?.[0]
+
+export function isOlder(have: string, want: string): boolean {
+  const a = have.split('.').map(Number)
+  const b = want.split('.').map(Number)
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!
+  return false
+}
+
+export const upgradeHint = (have: string) =>
+  `mercat ${have} is older than this mod (${MOD_VERSION}) — brew upgrade tawago/tap/mercat`
 
 export function clipNoteOf(stderr: string): string | undefined {
   const m = /diagram clipped: true width (\d+) > budget (\d+)/.exec(stderr)
