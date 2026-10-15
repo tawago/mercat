@@ -344,7 +344,7 @@ fn repeatSpaces(allocator: std.mem.Allocator, count: usize) ![]u8 {
 }
 
 fn appendQuotePrefix(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), decor: *const Decor, depth: usize) !void {
-    const bar = std.mem.trimRight(u8, decor.glyphs.quote_bar, " ");
+    const bar = std.mem.trimEnd(u8, decor.glyphs.quote_bar, " ");
     if (bar.len == 0) {
         try buf.appendNTimes(allocator, ' ', decor.glyphs.quote_indent);
         return;

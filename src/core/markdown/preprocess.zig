@@ -404,7 +404,7 @@ fn parseFootnoteDef(line: []const u8) ?FootnoteDefParsed {
     if (label.len == 0) return null;
 
     const text_start = bracket_end + 2;
-    const text = std.mem.trimLeft(u8, rest[text_start..], " \t");
+    const text = std.mem.trimStart(u8, rest[text_start..], " \t");
     return .{ .label = label, .text = text };
 }
 

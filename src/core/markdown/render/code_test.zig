@@ -35,7 +35,7 @@ test "code panel pads short lines out to the widest line" {
     const allocator = testing.allocator;
     const out = try renderPanelText(allocator, "ab\nlonger line", 80);
     defer allocator.free(out);
-    var rows = std.mem.splitScalar(u8, std.mem.trimRight(u8, out, "\n"), '\n');
+    var rows = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out, "\n"), '\n');
     try testing.expectEqualStrings("```", rows.next().?);
     try testing.expectEqualStrings(" ab          ", rows.next().?);
     try testing.expectEqualStrings(" longer line ", rows.next().?);
@@ -51,7 +51,7 @@ test "code panel padding is capped at the content width" {
     defer allocator.free(source);
     const out = try renderPanelText(allocator, source, 80);
     defer allocator.free(out);
-    var rows = std.mem.splitScalar(u8, std.mem.trimRight(u8, out, "\n"), '\n');
+    var rows = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out, "\n"), '\n');
     _ = rows.next();
     try testing.expectEqual(@as(usize, 80), rows.next().?.len);
     try testing.expect(rows.next().?.len >= 50_000);

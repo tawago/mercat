@@ -5,6 +5,7 @@
 //! print Zig error names: `describeError` turns an error into a short,
 //! conventional phrase ("no such file or directory").
 const std = @import("std");
+const host = @import("../platform/host.zig");
 
 pub const Level = enum {
     err,
@@ -57,7 +58,7 @@ pub fn setMuted(value: bool) void {
 pub fn formatLine(buf: []u8, color: bool, level: Level, text: []const u8) []const u8 {
     var w: std.Io.Writer = .fixed(buf);
     // Library log calls sometimes end their format with "\n"; one line each.
-    writeLine(&w, color, level, std.mem.trimRight(u8, text, "\r\n")) catch {};
+    writeLine(&w, color, level, std.mem.trimEnd(u8, text, "\r\n")) catch {};
     const out = w.buffered();
     if (out.len == 0 or out[out.len - 1] != '\n') {
         if (out.len == buf.len) {
@@ -84,7 +85,7 @@ fn writeLine(w: *std.Io.Writer, color: bool, level: Level, text: []const u8) !vo
 /// Writes raw bytes to stderr, ignoring failures (there is nowhere left to report them).
 pub fn writeRaw(bytes: []const u8) void {
     if (muted) return;
-    std.fs.File.stderr().writeAll(bytes) catch {};
+    std.Io.File.stderr().writeStreamingAll(host.io(), bytes) catch {};
 }
 
 pub fn print(level: Level, comptime fmt: []const u8, args: anytype) void {

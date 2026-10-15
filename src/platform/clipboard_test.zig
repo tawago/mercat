@@ -21,7 +21,7 @@ test "GNU screen gets DCS passthrough, chunked" {
 
     var big_buf: [512]u8 = undefined;
     var big = std.Io.Writer.fixed(&big_buf);
-    _ = try clipboard.writeOsc52(&big, testing.allocator, "x" ** 100, .screen);
+    _ = try clipboard.writeOsc52(&big, testing.allocator, &@as([100]u8, @splat('x')), .screen);
     const out = big.buffered();
     try testing.expect(std.mem.count(u8, out, "\x1bP") >= 2);
     try testing.expect(std.mem.indexOf(u8, out, "tmux;") == null);

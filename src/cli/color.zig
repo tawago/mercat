@@ -5,6 +5,7 @@
 //! the `[display] color` config key, then `TERM=dumb` (never), and finally
 //! `auto`: color only when the stream is a terminal.
 const std = @import("std");
+const host = @import("../platform/host.zig");
 
 pub const Mode = @import("../core/config.zig").ColorMode;
 
@@ -22,10 +23,10 @@ pub const Env = struct {
 
     pub fn fromProcess() Env {
         return .{
-            .no_color = std.posix.getenv("NO_COLOR"),
-            .clicolor_force = std.posix.getenv("CLICOLOR_FORCE"),
-            .force_color = std.posix.getenv("FORCE_COLOR"),
-            .term = std.posix.getenv("TERM"),
+            .no_color = host.getenv("NO_COLOR"),
+            .clicolor_force = host.getenv("CLICOLOR_FORCE"),
+            .force_color = host.getenv("FORCE_COLOR"),
+            .term = host.getenv("TERM"),
         };
     }
 };

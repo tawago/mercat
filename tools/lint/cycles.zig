@@ -114,7 +114,7 @@ fn productionImports(a: std.mem.Allocator, out: *std.ArrayList([]const u8), cont
     var in_test = false;
     var lines = std.mem.splitScalar(u8, contents, '\n');
     while (lines.next()) |raw| {
-        const line = std.mem.trimRight(u8, raw, "\r");
+        const line = std.mem.trimEnd(u8, raw, "\r");
         if (in_test) {
             if (std.mem.eql(u8, line, "}")) in_test = false;
             continue;
@@ -123,7 +123,7 @@ fn productionImports(a: std.mem.Allocator, out: *std.ArrayList([]const u8), cont
             in_test = std.mem.endsWith(u8, line, "{");
             continue;
         }
-        const trimmed = std.mem.trimLeft(u8, line, " \t");
+        const trimmed = std.mem.trimStart(u8, line, " \t");
         if (std.mem.startsWith(u8, trimmed, "//")) continue;
         if (std.mem.startsWith(u8, trimmed, "_ = @import(")) continue;
         var i: usize = 0;

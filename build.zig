@@ -14,20 +14,39 @@ pub fn build(b: *std.Build) void {
     });
     const unicode_check_run = b.addRunArtifact(unicode_check);
     unicode_check_run.setCwd(b.path("."));
-    const unicode_cache_dir = b.cache_root.join(b.allocator, &.{"unicode-17-generated"}) catch @panic("out of memory");
-    unicode_check_run.addArg(unicode_cache_dir);
+    _ = unicode_check_run.addOutputDirectoryArg("unicode-17-generated");
     const unicode_check_step = b.step("unicode-check", "Offline regenerate and byte-compare Unicode 17 tables");
     unicode_check_step.dependOn(&unicode_check_run.step);
 
-    if (onlyStepRequested(b, "unicode-check")) return;
-
     const options = b.addOptions();
     const maybe_koino_dep = b.lazyDependency("koino", .{ .target = target, .optimize = optimize });
-    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize });
-    if (maybe_koino_dep == null or maybe_vaxis_dep == null) return;
+    const maybe_vaxis_dep = b.lazyDependency("vaxis", .{ .target = target, .optimize = optimize, .external_uucode = true });
+    // koino and vaxis share one uucode instance; Zig rejects one source file in two modules.
+    const maybe_uucode_dep = b.lazyDependency("uucode", .{
+        .target = target,
+        .optimize = optimize,
+        .fields = @as([]const []const u8, &.{
+            "east_asian_width",
+            "grapheme_break",
+            "general_category",
+            "is_emoji_presentation",
+            "simple_lowercase_mapping",
+        }),
+    });
+    if (maybe_koino_dep == null or maybe_vaxis_dep == null or maybe_uucode_dep == null) return;
     const koino_dep = maybe_koino_dep.?;
     const vaxis_dep = maybe_vaxis_dep.?;
+    const uucode_mod = maybe_uucode_dep.?.module("uucode");
+    koino_dep.module("koino").addImport("uucode", uucode_mod);
+    vaxis_dep.module("vaxis").addImport("uucode", uucode_mod);
     options.addOption([]const u8, "version", "0.3.2");
+
+    const stb_translate = b.addTranslateC(.{
+        .root_source_file = b.path("vendor/stb/stb_truetype.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const stb_mod = stb_translate.createModule();
 
     const text_mod = b.createModule(.{
         .root_source_file = b.path("src/lib/text.zig"),
@@ -67,7 +86,7 @@ pub fn build(b: *std.Build) void {
     root_module.addImport("prim", prim_mod);
     root_module.addImport("text", text_mod);
     root_module.addImport("unicode", unicode_mod);
-    linkExportFont(b, root_module);
+    linkExportFont(b, root_module, stb_mod);
 
     const exe = b.addExecutable(.{
         .name = "mercat",
@@ -75,11 +94,13 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
-    options.addOption([]const u8, "mercat_exe_path", b.getInstallPath(.bin, "mercat"));
+    const test_options = b.addOptions();
+    test_options.addOption([]const u8, "version", "0.3.2");
+    test_options.addOptionPath("mercat_exe_path", exe.getEmittedBin());
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_cmd.addArgs(args);
+    run_cmd.addPassthruArgs();
 
     const run_step = b.step("run", "Run mercat");
     run_step.dependOn(&run_cmd.step);
@@ -89,13 +110,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    test_module.addOptions("build_options", options);
+    test_module.addOptions("build_options", test_options);
     test_module.addImport("koino", koino_dep.module("koino"));
     test_module.addImport("vaxis", vaxis_dep.module("vaxis"));
     test_module.addImport("prim", prim_mod);
     test_module.addImport("text", text_mod);
     test_module.addImport("unicode", unicode_mod);
-    linkExportFont(b, test_module);
+    linkExportFont(b, test_module, stb_mod);
     test_module.addAnonymousImport("kitchen_sink_md", .{
         .root_source_file = b.path("tests/fixtures/kitchen-sink.md"),
     });
@@ -136,7 +157,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    linkExportFont(b, font_test_module);
+    linkExportFont(b, font_test_module, stb_mod);
 
     const font_tests = b.addTest(.{ .root_module = font_test_module });
     const font_test_run = b.addRunArtifact(font_tests);
@@ -236,8 +257,9 @@ pub fn build(b: *std.Build) void {
     const visual_samples_step = b.step("visual-samples", "Render curated mermaid samples to docs/visual-samples.html");
     visual_samples_step.dependOn(&visual_samples_cmd.step);
 
+    b.dependOnFileMetadata(b.path("eval/regress.zig"));
     const has_eval = blk: {
-        std.fs.cwd().access("eval", .{}) catch break :blk false;
+        std.Io.Dir.cwd().access(b.graph.io, "eval/regress.zig", .{}) catch break :blk false;
         break :blk true;
     };
 
@@ -275,7 +297,7 @@ pub fn build(b: *std.Build) void {
         const decoder_score_cmd = b.addRunArtifact(decoder_score_exe);
         decoder_score_cmd.step.dependOn(&decoder_score_install.step);
         decoder_score_cmd.setCwd(b.path("."));
-        if (b.args) |args| decoder_score_cmd.addArgs(args);
+        decoder_score_cmd.addPassthruArgs();
 
         const decoder_score_step = b.step("decoder-score", "Score one decoded/source mermaid pair");
         decoder_score_step.dependOn(&decoder_score_install.step);
@@ -314,7 +336,7 @@ pub fn build(b: *std.Build) void {
         const regress_cmd = b.addRunArtifact(regress_exe);
         regress_cmd.step.dependOn(b.getInstallStep());
         regress_cmd.setCwd(b.path("."));
-        regress_cmd.addArg(b.getInstallPath(.bin, "mercat"));
+        regress_cmd.addArtifactArg(exe);
         if (regression_dir) |path| regress_cmd.addArg(path);
         if (update_regressions) regress_cmd.addArg("--update");
 
@@ -326,44 +348,14 @@ pub fn build(b: *std.Build) void {
     }
 }
 
-fn onlyStepRequested(b: *std.Build, wanted: []const u8) bool {
-    const args = std.process.argsAlloc(b.allocator) catch return false;
-    if (args.len < 6) return false;
-
-    var found: ?[]const u8 = null;
-    var index: usize = 6;
-    while (index < args.len) : (index += 1) {
-        const arg = args[index];
-        if (std.mem.eql(u8, arg, "--")) break;
-        if (buildOptionTakesValue(arg)) {
-            index += 1;
-            continue;
-        }
-        if (std.mem.startsWith(u8, arg, "-")) continue;
-        if (found != null) return false;
-        found = arg;
-    }
-    return found != null and std.mem.eql(u8, found.?, wanted);
-}
-
-fn buildOptionTakesValue(arg: []const u8) bool {
-    const options = [_][]const u8{
-        "-p",                   "--prefix",    "--prefix-lib-dir", "--prefix-exe-dir",
-        "--prefix-include-dir", "--sysroot",   "--maxrss",         "--search-prefix",
-        "--libc",               "--color",     "--summary",        "--seed",
-        "--debounce",           "--debug-log", "--libc-runtimes",  "--glibc-runtimes",
-    };
-    for (options) |option| if (std.mem.eql(u8, arg, option)) return true;
-    return false;
-}
-
-fn linkExportFont(b: *std.Build, module: *std.Build.Module) void {
+fn linkExportFont(b: *std.Build, module: *std.Build.Module, stb_mod: *std.Build.Module) void {
     module.addIncludePath(b.path("vendor/stb"));
     module.addCSourceFile(.{
         .file = b.path("src/export/font_stb.c"),
         .flags = &.{"-std=c11"},
     });
     module.link_libc = true;
+    module.addImport("stb_truetype", stb_mod);
     module.addAnonymousImport("jetbrains_mono_ttf", .{
         .root_source_file = b.path("assets/fonts/JetBrainsMono-Regular.ttf"),
     });

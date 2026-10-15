@@ -18,7 +18,7 @@ const Run = struct {
 };
 
 fn requireBinary() !void {
-    std.fs.cwd().access(mercat_exe_path, .{}) catch return error.SkipZigTest;
+    std.Io.Dir.cwd().access(testing.io, mercat_exe_path, .{}) catch return error.SkipZigTest;
 }
 
 fn runMercat(allocator: std.mem.Allocator, extra_args: []const []const u8) !Run {
@@ -38,10 +38,10 @@ const steering_env_names = [_][]const u8{
     "MERCAT_SUBGRAPH_EDGES",
 };
 
-fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []const EnvVar) !std.process.EnvMap {
-    var env = try std.process.getEnvMap(allocator);
+fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []const EnvVar) !std.process.Environ.Map {
+    var env = try testing.environ.createMap(allocator);
     errdefer env.deinit();
-    for (steering_env_names) |name| env.remove(name);
+    for (steering_env_names) |name| _ = env.swapRemove(name);
     try env.put("HOME", config_home);
     try env.put("XDG_CONFIG_HOME", config_home);
     for (overrides) |item| try env.put(item.name, item.value);
@@ -50,12 +50,12 @@ fn childEnv(allocator: std.mem.Allocator, config_home: []const u8, overrides: []
 
 const ChildEnv = struct {
     tmp: testing.TmpDir,
-    env: std.process.EnvMap,
+    env: std.process.Environ.Map,
 
     fn init(allocator: std.mem.Allocator, overrides: []const EnvVar) !ChildEnv {
         var tmp = testing.tmpDir(.{});
         errdefer tmp.cleanup();
-        const config_home = try tmp.dir.realpathAlloc(allocator, ".");
+        const config_home = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
         defer allocator.free(config_home);
         return .{ .tmp = tmp, .env = try childEnv(allocator, config_home, overrides) };
     }
@@ -75,30 +75,30 @@ fn runMercatWithEnv(allocator: std.mem.Allocator, extra_args: []const []const u8
     var child_env = try ChildEnv.init(allocator, overrides);
     defer child_env.deinit();
 
-    const result = try std.process.Child.run(.{
-        .allocator = allocator,
+    const result = try std.process.run(allocator, testing.io, .{
         .argv = argv.items,
-        .env_map = &child_env.env,
-        .max_output_bytes = 16 * 1024 * 1024,
+        .environ_map = &child_env.env,
+        .stdout_limit = .limited(16 * 1024 * 1024),
+        .stderr_limit = .limited(16 * 1024 * 1024),
     });
     return .{
-        .exited_zero = result.term == .Exited and result.term.Exited == 0,
-        .exit_code = if (result.term == .Exited) result.term.Exited else 255,
+        .exited_zero = result.term.success(),
+        .exit_code = if (result.term == .exited) result.term.exited else 255,
         .stdout = result.stdout,
         .stderr = result.stderr,
     };
 }
 
 fn tmpPath(allocator: std.mem.Allocator, tmp: *std.testing.TmpDir, name: []const u8) ![]u8 {
-    const dir = try tmp.dir.realpathAlloc(allocator, ".");
+    const dir = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
     defer allocator.free(dir);
     return std.fs.path.join(allocator, &.{ dir, name });
 }
 
 fn writeTmpFile(tmp: *std.testing.TmpDir, name: []const u8, bytes: []const u8) !void {
-    const f = try tmp.dir.createFile(name, .{});
-    defer f.close();
-    try f.writeAll(bytes);
+    const f = try tmp.dir.createFile(std.testing.io, name, .{});
+    defer f.close(std.testing.io);
+    try f.writeStreamingAll(std.testing.io, bytes);
 }
 
 fn maxLineBytes(text: []const u8) usize {
@@ -179,7 +179,7 @@ test "plain file output writes the file and emits nothing to stdout (no pager)" 
     try testing.expect(r.exited_zero);
     try testing.expectEqual(@as(usize, 0), r.stdout.len);
 
-    const written = try tmp.dir.readFileAlloc(allocator, "out.txt", 16 * 1024 * 1024);
+    const written = try tmp.dir.readFileAlloc(std.testing.io, "out.txt", allocator, .limited(16 * 1024 * 1024));
     defer allocator.free(written);
     try testing.expect(std.mem.indexOf(u8, written, "Title") != null);
 }
@@ -200,19 +200,19 @@ test "png file output emits nothing to stdout and re-export replaces the file at
     defer first.deinit(allocator);
     try testing.expect(first.exited_zero);
     try testing.expectEqual(@as(usize, 0), first.stdout.len);
-    const bytes1 = try tmp.dir.readFileAlloc(allocator, "diagram.png", 16 * 1024 * 1024);
+    const bytes1 = try tmp.dir.readFileAlloc(std.testing.io, "diagram.png", allocator, .limited(16 * 1024 * 1024));
     defer allocator.free(bytes1);
     try testing.expectEqualSlices(u8, "\x89PNG\r\n\x1a\n", bytes1[0..8]);
 
     const second = try runMercat(allocator, &.{ "--format", "png", "--monochrome", "-w", "90", "-o", out_path, in_path });
     defer second.deinit(allocator);
     try testing.expect(second.exited_zero);
-    const bytes2 = try tmp.dir.readFileAlloc(allocator, "diagram.png", 16 * 1024 * 1024);
+    const bytes2 = try tmp.dir.readFileAlloc(std.testing.io, "diagram.png", allocator, .limited(16 * 1024 * 1024));
     defer allocator.free(bytes2);
     try testing.expectEqualSlices(u8, bytes1, bytes2);
 
     var it = tmp.dir.iterate();
-    while (try it.next()) |entry| {
+    while (try it.next(std.testing.io)) |entry| {
         try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
     }
 }

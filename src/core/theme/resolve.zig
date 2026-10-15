@@ -299,10 +299,10 @@ pub fn builtinResolved(alloc: std.mem.Allocator, name: []const u8) ResolvedTheme
 }
 
 fn applyTokens(style_map: *StyleMap, t: spec.TokenColors) void {
-    inline for (@typeInfo(spec.TokenColors).@"struct".fields) |f| {
-        if (@field(t, f.name)) |c| {
-            @field(style_map, "code_" ++ f.name).fg = c;
-            @field(style_map, "code_block_" ++ f.name).fg = c;
+    inline for (@typeInfo(spec.TokenColors).@"struct".field_names) |f_name| {
+        if (@field(t, f_name)) |c| {
+            @field(style_map, "code_" ++ f_name).fg = c;
+            @field(style_map, "code_block_" ++ f_name).fg = c;
         }
     }
 }
@@ -323,8 +323,8 @@ pub fn bakeDecor(merged: *const ThemeSpec) Decor {
 
 fn unwrapWithDefaults(comptime Out: type, sparse: anytype) Out {
     var out = Out{};
-    inline for (@typeInfo(Out).@"struct".fields) |f| {
-        if (@field(sparse, f.name)) |v| @field(out, f.name) = v;
+    inline for (@typeInfo(Out).@"struct".field_names) |f_name| {
+        if (@field(sparse, f_name)) |v| @field(out, f_name) = v;
     }
     return out;
 }

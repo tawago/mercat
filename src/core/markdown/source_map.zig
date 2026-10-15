@@ -32,7 +32,7 @@ pub const SourceMap = struct {
         else
             self.text.len;
         if (end <= begin) return "";
-        return std.mem.trimRight(u8, self.text[begin..end], " \t\r\n");
+        return std.mem.trimEnd(u8, self.text[begin..end], " \t\r\n");
     }
 
     /// The raw source of `node`: from its start line up to the line before the

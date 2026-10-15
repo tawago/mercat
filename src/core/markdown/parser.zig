@@ -46,7 +46,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
 
     if (front.yaml) |yaml| {
         try appendFrontMatterBlock(allocator, &blocks, yaml);
-        try recorder.sources.append(allocator, std.mem.trimRight(u8, blocks.items[0].frontmatter.raw, "\r\n"));
+        try recorder.sources.append(allocator, std.mem.trimEnd(u8, blocks.items[0].frontmatter.raw, "\r\n"));
     }
     try collectBlocksWithSource(allocator, &blocks, root, &recorder);
     std.debug.assert(recorder.sources.items.len == blocks.items.len);
@@ -207,7 +207,7 @@ fn appendCodeBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), 
 }
 
 fn appendHtmlBlock(allocator: std.mem.Allocator, blocks: *std.ArrayList(Block), html: koino.nodes.NodeHtmlBlock) !void {
-    const text = try clean(allocator, std.mem.trimRight(u8, html.literal.items, "\n"));
+    const text = try clean(allocator, std.mem.trimEnd(u8, html.literal.items, "\n"));
     errdefer allocator.free(text);
     try blocks.append(allocator, .{ .html_block = text });
 }
@@ -415,7 +415,7 @@ fn skipTaskMarker(allocator: std.mem.Allocator, inlines: []const Inline) ![]Inli
             if (inline_ == .text) {
                 const text = inline_.text;
                 if (text.len > 3) {
-                    const rest = std.mem.trimLeft(u8, text[3..], " \t");
+                    const rest = std.mem.trimStart(u8, text[3..], " \t");
                     if (rest.len > 0) {
                         try result.append(allocator, .{ .text = try allocator.dupe(u8, rest) });
                     }

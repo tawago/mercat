@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const vaxis = @import("vaxis");
 const app_mod = @import("app.zig");
 const theme_resolve = @import("../core/theme/resolve.zig");
@@ -27,7 +28,7 @@ fn typeText(app: *App, text: []const u8) !void {
 
 const Fixture = struct {
     tmp: std.testing.TmpDir,
-    path: []u8,
+    path: [:0]u8,
     rt: theme_resolve.ResolvedTheme,
     app: App = undefined,
 
@@ -36,8 +37,8 @@ const Fixture = struct {
         errdefer allocator.destroy(self);
         self.tmp = std.testing.tmpDir(.{});
         errdefer self.tmp.cleanup();
-        try self.tmp.dir.writeFile(.{ .sub_path = "doc.md", .data = content });
-        self.path = try self.tmp.dir.realpathAlloc(allocator, "doc.md");
+        try self.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "doc.md", .data = content });
+        self.path = try self.tmp.dir.realPathFileAlloc(std.testing.io, "doc.md", allocator);
         errdefer allocator.free(self.path);
         self.rt = theme_resolve.builtinResolved(allocator, "dark");
         try self.app.init(allocator, self.path, .{ .file = self.path }, content, editor_command, &self.rt, null, true, .panel, .auto, .bridge);
@@ -52,11 +53,11 @@ const Fixture = struct {
         allocator.destroy(self);
     }
 
-    fn writeScript(self: *Fixture, allocator: std.mem.Allocator, name: []const u8, body: []const u8) ![]u8 {
-        const file = try self.tmp.dir.createFile(name, .{ .mode = 0o755 });
-        defer file.close();
-        try file.writeAll(body);
-        return self.tmp.dir.realpathAlloc(allocator, name);
+    fn writeScript(self: *Fixture, allocator: std.mem.Allocator, name: []const u8, body: []const u8) ![:0]u8 {
+        const file = try self.tmp.dir.createFile(std.testing.io, name, .{ .permissions = @enumFromInt(0o755) });
+        defer file.close(std.testing.io);
+        try file.writeStreamingAll(std.testing.io, body);
+        return self.tmp.dir.realPathFileAlloc(std.testing.io, name, allocator);
     }
 
     fn status(self: *Fixture) []const u8 {
@@ -81,7 +82,7 @@ test "reload of a deleted file keeps the document and explains why" {
     defer fx.deinit(allocator);
     const lines_before = fx.app.pager.lines.len;
 
-    try fx.tmp.dir.deleteFile("doc.md");
+    try fx.tmp.dir.deleteFile(std.testing.io, "doc.md");
     try std.testing.expect(!try fx.app.handleKeyPress(key("r")));
 
     try std.testing.expectEqualStrings("Reload failed: doc.md no longer exists", fx.status());
@@ -94,12 +95,12 @@ test "reload of invalid UTF-8 warns and keeps the warning as long as a startup w
     const fx = try Fixture.init(allocator, sample, "vim");
     defer fx.deinit(allocator);
 
-    try fx.tmp.dir.writeFile(.{ .sub_path = "doc.md", .data = "# Bad \xff byte\n" });
+    try fx.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "doc.md", .data = "# Bad \xff byte\n" });
     try std.testing.expect(!try fx.app.handleKeyPress(key("r")));
     try std.testing.expect(std.mem.indexOf(u8, fx.status(), "invalid UTF-8") != null);
     try std.testing.expectEqualStrings("# Bad \u{FFFD} byte\n", fx.app.current_content);
 
-    const now = std.time.milliTimestamp();
+    const now = host.milliTimestamp();
     fx.app.expireTransient(now + 3000);
     try std.testing.expect(fx.app.status_message != null);
     fx.app.expireTransient(now + 6000);
@@ -311,7 +312,7 @@ test "status messages are transient and outlive scrolling" {
     const fx = try Fixture.init(allocator, sample, "vim");
     defer fx.deinit(allocator);
     _ = try fx.app.handleKeyPress(key("r"));
-    const shown_at = std.time.milliTimestamp();
+    const shown_at = host.milliTimestamp();
     try std.testing.expectEqualStrings("Reloaded doc.md", fx.status());
     _ = try fx.app.handleKeyPress(key("j"));
     fx.app.expireTransient(shown_at - 100);
@@ -360,7 +361,7 @@ test "matches are recomputed on resize and reload" {
         try std.testing.expect(match.col_end <= 12);
     }
 
-    try fx.tmp.dir.writeFile(.{ .sub_path = "doc.md", .data = "mermaid only once\n" });
+    try fx.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "doc.md", .data = "mermaid only once\n" });
     _ = try fx.app.handleKeyPress(key("r"));
     try std.testing.expectEqual(@as(usize, 1), fx.app.pager.search.matches.items.len);
 }
@@ -382,7 +383,9 @@ test "resuming resizes only after entering the alternate screen" {
     // After Ctrl-Z vaxis still believes it is on the alt screen; after the
     // editor it knows it is not. Either way no clear may precede smcup.
     for ([_]bool{ true, false }) |was_alt| {
-        var vx = try vaxis.init(allocator, .{});
+        var env = std.process.Environ.Map.init(allocator);
+        defer env.deinit();
+        var vx = try vaxis.init(std.testing.io, allocator, &env, .{});
         defer vx.deinit(allocator, @constCast(&std.Io.Writer.failing));
         vx.state.alt_screen = was_alt;
         vx.state.cursor.row = 5;

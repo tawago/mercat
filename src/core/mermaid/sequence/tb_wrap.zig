@@ -85,8 +85,8 @@ pub fn render(allocator: Allocator, diagram: *SequenceDiagram, spacing: fit.Spac
 fn barredElements(scratch: Allocator, diagram: *const SequenceDiagram) ![]Barred {
     const elements = diagram.elements.items;
     const barred = try scratch.alloc(Barred, elements.len);
-    @memset(barred, Barred.initEmpty());
-    var opened: [common.Activations.tracked]?usize = .{null} ** common.Activations.tracked;
+    @memset(barred, Barred.empty);
+    var opened: [common.Activations.tracked]?usize = @splat(null);
     for (elements, 0..) |element, i| {
         const act = switch (element) {
             .activation => |act| act,

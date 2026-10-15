@@ -42,7 +42,7 @@ pub const ResolvedGlyphSet = struct {
 pub const default_bullets = [_][]const u8{ "•", "◦", "‣" };
 
 pub const Decor = struct {
-    slots: [slot_count]SlotDecor = [_]SlotDecor{.{}} ** slot_count,
+    slots: [slot_count]SlotDecor = @splat(.{}),
     glyphs: ResolvedGlyphSet = .{},
 
     pub fn slot(self: *const Decor, s: Slot) SlotDecor {

@@ -28,57 +28,52 @@ const sources = [_]Source{
     .{ .name = "LICENSE.txt", .url = "https://www.unicode.org/license.txt", .sha256 = "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96" },
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
+pub fn main(init: std.process.Init) !void {
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
     const out_dir = if (args.len >= 2) args[1] else generated_dir;
-    try generate(allocator, out_dir);
+    try generate(init.io, init.gpa, out_dir);
 }
 
-pub fn generate(allocator: std.mem.Allocator, out_dir: []const u8) !void {
-    try verifySources(allocator);
-    try std.fs.cwd().makePath(out_dir);
-    try cleanGeneratedOutput(allocator, out_dir);
+pub fn generate(io: std.Io, allocator: std.mem.Allocator, out_dir: []const u8) !void {
+    try verifySources(io, allocator);
+    try std.Io.Dir.cwd().createDirPath(io, out_dir);
+    try cleanGeneratedOutput(io, allocator, out_dir);
 
     var gcb: std.ArrayList(Range) = .empty;
     defer gcb.deinit(allocator);
-    try parsePropertyFile(allocator, "GraphemeBreakProperty.txt", &gcb, gcbValue);
+    try parsePropertyFile(io, allocator, "GraphemeBreakProperty.txt", &gcb, gcbValue);
 
     var incb: std.ArrayList(Range) = .empty;
     defer incb.deinit(allocator);
-    try parsePropertyFile(allocator, "DerivedCoreProperties.txt", &incb, incbValue);
+    try parsePropertyFile(io, allocator, "DerivedCoreProperties.txt", &incb, incbValue);
 
     var wide: std.ArrayList(Range) = .empty;
     defer wide.deinit(allocator);
-    try parsePropertyFile(allocator, "EastAsianWidth.txt", &wide, wideValue);
+    try parsePropertyFile(io, allocator, "EastAsianWidth.txt", &wide, wideValue);
 
     var emoji_presentation: std.ArrayList(Range) = .empty;
     defer emoji_presentation.deinit(allocator);
-    try parsePropertyFile(allocator, "emoji-data.txt", &emoji_presentation, emojiPresentationValue);
+    try parsePropertyFile(io, allocator, "emoji-data.txt", &emoji_presentation, emojiPresentationValue);
 
     var extended_pictographic: std.ArrayList(Range) = .empty;
     defer extended_pictographic.deinit(allocator);
-    try parsePropertyFile(allocator, "emoji-data.txt", &extended_pictographic, extendedPictographicValue);
+    try parsePropertyFile(io, allocator, "emoji-data.txt", &extended_pictographic, extendedPictographicValue);
 
     var emoji_modifier: std.ArrayList(Range) = .empty;
     defer emoji_modifier.deinit(allocator);
-    try parsePropertyFile(allocator, "emoji-data.txt", &emoji_modifier, emojiModifierValue);
+    try parsePropertyFile(io, allocator, "emoji-data.txt", &emoji_modifier, emojiModifierValue);
 
     var emoji_component: std.ArrayList(Range) = .empty;
     defer emoji_component.deinit(allocator);
-    try parsePropertyFile(allocator, "emoji-data.txt", &emoji_component, emojiComponentValue);
+    try parsePropertyFile(io, allocator, "emoji-data.txt", &emoji_component, emojiComponentValue);
 
     var default_ignorable: std.ArrayList(Range) = .empty;
     defer default_ignorable.deinit(allocator);
-    try parsePropertyFile(allocator, "DerivedCoreProperties.txt", &default_ignorable, defaultIgnorableValue);
+    try parsePropertyFile(io, allocator, "DerivedCoreProperties.txt", &default_ignorable, defaultIgnorableValue);
 
     var variation_bases: std.ArrayList(Range) = .empty;
     defer variation_bases.deinit(allocator);
-    try parseVariationBases(allocator, &variation_bases);
+    try parseVariationBases(io, allocator, &variation_bases);
 
     var basic: std.ArrayList(Range) = .empty;
     defer basic.deinit(allocator);
@@ -87,8 +82,8 @@ pub fn generate(allocator: std.mem.Allocator, out_dir: []const u8) !void {
         for (sequences.items) |seq| allocator.free(seq);
         sequences.deinit(allocator);
     }
-    try parseEmojiSequences(allocator, "emoji-sequences.txt", &basic, &sequences);
-    try parseEmojiSequences(allocator, "emoji-zwj-sequences.txt", &basic, &sequences);
+    try parseEmojiSequences(io, allocator, "emoji-sequences.txt", &basic, &sequences);
+    try parseEmojiSequences(io, allocator, "emoji-zwj-sequences.txt", &basic, &sequences);
 
     std.mem.sort(Range, gcb.items, {}, lessRange);
     std.mem.sort(Range, incb.items, {}, lessRange);
@@ -101,42 +96,42 @@ pub fn generate(allocator: std.mem.Allocator, out_dir: []const u8) !void {
     std.mem.sort(Range, variation_bases.items, {}, lessRange);
     std.mem.sort(Range, basic.items, {}, lessRange);
 
-    try writeRangeModules(allocator, out_dir, "gcb", gcb.items, 2);
-    try writeRangeModules(allocator, out_dir, "incb", incb.items, 2);
-    try writeRangeModules(allocator, out_dir, "wide", wide.items, 1);
-    try writeRangeModules(allocator, out_dir, "emoji_presentation", emoji_presentation.items, 1);
-    try writeRangeModules(allocator, out_dir, "extended_pictographic", extended_pictographic.items, 1);
-    try writeRangeModules(allocator, out_dir, "emoji_modifier", emoji_modifier.items, 1);
-    try writeRangeModules(allocator, out_dir, "emoji_component", emoji_component.items, 1);
-    try writeRangeModules(allocator, out_dir, "default_ignorable", default_ignorable.items, 1);
-    try writeRangeModules(allocator, out_dir, "variation_bases", variation_bases.items, 1);
-    try writeRangeModules(allocator, out_dir, "basic_emoji", basic.items, 1);
-    try writeSequenceModules(allocator, out_dir, sequences.items);
-    try writeManifest(allocator, out_dir);
+    try writeRangeModules(io, allocator, out_dir, "gcb", gcb.items, 2);
+    try writeRangeModules(io, allocator, out_dir, "incb", incb.items, 2);
+    try writeRangeModules(io, allocator, out_dir, "wide", wide.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "emoji_presentation", emoji_presentation.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "extended_pictographic", extended_pictographic.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "emoji_modifier", emoji_modifier.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "emoji_component", emoji_component.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "default_ignorable", default_ignorable.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "variation_bases", variation_bases.items, 1);
+    try writeRangeModules(io, allocator, out_dir, "basic_emoji", basic.items, 1);
+    try writeSequenceModules(io, allocator, out_dir, sequences.items);
+    try writeManifest(io, allocator, out_dir);
 }
 
-fn cleanGeneratedOutput(allocator: std.mem.Allocator, out_dir: []const u8) !void {
-    var dir = try std.fs.cwd().openDir(out_dir, .{ .iterate = true });
-    defer dir.close();
+fn cleanGeneratedOutput(io: std.Io, allocator: std.mem.Allocator, out_dir: []const u8) !void {
+    var dir = try std.Io.Dir.cwd().openDir(io, out_dir, .{ .iterate = true });
+    defer dir.close(io);
     var names: std.ArrayList([]const u8) = .empty;
     defer {
         for (names.items) |name| allocator.free(name);
         names.deinit(allocator);
     }
     var iterator = dir.iterate();
-    while (try iterator.next()) |entry| {
+    while (try iterator.next(io)) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
             try names.append(allocator, try allocator.dupe(u8, entry.name));
         }
     }
-    for (names.items) |name| try dir.deleteFile(name);
+    for (names.items) |name| try dir.deleteFile(io, name);
 }
 
-fn verifySources(allocator: std.mem.Allocator) !void {
+fn verifySources(io: std.Io, allocator: std.mem.Allocator) !void {
     for (sources) |source| {
         const path = try std.fs.path.join(allocator, &.{ vendor_dir, source.name });
         defer allocator.free(path);
-        const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+        const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(16 * 1024 * 1024 + 1));
         defer allocator.free(bytes);
         var digest: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
@@ -149,14 +144,14 @@ fn verifySources(allocator: std.mem.Allocator) !void {
 }
 
 fn parsePropertyFile(
-    allocator: std.mem.Allocator,
+    io: std.Io, allocator: std.mem.Allocator,
     name: []const u8,
     out: *std.ArrayList(Range),
     valueFn: *const fn ([]const u8) ?u8,
 ) !void {
     const path = try std.fs.path.join(allocator, &.{ vendor_dir, name });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 16 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(16 * 1024 * 1024 + 1));
     defer allocator.free(bytes);
     var lines = std.mem.tokenizeScalar(u8, bytes, '\n');
     while (lines.next()) |raw| {
@@ -171,9 +166,9 @@ fn parsePropertyFile(
     }
 }
 
-fn parseVariationBases(allocator: std.mem.Allocator, out: *std.ArrayList(Range)) !void {
+fn parseVariationBases(io: std.Io, allocator: std.mem.Allocator, out: *std.ArrayList(Range)) !void {
     const path = vendor_dir ++ "/emoji-variation-sequences.txt";
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024 + 1));
     defer allocator.free(bytes);
     var previous: ?u21 = null;
     var lines = std.mem.tokenizeScalar(u8, bytes, '\n');
@@ -189,14 +184,14 @@ fn parseVariationBases(allocator: std.mem.Allocator, out: *std.ArrayList(Range))
 }
 
 fn parseEmojiSequences(
-    allocator: std.mem.Allocator,
+    io: std.Io, allocator: std.mem.Allocator,
     name: []const u8,
     basic: *std.ArrayList(Range),
     sequences: *std.ArrayList([]const u21),
 ) !void {
     const path = try std.fs.path.join(allocator, &.{ vendor_dir, name });
     defer allocator.free(path);
-    const bytes = try std.fs.cwd().readFileAlloc(allocator, path, 4 * 1024 * 1024);
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(4 * 1024 * 1024 + 1));
     defer allocator.free(bytes);
     var lines = std.mem.tokenizeScalar(u8, bytes, '\n');
     while (lines.next()) |line| {
@@ -281,7 +276,7 @@ fn parseHex(text: []const u8) !u21 {
 }
 
 fn writeRangeModules(
-    allocator: std.mem.Allocator,
+    io: std.Io, allocator: std.mem.Allocator,
     out_dir: []const u8,
     base: []const u8,
     ranges: []const Range,
@@ -296,40 +291,40 @@ fn writeRangeModules(
         defer allocator.free(name);
         const path = try std.fs.path.join(allocator, &.{ out_dir, name });
         defer allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll("// Generated by tools/unicode/generate.zig; do not edit.\n");
-        try file.writeAll("pub const ranges = [_][3]u32{\n");
+        var file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+        defer file.close(io);
+        try file.writeStreamingAll(io, "// Generated by tools/unicode/generate.zig; do not edit.\n");
+        try file.writeStreamingAll(io, "pub const ranges = [_][3]u32{\n");
         var line_buf: [96]u8 = undefined;
         for (ranges[start..end]) |range| {
             const line = try std.fmt.bufPrint(&line_buf, "    .{{ 0x{X}, 0x{X}, {d} }},\n", .{ range.first, range.last, range.value });
-            try file.writeAll(line);
+            try file.writeStreamingAll(io, line);
         }
-        try file.writeAll("};\n");
+        try file.writeStreamingAll(io, "};\n");
     }
 
     const index_path = try std.fmt.allocPrint(allocator, "{s}/{s}.zig", .{ out_dir, base });
     defer allocator.free(index_path);
-    var index_file = try std.fs.cwd().createFile(index_path, .{ .truncate = true });
-    defer index_file.close();
-    try index_file.writeAll("// Generated by tools/unicode/generate.zig; do not edit.\n");
+    var index_file = try std.Io.Dir.cwd().createFile(io, index_path, .{ .truncate = true });
+    defer index_file.close(io);
+    try index_file.writeStreamingAll(io, "// Generated by tools/unicode/generate.zig; do not edit.\n");
     var line_buf: [160]u8 = undefined;
     for (0..count) |index| {
         const line = try std.fmt.bufPrint(&line_buf, "const p{d} = @import(\"{s}_{d}.zig\").ranges;\n", .{ index, base, index });
-        try index_file.writeAll(line);
+        try index_file.writeStreamingAll(io, line);
     }
     const signature = if (value_count == 1) "pub fn contains(cp: u21) bool {\n" else "pub fn lookup(cp: u21) u8 {\n";
-    try index_file.writeAll(signature);
+    try index_file.writeStreamingAll(io, signature);
     for (0..count) |index| {
         const line = if (value_count == 1)
             try std.fmt.bufPrint(&line_buf, "    if (find(&p{d}, cp) != 0) return true;\n", .{index})
         else
             try std.fmt.bufPrint(&line_buf, "    if (find(&p{d}, cp)) |value| return value;\n", .{index});
-        try index_file.writeAll(line);
+        try index_file.writeStreamingAll(io, line);
     }
-    if (value_count == 1) try index_file.writeAll("    return false;\n}\n\n") else try index_file.writeAll("    return 0;\n}\n\n");
+    if (value_count == 1) try index_file.writeStreamingAll(io, "    return false;\n}\n\n") else try index_file.writeStreamingAll(io, "    return 0;\n}\n\n");
     if (value_count == 1) {
-        try index_file.writeAll(
+        try index_file.writeStreamingAll(io, 
             \\fn find(ranges: []const [3]u32, cp: u21) u8 {
             \\    var low: usize = 0;
             \\    var high = ranges.len;
@@ -342,7 +337,7 @@ fn writeRangeModules(
             \\
         );
     } else {
-        try index_file.writeAll(
+        try index_file.writeStreamingAll(io, 
             \\fn find(ranges: []const [3]u32, cp: u21) ?u8 {
             \\    var low: usize = 0;
             \\    var high = ranges.len;
@@ -357,7 +352,7 @@ fn writeRangeModules(
     }
 }
 
-fn writeSequenceModules(allocator: std.mem.Allocator, out_dir: []const u8, sequences: [][]const u21) !void {
+fn writeSequenceModules(io: std.Io, allocator: std.mem.Allocator, out_dir: []const u8, sequences: [][]const u21) !void {
     std.mem.sort([]const u21, sequences, {}, lessSequence);
     const chunk_size = 360;
     const count = (sequences.len + chunk_size - 1) / chunk_size;
@@ -366,10 +361,10 @@ fn writeSequenceModules(allocator: std.mem.Allocator, out_dir: []const u8, seque
         const end = @min(start + chunk_size, sequences.len);
         const path = try std.fmt.allocPrint(allocator, "{s}/rgi_{d}.zig", .{ out_dir, index });
         defer allocator.free(path);
-        var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-        defer file.close();
-        try file.writeAll("// Generated by tools/unicode/generate.zig; do not edit.\n");
-        try file.writeAll("pub const sequences = [_][]const u21{\n");
+        var file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+        defer file.close(io);
+        try file.writeStreamingAll(io, "// Generated by tools/unicode/generate.zig; do not edit.\n");
+        try file.writeStreamingAll(io, "pub const sequences = [_][]const u21{\n");
         var line: std.ArrayList(u8) = .empty;
         defer line.deinit(allocator);
         for (sequences[start..end]) |seq| {
@@ -377,34 +372,34 @@ fn writeSequenceModules(allocator: std.mem.Allocator, out_dir: []const u8, seque
             try line.appendSlice(allocator, "    &.{ ");
             for (seq, 0..) |cp, cp_index| {
                 if (cp_index != 0) try line.appendSlice(allocator, ", ");
-                try line.writer(allocator).print("0x{X}", .{cp});
+                try line.print(allocator, "0x{X}", .{cp});
             }
             try line.appendSlice(allocator, " },\n");
-            try file.writeAll(line.items);
+            try file.writeStreamingAll(io, line.items);
         }
-        try file.writeAll("};\n");
+        try file.writeStreamingAll(io, "};\n");
     }
 
     const path = try std.fs.path.join(allocator, &.{ out_dir, "rgi.zig" });
     defer allocator.free(path);
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll("// Generated by tools/unicode/generate.zig; do not edit.\n");
+    var file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+    defer file.close(io);
+    try file.writeStreamingAll(io, "// Generated by tools/unicode/generate.zig; do not edit.\n");
     var buf: [128]u8 = undefined;
     for (0..count) |index| {
         const line = try std.fmt.bufPrint(&buf, "const p{d} = @import(\"rgi_{d}.zig\").sequences;\n", .{ index, index });
-        try file.writeAll(line);
+        try file.writeStreamingAll(io, line);
     }
     var max_sequence_len: usize = 0;
     for (sequences) |sequence| max_sequence_len = @max(max_sequence_len, sequence.len);
     const max_line = try std.fmt.bufPrint(&buf, "pub const max_sequence_len = {d};\n", .{max_sequence_len});
-    try file.writeAll(max_line);
-    try file.writeAll("pub fn contains(cps: []const u21) bool {\n");
+    try file.writeStreamingAll(io, max_line);
+    try file.writeStreamingAll(io, "pub fn contains(cps: []const u21) bool {\n");
     for (0..count) |index| {
         const line = try std.fmt.bufPrint(&buf, "    if (find(&p{d}, cps)) return true;\n", .{index});
-        try file.writeAll(line);
+        try file.writeStreamingAll(io, line);
     }
-    try file.writeAll(
+    try file.writeStreamingAll(io, 
         \\    return false;
         \\}
         \\
@@ -446,20 +441,20 @@ fn lessRange(_: void, a: Range, b: Range) bool {
     return a.first < b.first;
 }
 
-fn writeManifest(allocator: std.mem.Allocator, out_dir: []const u8) !void {
+fn writeManifest(io: std.Io, allocator: std.mem.Allocator, out_dir: []const u8) !void {
     const path = try std.fs.path.join(allocator, &.{ out_dir, "manifest.zig" });
     defer allocator.free(path);
-    var file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll("// Generated by tools/unicode/generate.zig; do not edit.\n");
+    var file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+    defer file.close(io);
+    try file.writeStreamingAll(io, "// Generated by tools/unicode/generate.zig; do not edit.\n");
     var buf: [512]u8 = undefined;
     const version_line = try std.fmt.bufPrint(&buf, "pub const unicode_version = \"{s}\";\n", .{unicode_version});
-    try file.writeAll(version_line);
-    try file.writeAll("pub const license = \"Unicode License v3\";\n");
-    try file.writeAll("pub const sources = [_]Source{\n");
+    try file.writeStreamingAll(io, version_line);
+    try file.writeStreamingAll(io, "pub const license = \"Unicode License v3\";\n");
+    try file.writeStreamingAll(io, "pub const sources = [_]Source{\n");
     for (sources) |source| {
         const line = try std.fmt.bufPrint(&buf, "    .{{ .name = \"{s}\", .url = \"{s}\", .sha256 = \"{s}\" }},\n", .{ source.name, source.url, source.sha256 });
-        try file.writeAll(line);
+        try file.writeStreamingAll(io, line);
     }
-    try file.writeAll("};\npub const Source = struct { name: []const u8, url: []const u8, sha256: []const u8 };\n");
+    try file.writeStreamingAll(io, "};\npub const Source = struct { name: []const u8, url: []const u8, sha256: []const u8 };\n");
 }

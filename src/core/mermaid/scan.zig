@@ -144,7 +144,7 @@ pub const Scanner = struct {
         while (!self.isAtEnd() and std.mem.indexOfScalar(u8, stops, self.current()) == null) {
             self.advance();
         }
-        return std.mem.trimRight(u8, self.source[start..self.pos], " \t\r");
+        return std.mem.trimEnd(u8, self.source[start..self.pos], " \t\r");
     }
 
     pub fn restOfLine(self: *Scanner) []const u8 {

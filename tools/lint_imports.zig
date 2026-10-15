@@ -15,7 +15,7 @@ pub const LintReport = struct {
     }
 };
 
-pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
+pub fn lint(io: std.Io, allocator: std.mem.Allocator, root: []const u8) !LintReport {
     const arena_ptr = try allocator.create(std.heap.ArenaAllocator);
     arena_ptr.* = std.heap.ArenaAllocator.init(allocator);
     const a = arena_ptr.allocator();
@@ -24,17 +24,17 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
 
     var production: std.ArrayList(cycles.Source) = .empty;
 
-    var dir = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch |err| {
         const msg = try std.fmt.allocPrint(a, "error: cannot open root '{s}': {s}", .{ root, @errorName(err) });
         try violations.append(a, msg);
         return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
     };
-    defer dir.close();
+    defer dir.close(io);
 
     var walker = try dir.walk(a);
     defer walker.deinit();
 
-    while (try walker.next()) |entry| {
+    while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
 
@@ -47,9 +47,7 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
             }
         }
 
-        const file = try entry.dir.openFile(entry.basename, .{});
-        defer file.close();
-        const contents = try file.readToEndAlloc(a, 8 * 1024 * 1024);
+        const contents = try entry.dir.readFileAlloc(io, entry.basename, a, .limited(8 * 1024 * 1024 + 1));
 
         if (!imports.isTestFile(entry.basename)) {
             try production.append(a, .{ .path = try a.dupe(u8, entry.path), .contents = contents });
@@ -65,25 +63,22 @@ pub fn lint(allocator: std.mem.Allocator, root: []const u8) !LintReport {
     return LintReport{ .violations = try violations.toOwnedSlice(a), .arena = arena_ptr };
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     const root: []const u8 = if (args.len >= 2) args[1] else "src/core/mermaid/flowchart";
 
     {
-        var probe = std.fs.cwd().openDir(root, .{ .iterate = true }) catch |err| {
+        var probe = std.Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch |err| {
             std.debug.print("lint: cannot open root '{s}': {s}\n", .{ root, @errorName(err) });
             std.process.exit(2);
         };
-        probe.close();
+        probe.close(io);
     }
 
-    var report = try lint(allocator, root);
+    var report = try lint(io, allocator, root);
     defer report.deinit();
 
     if (report.violations.len == 0) {
@@ -96,7 +91,7 @@ pub fn main() !void {
 
 test "lint flags bad fixtures" {
     const allocator = std.testing.allocator;
-    var report = try lint(allocator, "tools/lint_fixtures/bad");
+    var report = try lint(std.testing.io, allocator, "tools/lint_fixtures/bad");
     defer report.deinit();
 
     var saw_fallback = false;

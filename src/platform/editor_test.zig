@@ -1,14 +1,14 @@
 const std = @import("std");
 const editor = @import("editor.zig");
 
-fn makeExecutable(dir: std.fs.Dir, name: []const u8, body: []const u8) !void {
-    const file = try dir.createFile(name, .{ .mode = 0o755 });
-    defer file.close();
-    try file.writeAll(body);
+fn makeExecutable(dir: std.Io.Dir, name: []const u8, body: []const u8) !void {
+    const file = try dir.createFile(std.testing.io, name, .{ .permissions = @enumFromInt(0o755) });
+    defer file.close(std.testing.io);
+    try file.writeStreamingAll(std.testing.io, body);
 }
 
-fn tmpPath(allocator: std.mem.Allocator, tmp: std.testing.TmpDir) ![]u8 {
-    return tmp.dir.realpathAlloc(allocator, ".");
+fn tmpPath(allocator: std.mem.Allocator, tmp: std.testing.TmpDir) ![:0]u8 {
+    return tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 }
 
 test "resolve prefers config, then VISUAL, then EDITOR" {
@@ -42,8 +42,8 @@ test "resolve falls back to the first known editor on PATH" {
     try makeExecutable(tmp.dir, "vi", "#!/bin/sh\n");
     try makeExecutable(tmp.dir, "nano", "#!/bin/sh\n");
     // Present but not executable: must be skipped.
-    const plain = try tmp.dir.createFile("vim", .{ .mode = 0o644 });
-    plain.close();
+    const plain = try tmp.dir.createFile(std.testing.io, "vim", .{ .permissions = @enumFromInt(0o644) });
+    plain.close(std.testing.io);
 
     const dir_path = try tmpPath(allocator, tmp);
     defer allocator.free(dir_path);
@@ -85,7 +85,7 @@ test "openFile appends the path to a command with arguments" {
 
     try editor.openFile(allocator, command, "doc.md");
 
-    const recorded = try tmp.dir.readFileAlloc(allocator, "args.txt", 1024);
+    const recorded = try tmp.dir.readFileAlloc(std.testing.io, "args.txt", allocator, .limited(1024));
     defer allocator.free(recorded);
     try std.testing.expectEqualStrings("--wait|-n|doc.md|", recorded);
 }

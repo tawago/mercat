@@ -3,6 +3,7 @@
 //! reports whether it delivered, and `decide` turns both reports into what
 //! the user is told — "Copied" only when one of them worked.
 const std = @import("std");
+const host = @import("host.zig");
 const builtin = @import("builtin");
 
 const osc52_base64_cap = 74000;
@@ -77,7 +78,7 @@ pub const Env = struct {
     screen: bool,
 
     pub fn fromProcess() Env {
-        return .{ .tmux = std.posix.getenv("TMUX") != null, .screen = std.posix.getenv("STY") != null };
+        return .{ .tmux = host.getenv("TMUX") != null, .screen = host.getenv("STY") != null };
     }
 };
 
@@ -93,8 +94,7 @@ pub fn detectMux(env: Env, askTmux: *const fn () bool) Mux {
 /// Asks the tmux server whether `set-clipboard` is `on`; assumes so when it
 /// cannot tell.
 pub fn tmuxClipboardOn() bool {
-    const result = std.process.Child.run(.{
-        .allocator = std.heap.page_allocator,
+    const result = std.process.run(std.heap.page_allocator, host.io(), .{
         .argv = &.{ "tmux", "show-options", "-sv", "set-clipboard" },
     }) catch return true;
     defer std.heap.page_allocator.free(result.stdout);
@@ -116,11 +116,11 @@ pub fn writeOsc52(writer: anytype, allocator: std.mem.Allocator, text: []const u
 }
 
 /// Pipes `text` to the first clipboard tool that starts.
-pub fn writeNative(allocator: std.mem.Allocator, text: []const u8) NativeStatus {
+pub fn writeNative(text: []const u8) NativeStatus {
     if (text.len == 0) return .no_tool;
     var failed: ?[]const u8 = null;
     for (nativeCandidates()) |argv| {
-        switch (pipeToChild(allocator, argv, text)) {
+        switch (pipeToChild(argv, text)) {
             .ok => return .{ .copied = argv[0] },
             .not_started => {},
             .failed => if (failed == null) {
@@ -168,7 +168,7 @@ fn nativeCandidates() []const []const []const u8 {
             &.{"clip.exe"},
         },
         else => blk: {
-            if (std.posix.getenv("WAYLAND_DISPLAY") != null) {
+            if (host.getenv("WAYLAND_DISPLAY") != null) {
                 break :blk &.{
                     &.{"wl-copy"},
                     &.{ "xclip", "-selection", "clipboard" },
@@ -186,28 +186,26 @@ fn nativeCandidates() []const []const []const u8 {
 
 const PipeResult = enum { ok, not_started, failed };
 
-fn pipeToChild(allocator: std.mem.Allocator, argv: []const []const u8, text: []const u8) PipeResult {
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-
-    child.spawn() catch return .not_started;
+fn pipeToChild(argv: []const []const u8, text: []const u8) PipeResult {
+    const io = host.io();
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .pipe,
+        .stdout = .ignore,
+        .stderr = .ignore,
+    }) catch return .not_started;
     if (child.stdin) |stdin_pipe| {
-        stdin_pipe.writeAll(text) catch {
-            stdin_pipe.close();
+        host.writeAll(stdin_pipe, text) catch {
+            stdin_pipe.close(io);
             child.stdin = null;
-            _ = child.wait() catch {};
+            _ = child.wait(io) catch {};
             return .failed;
         };
-        stdin_pipe.close();
+        stdin_pipe.close(io);
         child.stdin = null;
     }
-    const term = child.wait() catch return .failed;
-    return switch (term) {
-        .Exited => |code| if (code == 0) .ok else .failed,
-        else => .failed,
-    };
+    const term = child.wait(io) catch return .failed;
+    return if (term.success()) .ok else .failed;
 }
 
 test {

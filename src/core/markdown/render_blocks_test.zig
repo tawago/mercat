@@ -53,7 +53,7 @@ fn renderText(source: []const u8, options: Options) !Text {
     for (rendered.lines) |line| {
         const joined = try line.joinedText(allocator);
         defer allocator.free(joined);
-        try lines.append(allocator, try allocator.dupe(u8, std.mem.trimRight(u8, joined, " ")));
+        try lines.append(allocator, try allocator.dupe(u8, std.mem.trimEnd(u8, joined, " ")));
     }
     return .{ .lines = try lines.toOwnedSlice(allocator), .rendered = rendered };
 }

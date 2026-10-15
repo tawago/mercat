@@ -503,7 +503,7 @@ test "encode/decode roundtrips: one pixel, a gradient, and solid runs on the LZ7
 
 test "size mismatch and zero dimensions are rejected" {
     const allocator = testing.allocator;
-    var small = [_]u8{0} ** 4;
+    var small: [4]u8 = @splat(0);
     try testing.expectError(error.PixelBufferSizeMismatch, encodeRgba(allocator, &small, 2, 2));
     try testing.expectError(error.InvalidDimensions, encodeRgba(allocator, &small, 0, 1));
 }

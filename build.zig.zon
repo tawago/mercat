@@ -1,17 +1,22 @@
 .{
     .name = .mercat,
     .version = "0.3.2",
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.17.0",
     .fingerprint = 0xf453b7b757b381ee,
     .dependencies = .{
         .koino = .{
-            .url = "git+https://github.com/kivikakk/koino#0f10363e02ff575b008f219e54dc30ef8fad55db",
-            .hash = "koino-0.1.0-S9LuWkK-AgAjKVVFM7QfdiGiab87w3H9iSJJLI0ynuHr",
+            .url = "git+https://github.com/cataggar/koino#181a77a44ed6d0b85dc1dc72c3d9703e7774c946",
+            .hash = "koino-0.1.0-S9LuWtcZBgD-tBiVLXlLm0NhadEZ3LSFxd1CkGLhsfP4",
             .lazy = true,
         },
         .vaxis = .{
-            .url = "git+https://github.com/rockorager/libvaxis.git#3d37f043a161fd32897ad44a2dddbfaab75faa8a",
-            .hash = "vaxis-0.5.1-BWNV_JJOCQAtdJyLvrYCKbKIhX9q3liQkKMAzujWS4HJ",
+            .url = "git+https://github.com/rockorager/libvaxis.git#d4c3b3666e0c090e2b5092ca09893c6db15e0b79",
+            .hash = "vaxis-0.6.0-BWNV_O8ODQBFLRjA4D0q75pHPh63iPu_v0yhpCwsAMaM",
+            .lazy = true,
+        },
+        .uucode = .{
+            .url = "git+https://github.com/jacobsandlund/uucode#1fb73433bba5d93366c57f23ff2e9d7939746500",
+            .hash = "uucode-0.2.0-ZZjBPm6FVgBcY-79AHV8ckQj86z0JwOyVyj89VeZrEiv",
             .lazy = true,
         },
     },

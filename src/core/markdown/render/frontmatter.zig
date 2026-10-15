@@ -240,7 +240,7 @@ fn renderRaw(builder: *Builder, fm: Block.FrontMatter) !void {
         var lines = std.mem.splitScalar(u8, body, '\n');
         while (lines.next()) |line| {
             try builder.newline();
-            const trimmed = std.mem.trimRight(u8, line, "\r");
+            const trimmed = std.mem.trimEnd(u8, line, "\r");
             if (trimmed.len != 0) try builder.appendSpan(.muted, trimmed);
         }
     }

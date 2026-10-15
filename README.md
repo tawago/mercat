@@ -40,7 +40,7 @@ Release archives are published at:
 
 ### Build From Source
 
-Requires Zig 0.15.1+.
+Requires Zig 0.17.0+.
 
 ```bash
 zig build -Doptimize=ReleaseFast

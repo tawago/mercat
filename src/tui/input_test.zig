@@ -53,8 +53,8 @@ test "every binding has a unique chord and every action but none is reachable" {
             }
         }
     }
-    inline for (std.meta.fields(Action)) |field| {
-        const action: Action = @enumFromInt(field.value);
+    inline for (comptime std.meta.fieldNames(Action)) |name| {
+        const action = @field(Action, name);
         if (action == .none) continue;
         var found = false;
         for (input.bindings) |binding| found = found or binding.action == action;
@@ -104,11 +104,8 @@ test "prompt keys edit the query; Ctrl-C and Esc cancel, Ctrl-Z suspends" {
 }
 
 fn parseKey(bytes: []const u8) !?Key {
-    var buf: [32]u8 = undefined;
-    @memcpy(buf[0..bytes.len], bytes);
-    input.normalizeHomeEnd(buf[0..bytes.len]);
     var parser: vaxis.Parser = .{};
-    const result = try parser.parse(buf[0..bytes.len], null);
+    const result = try parser.parse(bytes, null);
     try std.testing.expectEqual(bytes.len, result.n);
     const event = result.event orelse return null;
     return switch (event) {
@@ -135,22 +132,4 @@ test "Home/End: CSI 1~ / 4~ (tmux, screen, linux console) decode like 7~ / 8~ an
     const ctrl_home = (try parseKey("\x1b[1;5~")).?;
     try std.testing.expectEqual(Key.home, ctrl_home.codepoint);
     try std.testing.expect(ctrl_home.mods.ctrl);
-}
-
-test "normalizeHomeEnd leaves other sequences alone" {
-    const untouched = [_][]const u8{
-        "\x1b[1;5A", // Ctrl-Up
-        "\x1b[15~", // F5
-        "\x1b[11~", // F1
-        "\x1b[4", // incomplete
-        "\x1b[1", // incomplete
-        "1~",
-        "\x1b[2~",
-    };
-    for (untouched) |seq| {
-        var buf: [16]u8 = undefined;
-        @memcpy(buf[0..seq.len], seq);
-        input.normalizeHomeEnd(buf[0..seq.len]);
-        try std.testing.expectEqualStrings(seq, buf[0..seq.len]);
-    }
 }

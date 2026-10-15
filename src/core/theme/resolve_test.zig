@@ -45,8 +45,8 @@ test "resolve(dark/light) == the neutral base palettes across all slots" {
     for (cases) |c| {
         const r = try reg.resolve(c.name, .default, null, &diag);
         try testing.expectEqual(@as(usize, 0), diag.count());
-        inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
-            try testing.expect(std.meta.eql(@field(c.want, f.name), @field(r.styles, f.name)));
+        inline for (@typeInfo(StyleMap).@"struct".field_names) |f_name| {
+            try testing.expect(std.meta.eql(@field(c.want, f_name), @field(r.styles, f_name)));
         }
     }
 }

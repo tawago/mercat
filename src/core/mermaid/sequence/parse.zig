@@ -254,7 +254,7 @@ fn count(diagram: *const SequenceDiagram, comptime kind: Element) usize {
     return n;
 }
 
-fn nth(diagram: *const SequenceDiagram, comptime kind: Element, index: usize) std.meta.TagPayload(model.SequenceElement, kind) {
+fn nth(diagram: *const SequenceDiagram, comptime kind: Element, index: usize) @FieldType(model.SequenceElement, @tagName(kind)) {
     var seen: usize = 0;
     for (diagram.elements.items) |element| {
         if (element != kind) continue;

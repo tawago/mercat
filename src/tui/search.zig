@@ -44,7 +44,7 @@ pub fn findInLine(
         const found = if (case_sensitive)
             std.mem.indexOfPos(u8, text, pos, pattern)
         else
-            std.ascii.indexOfIgnoreCasePos(text, pos, pattern);
+            std.ascii.findIgnoreCasePos(text, pos, pattern);
         const start = found orelse break;
         const end = start + pattern.len;
         col += unicode.displayWidth(text[col_pos..start]);

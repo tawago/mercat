@@ -51,7 +51,7 @@ pub const Slot = enum {
     }
 };
 
-pub const slot_count = @typeInfo(Slot).@"enum".fields.len;
+pub const slot_count = @typeInfo(Slot).@"enum".field_names.len;
 
 pub const SlotSpec = struct {
     fg: ?Color = null,
@@ -107,7 +107,7 @@ pub const TokenColors = struct {
 pub const PaletteMode = enum { truecolor_or_256, ansi16 };
 
 pub const SlotMap = struct {
-    entries: [slot_count]?SlotSpec = [_]?SlotSpec{null} ** slot_count,
+    entries: [slot_count]?SlotSpec = @splat(null),
 
     pub fn get(self: SlotMap, s: Slot) ?SlotSpec {
         return self.entries[@intFromEnum(s)];
@@ -135,7 +135,7 @@ pub const ThemeSpec = struct {
 };
 
 test "Slot mirrors SpanStyle by name" {
-    inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
-        _ = Slot.fromSpanStyle(@field(types.SpanStyle, f.name));
+    inline for (@typeInfo(types.SpanStyle).@"enum".field_names) |f_name| {
+        _ = Slot.fromSpanStyle(@field(types.SpanStyle, f_name));
     }
 }

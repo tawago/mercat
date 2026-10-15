@@ -4,6 +4,7 @@
 # Zig build artifacts
 .zig-cache/
 zig-out/
+zig-pkg/
 
 # Local AI assistant state
 CLAUDE.md

@@ -100,7 +100,7 @@ fn sampleDoc(runs: []PositionedRun) ExportDocument {
         },
         .page_background = .{ .r = 255, .g = 255, .b = 255 },
         .runs = runs,
-        .font_sha256 = [_]u8{0xAB} ** 32,
+        .font_sha256 = @splat(0xAB),
     };
 }
 

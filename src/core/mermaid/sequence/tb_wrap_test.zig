@@ -126,9 +126,9 @@ test "participant names are not wrapped: a pair wider than the budget stays undr
 fn expectLifelinesAligned(text: []const u8) !void {
     var rows: std.ArrayList([]const u8) = .empty;
     defer rows.deinit(testing.allocator);
-    var it = std.mem.splitScalar(u8, std.mem.trimRight(u8, text, "\n"), '\n');
+    var it = std.mem.splitScalar(u8, std.mem.trimEnd(u8, text, "\n"), '\n');
     while (it.next()) |row| try rows.append(testing.allocator, row);
-    var columns = std.StaticBitSet(512).initEmpty();
+    var columns: std.StaticBitSet(512) = .empty;
     try markColumns(rows.items[rows.items.len - 1], &columns, true);
     for (rows.items) |row| try markColumns(row, &columns, false);
 }

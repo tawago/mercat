@@ -16,6 +16,7 @@
 //! A panic handler (`panicHandler`) and a hook on fatal signals (SIGSEGV,
 //! SIGBUS, SIGILL, SIGFPE) restore the terminal before reporting the crash.
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const builtin = @import("builtin");
 const vaxis = @import("vaxis");
 const posix = std.posix;
@@ -37,11 +38,11 @@ pub const restore_sequence = ctlseqs.csi_u_pop ++
     ctlseqs.rmcup;
 
 /// Signals that end the program; each restores the terminal first.
-pub const exit_signals = [_]u8{ posix.SIG.TERM, posix.SIG.HUP, posix.SIG.INT, posix.SIG.QUIT };
+pub const exit_signals = [_]posix.SIG{ .TERM, .HUP, .INT, .QUIT };
 
 /// Crash signals: restore the terminal, report, then hand over to whatever
 /// handler was installed before (Zig's stack-trace dumper by default).
-pub const fatal_signals = [_]u8{ posix.SIG.SEGV, posix.SIG.BUS, posix.SIG.ILL, posix.SIG.FPE };
+pub const fatal_signals = [_]posix.SIG{ .SEGV, .BUS, .ILL, .FPE };
 
 pub const Hooks = struct {
     context: *anyopaque,
@@ -81,7 +82,7 @@ pub fn install(fd: posix.fd_t, cooked: posix.termios, app_hooks: ?Hooks) !void {
     cooked_termios = cooked;
     raw_termios = posix.tcgetattr(fd) catch cooked;
     hooks = app_hooks;
-    pipe_fds = try posix.pipe2(.{ .CLOEXEC = true });
+    pipe_fds = try openPipe();
     errdefer closePipe();
     watcher = try std.Thread.spawn(.{}, watch, .{});
     active.store(true, .release);
@@ -104,7 +105,7 @@ pub fn uninstall() void {
     setHandler(posix.SIG.TSTP, null);
     for (fatal_signals, 0..) |sig, i| posix.sigaction(sig, &saved_fatal[i], null);
     active.store(false, .release);
-    _ = posix.write(pipe_fds[1], &.{shutdown_byte}) catch {};
+    writeAllFd(pipe_fds[1], &.{shutdown_byte});
     if (watcher) |thread| thread.join();
     watcher = null;
     hooks = null;
@@ -170,7 +171,7 @@ pub fn foregroundDecision(owner: posix.pid_t, own: posix.pid_t) bool {
 fn waitForForeground() void {
     while (!inForeground(tty_fd)) {
         raiseUnblocked(posix.SIG.TTIN);
-        if (!inForeground(tty_fd)) std.Thread.sleep(100 * std.time.ns_per_ms);
+        if (!inForeground(tty_fd)) host.io().sleep(.fromMilliseconds(100), .awake) catch {};
     }
 }
 
@@ -197,29 +198,26 @@ pub fn isSuspended() bool {
 pub fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     @branchHint(.cold);
     restoreTerminal();
-    var buf: [256]u8 = undefined;
-    var stderr = std.fs.File.stderr().writer(&buf);
-    stderr.interface.print("mercat crashed: {s}\nPlease report this at {s}\n", .{ msg, issue_url }) catch {};
-    stderr.interface.flush() catch {};
+    var buf: [512]u8 = undefined;
+    writeAllFd(posix.STDERR_FILENO, std.fmt.bufPrint(&buf, "mercat crashed: {s}\nPlease report this at {s}\n", .{ msg, issue_url }) catch "mercat crashed\n");
     std.debug.defaultPanic(msg, first_trace_addr);
 }
 
 /// "mercat crashed: ..." text for a fatal signal; static so it can be
 /// written from a signal handler.
-pub fn fatalSignalMessage(sig: u8) []const u8 {
+pub fn fatalSignalMessage(sig: posix.SIG) []const u8 {
     const tail = "\nPlease report this at " ++ issue_url ++ "\n";
     return switch (sig) {
-        posix.SIG.SEGV => "mercat crashed: segmentation fault (SIGSEGV)" ++ tail,
-        posix.SIG.BUS => "mercat crashed: bus error (SIGBUS)" ++ tail,
-        posix.SIG.ILL => "mercat crashed: illegal instruction (SIGILL)" ++ tail,
-        posix.SIG.FPE => "mercat crashed: arithmetic exception (SIGFPE)" ++ tail,
+        .SEGV => "mercat crashed: segmentation fault (SIGSEGV)" ++ tail,
+        .BUS => "mercat crashed: bus error (SIGBUS)" ++ tail,
+        .ILL => "mercat crashed: illegal instruction (SIGILL)" ++ tail,
+        .FPE => "mercat crashed: arithmetic exception (SIGFPE)" ++ tail,
         else => "mercat crashed: fatal signal" ++ tail,
     };
 }
 
-fn onFatalSignal(sig: c_int, info: *const posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
+fn onFatalSignal(signal: posix.SIG, info: *const posix.siginfo_t, ctx: ?*anyopaque) callconv(.c) void {
     _ = ctx;
-    const signal: u8 = @intCast(sig);
     restoreTerminal();
     writeAllFd(posix.STDERR_FILENO, fatalSignalMessage(signal));
     for (fatal_signals, 0..) |fatal, i| {
@@ -238,9 +236,9 @@ fn emptyMask() posix.sigset_t {
     };
 }
 
-fn addSignal(set: *posix.sigset_t, sig: u8) void {
+fn addSignal(set: *posix.sigset_t, sig: posix.SIG) void {
     switch (builtin.os.tag) {
-        .macos => set.* |= @as(posix.sigset_t, 1) << @intCast(sig - 1),
+        .macos => set.* |= @as(posix.sigset_t, 1) << @intCast(@intFromEnum(sig) - 1),
         else => posix.sigaddset(set, sig),
     }
 }
@@ -249,7 +247,7 @@ fn addSignal(set: *posix.sigset_t, sig: u8) void {
 /// thread's mask back. The watcher thread blocks the guarded signals, and a
 /// handler blocks its own signal; on macOS a signal raised while blocked
 /// stays pending instead of taking its default action.
-fn raiseUnblocked(sig: u8) void {
+fn raiseUnblocked(sig: posix.SIG) void {
     var set = emptyMask();
     addSignal(&set, sig);
     var old: posix.sigset_t = undefined;
@@ -267,20 +265,20 @@ fn blockGuardedSignals() void {
     _ = std.c.pthread_sigmask(posix.SIG.BLOCK, &set, &old);
 }
 
-fn forwardSignal(sig: c_int) callconv(.c) void {
-    const byte: u8 = @intCast(sig);
+fn forwardSignal(sig: posix.SIG) callconv(.c) void {
+    const byte: u8 = @intCast(@intFromEnum(sig));
     // Decide now, not when the watcher gets to it: by then the child may have
     // died from the very same Ctrl-C and cleared the flag.
-    if (!deferOrDrop(byte)) return;
+    if (!deferOrDrop(sig)) return;
     // Suspended: the terminal is restored and the process may be stopped or
     // in the background, so nothing needs the watcher. Die now, before the
     // suspended thread can stop the process again. Resuming puts the tty
     // back in raw mode just before clearing the flag, so restore the cooked
     // mode (tcsetattr is async-signal-safe) when we own the terminal.
-    if (suspended.load(.acquire) and isExitSignal(byte)) {
+    if (suspended.load(.acquire) and isExitSignal(sig)) {
         if (inForeground(tty_fd)) posix.tcsetattr(tty_fd, .NOW, cooked_termios) catch {};
-        setHandler(byte, null);
-        raiseUnblocked(byte);
+        setHandler(sig, null);
+        raiseUnblocked(sig);
         return;
     }
     const fd = pipe_fds[1];
@@ -291,16 +289,16 @@ fn forwardSignal(sig: c_int) callconv(.c) void {
 /// Called in signal context. Returns true when the watcher should handle
 /// `sig`; false when it was dropped (INT/QUIT typed into the editor) or
 /// deferred until the editor exits (TERM/HUP, also passed on to the editor).
-fn deferOrDrop(sig: u8) bool {
+fn deferOrDrop(sig: posix.SIG) bool {
     var state = child_state.load(.acquire);
     while (true) {
         switch (respond(sig, state & child_running_bit != 0)) {
             .ignore => return false,
             .defer_until_child_exits => {
-                const next = (state & ~@as(u32, 0xff00)) | (@as(u32, sig) << 8);
+                const next = (state & ~@as(u32, 0xff00)) | (@as(u32, @intFromEnum(sig)) << 8);
                 state = child_state.cmpxchgWeak(state, next, .acq_rel, .acquire) orelse {
                     const pid = child_pid.load(.acquire);
-                    if (pid > 0) _ = posix.system.kill(pid, sig);
+                    if (pid > 0) _ = std.c.kill(pid, sig);
                     return false;
                 };
             },
@@ -309,8 +307,8 @@ fn deferOrDrop(sig: u8) bool {
     }
 }
 
-fn isExitSignal(sig: u8) bool {
-    return std.mem.indexOfScalar(u8, &exit_signals, sig) != null;
+fn isExitSignal(sig: posix.SIG) bool {
+    return std.mem.indexOfScalar(posix.SIG, &exit_signals, sig) != null;
 }
 
 fn watch() void {
@@ -322,7 +320,7 @@ fn watch() void {
     while (true) {
         const n = posix.read(pipe_fds[0], &byte) catch return;
         if (n == 0 or byte[0] == shutdown_byte) return;
-        handleSignal(byte[0]);
+        handleSignal(@enumFromInt(byte[0]));
     }
 }
 
@@ -340,7 +338,7 @@ pub fn setChildRunning(running: bool) void {
     }
     child_pid.store(0, .release);
     const pending: u8 = @truncate(child_state.swap(0, .acq_rel) >> 8);
-    if (pending != 0 and active.load(.acquire)) exitForSignal(pending);
+    if (pending != 0 and active.load(.acquire)) exitForSignal(@enumFromInt(pending));
 }
 
 /// Records the running child's pid so deferred exit signals reach it too.
@@ -355,31 +353,31 @@ pub fn setSuspendedForTest(value: bool) void {
 }
 
 /// Test hook: the exit signal waiting for the child to finish, if any.
-pub fn pendingExitSignal() ?u8 {
+pub fn pendingExitSignal() ?posix.SIG {
     const pending: u8 = @truncate(child_state.load(.acquire) >> 8);
-    return if (pending == 0) null else pending;
+    return if (pending == 0) null else @enumFromInt(pending);
 }
 
 /// Test hook: runs the signal handler's decision for `sig` in the current
 /// state; true when it would be handed to the watcher thread.
-pub fn wouldForward(sig: u8) bool {
+pub fn wouldForward(sig: posix.SIG) bool {
     return deferOrDrop(sig);
 }
 
 pub const Response = enum { ignore, stop_only, suspend_and_resume, defer_until_child_exits, restore_and_exit };
 
 /// What to do with a signal, given whether a child owns the terminal.
-pub fn respond(sig: u8, child_owns_terminal: bool) Response {
-    if (sig == posix.SIG.TSTP) return if (child_owns_terminal) .stop_only else .suspend_and_resume;
-    if (child_owns_terminal and (sig == posix.SIG.INT or sig == posix.SIG.QUIT)) return .ignore;
-    if (child_owns_terminal and (sig == posix.SIG.TERM or sig == posix.SIG.HUP)) return .defer_until_child_exits;
+pub fn respond(sig: posix.SIG, child_owns_terminal: bool) Response {
+    if (sig == .TSTP) return if (child_owns_terminal) .stop_only else .suspend_and_resume;
+    if (child_owns_terminal and (sig == .INT or sig == .QUIT)) return .ignore;
+    if (child_owns_terminal and (sig == .TERM or sig == .HUP)) return .defer_until_child_exits;
     return .restore_and_exit;
 }
 
-fn handleSignal(sig: u8) void {
+fn handleSignal(sig: posix.SIG) void {
     // Only SIGTSTP is still undecided here; the handler already filtered or
     // deferred everything else when it arrived.
-    const child = sig == posix.SIG.TSTP and child_state.load(.acquire) & child_running_bit != 0;
+    const child = sig == .TSTP and child_state.load(.acquire) & child_running_bit != 0;
     switch (respond(sig, child)) {
         .ignore, .defer_until_child_exits => return,
         // The child's screen is not ours to reset; just stop alongside it.
@@ -393,16 +391,16 @@ fn handleSignal(sig: u8) void {
     }
 }
 
-fn exitForSignal(sig: u8) void {
+fn exitForSignal(sig: posix.SIG) void {
     restoreTerminal();
     setHandler(sig, null);
     raiseUnblocked(sig);
     // A default action that does not terminate (should not happen for these
     // signals) still must not leave the user stuck in a dead UI.
-    std.process.exit(128 + sig);
+    std.process.exit(@intCast(128 + @intFromEnum(sig)));
 }
 
-fn setHandler(sig: u8, handler: ?*const fn (c_int) callconv(.c) void) void {
+fn setHandler(sig: posix.SIG, handler: ?posix.Sigaction.handler_fn) void {
     var act = posix.Sigaction{
         .handler = .{ .handler = handler orelse posix.SIG.DFL },
         .mask = emptyMask(),
@@ -414,15 +412,26 @@ fn setHandler(sig: u8, handler: ?*const fn (c_int) callconv(.c) void) void {
 fn writeAllFd(fd: posix.fd_t, bytes: []const u8) void {
     var written: usize = 0;
     while (written < bytes.len) {
-        const n = posix.write(fd, bytes[written..]) catch return;
-        if (n == 0) return;
-        written += n;
+        const rc = std.c.write(fd, bytes[written..].ptr, bytes.len - written);
+        if (rc < 0) {
+            if (std.c.errno(rc) == .INTR) continue;
+            return;
+        }
+        if (rc == 0) return;
+        written += @intCast(rc);
     }
+}
+
+fn openPipe() ![2]posix.fd_t {
+    var fds: [2]posix.fd_t = undefined;
+    if (std.c.pipe(&fds) != 0) return error.ProcessFdQuotaExceeded;
+    for (fds) |fd| _ = std.c.fcntl(fd, posix.F.SETFD, @as(c_int, posix.FD_CLOEXEC));
+    return fds;
 }
 
 fn closePipe() void {
     for (&pipe_fds) |*fd| {
-        if (fd.* >= 0) posix.close(fd.*);
+        if (fd.* >= 0) _ = std.c.close(fd.*);
         fd.* = -1;
     }
 }
