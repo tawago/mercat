@@ -1,0 +1,4 @@
+{
+  "description": "mercat: mermaid fences in replies drawn as text diagrams, and the /mercat pane",
+  "modules": ["./register.tsx"]
+}
