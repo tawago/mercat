@@ -1,0 +1,14 @@
+{
+  "name": "mercat",
+  "owner": {
+    "name": "tawago"
+  },
+  "description": "Claude Code mods from the mercat project",
+  "plugins": [
+    {
+      "name": "mercat",
+      "source": "./mods/mercat",
+      "description": "mermaid diagrams in Claude's replies, and a /mercat pane for markdown and mermaid files"
+    }
+  ]
+}

@@ -27,3 +27,6 @@ __pycache__/
 
 # Local forwarder to private tooling
 scripts/judge-loop.sh
+
+# Engine-generated mod typings
+mods/mercat/.claude-plugin/types/
