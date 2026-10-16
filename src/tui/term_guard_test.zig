@@ -15,6 +15,16 @@ fn openPipe(nonblock: bool) ![2]posix.fd_t {
     return fds;
 }
 
+fn ttyMode(fd: posix.fd_t) !posix.termios {
+    var mode: posix.termios = undefined;
+    const rc = posix.system.tcgetattr(fd, &mode);
+    if (posix.errno(rc) != .SUCCESS) {
+        std.debug.print("tcgetattr({d}): {t}\n", .{ fd, posix.errno(rc) });
+        return error.NotATerminal;
+    }
+    return mode;
+}
+
 fn waitStatus(pid: posix.pid_t, options: c_int) u32 {
     var status: c_int = 0;
     _ = c.waitpid(pid, &status, options);
@@ -150,7 +160,7 @@ test "an exit signal just as a suspended process resumes leaves the tty cooked" 
     if (openpty(&master, &slave, null, null, null) != 0) return error.SkipZigTest;
     defer _ = c.close(master);
     defer _ = c.close(slave);
-    const cooked = try posix.tcgetattr(slave);
+    const cooked = try ttyMode(slave);
     try std.testing.expect(cooked.lflag.ICANON and cooked.lflag.ECHO);
 
     const pid = c.fork();
@@ -167,8 +177,9 @@ test "an exit signal just as a suspended process resumes leaves the tty cooked" 
         c._exit(3);
     }
     const done = waitStatus(pid, 0);
+    if (!posix.W.IFSIGNALED(done)) std.debug.print("child status 0x{x}\n", .{done});
     try std.testing.expect(posix.W.IFSIGNALED(done));
     try std.testing.expectEqual(posix.SIG.TERM, posix.W.TERMSIG(done));
-    const after = try posix.tcgetattr(slave);
+    const after = try ttyMode(slave);
     try std.testing.expect(after.lflag.ICANON and after.lflag.ECHO);
 }

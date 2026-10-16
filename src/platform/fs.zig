@@ -24,6 +24,8 @@ pub fn kindOf(path: []const u8, follow: bool) StatError!Kind {
 }
 
 fn statPath(path: []const u8, follow: bool) StatError!File.Stat {
+    var parts = std.mem.tokenizeScalar(u8, path, '/');
+    while (parts.next()) |part| if (part.len > Dir.max_name_bytes) return error.NameTooLong;
     return Dir.cwd().statFile(host.io(), path, .{ .follow_symlinks = follow });
 }
 
