@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.3]
+
+### Claude Code mod
+
+- **mercat for Claude Code.** A new mod in `mods/mercat` draws mermaid fences
+  in Claude's replies with mercat, warns above a clipped diagram, and adds
+  `/mercat [file]` to open a rendered side pane. Install with
+  `/plugin marketplace add tawago/mercat` then `/plugin install mercat@mercat`.
+
+### Build
+
+- **Zig 0.17.0.** Zig 0.15.1 cannot link against the macOS 27 SDK; mercat now
+  builds with Zig 0.17.0. Rendered output is unchanged.
+
 ## [0.3.2]
 
 ### Markdown

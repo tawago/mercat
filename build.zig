@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
     // build does not set NO_RECURSE, so set it on its pcre library here.
     (findLibrary(koino_dep.module("koino"), "pcre") orelse @panic("koino: no pcre library")).root_module.addCMacro("NO_RECURSE", "1");
     vaxis_dep.module("vaxis").addImport("uucode", uucode_mod);
-    options.addOption([]const u8, "version", "0.3.2");
+    options.addOption([]const u8, "version", "0.3.3");
 
     const stb_translate = b.addTranslateC(.{
         .root_source_file = b.path("vendor/stb/stb_truetype.h"),

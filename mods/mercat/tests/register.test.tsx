@@ -2,6 +2,8 @@ import type { Args, CommandRunInput, On, RenderInput, SessionMessage } from 'cla
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
+import { MOD_VERSION } from '../hooks/mercat'
+
 const SESSION = { surface: 'terminal', isInteractive: true, cwd: '/work' } as const
 const ART = '┌───┐\n│ A │\n└───┘'
 const DOC = '\x1b[1;38;5;81m# Title\x1b[0m\n\n\x1b]8;;https://x\x1b\\\x1b[4mlink\x1b[0m\x1b]8;;\x1b\\\n'
@@ -27,7 +29,7 @@ function world(on: On, given: World = {}) {
     }
     if (e.argv.includes('--version')) {
       probes.push(e)
-      const stdout = `mercat ${given.version ?? '0.3.2'}\n`
+      const stdout = `mercat ${given.version ?? MOD_VERSION}\n`
       return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     runs.push(e)
@@ -179,7 +181,7 @@ describe('replies', () => {
     const w = world(on, { version: '0.3.1' })
     await $.session.start(SESSION)
     await w.clock.settle()
-    expect(w.toasts).toEqual(['mercat 0.3.1 is older than this mod (0.3.2) — brew upgrade tawago/tap/mercat'])
+    expect(w.toasts).toEqual([`mercat 0.3.1 is older than this mod (${MOD_VERSION}) — brew upgrade tawago/tap/mercat`])
   })
 
   test('a current mercat gets no hint', async ($, on) => {
