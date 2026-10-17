@@ -23,6 +23,7 @@ const export_glyph_sheet = @import("export/glyph_sheet.zig");
 const export_test = @import("export/export_test.zig");
 const terminal = @import("platform/terminal.zig");
 const platform_fs = @import("platform/fs.zig");
+const host = @import("platform/host.zig");
 const tui = @import("tui/app.zig");
 const term_guard = @import("tui/term_guard.zig");
 const theme_color = @import("core/theme/color.zig");
@@ -60,22 +61,20 @@ fn logFn(
     diag.print(diag_level, format, args_);
 }
 
-pub fn main() u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    run(allocator) catch |err| {
+pub fn main(init: std.process.Init) u8 {
+    host.init(init.io, init.minimal.environ, init.environ_map);
+    const argv = init.minimal.args.toSlice(init.arena.allocator()) catch {
+        diag.err("{s}", .{diag.describeError(error.OutOfMemory)});
+        return diag.exit_failure;
+    };
+    run(init.gpa, argv) catch |err| {
         diag.err("{s}", .{diag.describeError(err)});
         return diag.exit_failure;
     };
     return diag.exit_ok;
 }
 
-fn run(allocator: std.mem.Allocator) !void {
-    const argv = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, argv);
-
+fn run(allocator: std.mem.Allocator, argv: []const [:0]const u8) !void {
     // Config loads first so a usage error can honor `[display] color`; its
     // warnings are printed only once the command line parses.
     var warnings = config.Warnings.init(allocator);
@@ -84,7 +83,7 @@ fn run(allocator: std.mem.Allocator) !void {
     defer loaded_config.deinit(allocator);
 
     const env = cli_color.Env.fromProcess();
-    const stderr_tty = std.fs.File.stderr().isTty();
+    const stderr_tty = terminal.stderrIsTty();
     var arg_diag: args.Diagnostic = .{};
     const parsed = args.parseDiag(allocator, argv, &arg_diag) catch |err| switch (err) {
         error.ShowHelp => return showHelp(allocator),
@@ -99,7 +98,7 @@ fn run(allocator: std.mem.Allocator) !void {
 
     theme_color.initTruecolor(allocator);
 
-    const stdout_tty = std.fs.File.stdout().isTty();
+    const stdout_tty = terminal.stdoutIsTty();
     const color_on = cli_color.resolve(parsed.color, loaded_config.display.color, env, stdout_tty);
     diag.setColor(cli_color.resolveStderr(parsed.color, loaded_config.display.color, env, stderr_tty));
     for (warnings.items()) |msg| diag.warn("{s}", .{msg});
@@ -175,7 +174,7 @@ fn run(allocator: std.mem.Allocator) !void {
 fn showHelp(allocator: std.mem.Allocator) !void {
     const path = try config.resolveConfigPath(allocator);
     defer allocator.free(path);
-    const state = if (std.fs.cwd().access(path, .{})) |_| "" else |_| " (not present; defaults apply)";
+    const state = if (std.Io.Dir.cwd().access(host.io(), path, .{})) |_| "" else |_| " (not present; defaults apply)";
     const line = try std.fmt.allocPrint(allocator, "Config: {s}{s}\n  TOML; command-line flags win over environment, environment over config.\n", .{ path, state });
     defer allocator.free(line);
     writeStdoutOrFail(args.help_text);
@@ -195,7 +194,7 @@ fn reportUsageError(err: args.ParseError, d: *const args.Diagnostic) noreturn {
     if (args.describeNote(&note_buf, err, d)) |text| diag.note("{s}", .{text});
     // `mercat -weird.md` parses as `-w eird.md`; point at `--` when the token is a real file.
     if (d.token.len > 1 and d.token[0] == '-') {
-        if (std.fs.cwd().access(d.token, .{})) |_| {
+        if (std.Io.Dir.cwd().access(host.io(), d.token, .{})) |_| {
             diag.note("to open a file whose name starts with '-', use: mercat -- {s}", .{d.token});
         } else |_| {}
     }
@@ -377,7 +376,7 @@ fn runDumpTheme(allocator: std.mem.Allocator, name: []const u8) !void {
     const folded = registry.mergedSpec(name, &diag_list).?;
     var buf = std.ArrayList(u8).empty;
     defer buf.deinit(allocator);
-    try theme_dump.write(buf.writer(allocator), name, &folded);
+    try theme_dump.writeList(allocator, &buf, name, &folded);
     emitThemeDiagnostics(&diag_list);
     writeStdoutOrFail(buf.items);
 }
@@ -477,7 +476,7 @@ fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {
     switch (input) {
         .file => |path| {
             if (isDirectory(path)) diag.fail("{s}: is a directory", .{path});
-            return std.fs.cwd().readFileAlloc(allocator, path, max_input_bytes) catch |err| switch (err) {
+            return std.Io.Dir.cwd().readFileAlloc(host.io(), path, allocator, .limited(max_input_bytes + 1)) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 else => diag.failPath(path, err),
             };
@@ -494,8 +493,11 @@ fn readInput(allocator: std.mem.Allocator, input: args.Input) ![]u8 {
 }
 
 fn readStdin(allocator: std.mem.Allocator) ![]u8 {
-    return std.fs.File.stdin().readToEndAlloc(allocator, max_input_bytes) catch |err| switch (err) {
+    var buf: [4096]u8 = undefined;
+    var reader = std.Io.File.stdin().readerStreaming(host.io(), &buf);
+    return reader.interface.allocRemaining(allocator, .limited(max_input_bytes + 1)) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
+        error.ReadFailed => diag.failPath("stdin", reader.err.?),
         else => diag.failPath("stdin", err),
     };
 }

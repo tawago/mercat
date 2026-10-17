@@ -12,7 +12,7 @@ pub fn split(source: []const u8) Split {
     var index: usize = opening;
     while (index < source.len) {
         const line_end = std.mem.indexOfScalarPos(u8, source, index, '\n') orelse source.len;
-        const line = std.mem.trimRight(u8, source[index..line_end], "\r");
+        const line = std.mem.trimEnd(u8, source[index..line_end], "\r");
         if (std.mem.eql(u8, line, "---")) {
             const body_start = @min(line_end + 1, source.len);
             return .{ .yaml = source[opening..index], .body = source[body_start..] };
@@ -42,7 +42,7 @@ pub fn parseEntries(allocator: std.mem.Allocator, yaml: []const u8) ![]Entry {
 
     var lines = std.mem.splitScalar(u8, yaml, '\n');
     while (lines.next()) |raw_line| {
-        const line = std.mem.trimRight(u8, raw_line, "\r");
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (std.mem.trim(u8, line, " \t").len == 0) continue;
 
         if (topLevelKeyLength(line)) |key_len| {

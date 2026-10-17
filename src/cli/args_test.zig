@@ -10,9 +10,9 @@ const Parsed = args.Parsed;
 fn expectParsed(argv: []const []const u8, want: Parsed) !void {
     const got = try parse(std.testing.allocator, argv);
     defer got.deinit(std.testing.allocator);
-    inline for (std.meta.fields(Parsed)) |f| {
-        const w = @field(want, f.name);
-        const g = @field(got, f.name);
+    inline for (comptime std.meta.fieldNames(Parsed)) |name| {
+        const w = @field(want, name);
+        const g = @field(got, name);
         switch (@TypeOf(w)) {
             ?[]const u8, ?[]u8 => {
                 try std.testing.expectEqual(w == null, g == null);

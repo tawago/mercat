@@ -1,6 +1,7 @@
 //! Inline HTML that spans lines, and the raw-source fallback: a paragraph
 //! is never lost to an error or a placeholder, whatever the input.
 const std = @import("std");
+const host = @import("../../platform/host.zig");
 const markdown = @import("parser.zig");
 const render_model = @import("render.zig");
 const encoding = @import("../encoding.zig");
@@ -31,7 +32,7 @@ fn renderDoc(document: markdown.Document, width: usize) !Out {
         for (line.spans) |span| try expectDisplaySafe(span.text);
         const joined = try line.joinedText(allocator);
         defer allocator.free(joined);
-        try text.appendSlice(allocator, std.mem.trimRight(u8, joined, " "));
+        try text.appendSlice(allocator, std.mem.trimEnd(u8, joined, " "));
         try text.append(allocator, '\n');
     }
     return .{ .text = try text.toOwnedSlice(allocator), .fallbacks = fallbacks };
@@ -144,7 +145,7 @@ fn randomDocument(random: std.Random, buf: *std.ArrayList(u8)) !void {
 /// The fixed seeds replay the same corpus every run, so the default suite
 /// takes a prefix; `zig build test-fuzz-long` sets MERCAT_LONG_FUZZ for all of it.
 fn iterations(default: usize) usize {
-    return if (std.posix.getenv("MERCAT_LONG_FUZZ") != null) 2500 else default;
+    return if (host.getenv("MERCAT_LONG_FUZZ") != null) 2500 else default;
 }
 
 test "property: random markdown-ish input always renders, never as a placeholder" {

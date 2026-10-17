@@ -1,5 +1,6 @@
 //! Theme names for --list-themes and for "unknown theme" messages.
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const presets = @import("../core/theme/presets.zig");
 const loadfile = @import("../core/theme/loadfile.zig");
 const suggest_mod = @import("../core/suggest.zig");
@@ -48,9 +49,9 @@ pub fn collectFrom(a: std.mem.Allocator, dir_path: ?[]const u8) ![]const []const
     if (dir_path) |path| {
         if (openDir(path)) |opened| {
             var dir = opened;
-            defer dir.close();
+            defer dir.close(host.io());
             var it = dir.iterate();
-            while (it.next() catch null) |entry| {
+            while (it.next(host.io()) catch null) |entry| {
                 if (entry.kind != .file and entry.kind != .sym_link) continue;
                 if (!std.mem.endsWith(u8, entry.name, ".toml")) continue;
                 const stem = entry.name[0 .. entry.name.len - ".toml".len];
@@ -64,9 +65,8 @@ pub fn collectFrom(a: std.mem.Allocator, dir_path: ?[]const u8) ![]const []const
     return list.toOwnedSlice(a);
 }
 
-fn openDir(path: []const u8) !std.fs.Dir {
-    if (std.fs.path.isAbsolute(path)) return std.fs.openDirAbsolute(path, .{ .iterate = true });
-    return std.fs.cwd().openDir(path, .{ .iterate = true });
+fn openDir(path: []const u8) !std.Io.Dir {
+    return std.Io.Dir.cwd().openDir(host.io(), path, .{ .iterate = true });
 }
 
 fn isBuiltin(name: []const u8) bool {
@@ -81,14 +81,14 @@ fn lessThan(_: void, lhs: []const u8, rhs: []const u8) bool {
 test "collectFrom lists built-ins then sorted user themes, skipping non-toml and duplicates" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{ .sub_path = "zeta.toml", .data = "" });
-    try tmp.dir.writeFile(.{ .sub_path = "alpha.toml", .data = "" });
-    try tmp.dir.writeFile(.{ .sub_path = "dark.toml", .data = "" });
-    try tmp.dir.writeFile(.{ .sub_path = "notes.txt", .data = "" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "zeta.toml", .data = "" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "alpha.toml", .data = "" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "dark.toml", .data = "" });
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "notes.txt", .data = "" });
 
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const path = try tmp.dir.realpathAlloc(arena.allocator(), ".");
+    const path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", arena.allocator());
     const names = try collectFrom(arena.allocator(), path);
 
     try std.testing.expectEqual(presets.ALL.len + 2, names.len);

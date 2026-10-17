@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("host.zig");
 const process = @import("process.zig");
 
 /// Editors probed on $PATH, in order, when neither the config nor the
@@ -25,9 +26,9 @@ pub const Env = struct {
 
     pub fn fromProcess() Env {
         return .{
-            .visual = std.posix.getenv("VISUAL"),
-            .editor = std.posix.getenv("EDITOR"),
-            .path = std.posix.getenv("PATH"),
+            .visual = host.getenv("VISUAL"),
+            .editor = host.getenv("EDITOR"),
+            .path = host.getenv("PATH"),
         };
     }
 };
@@ -65,7 +66,7 @@ pub fn programExists(path_env: ?[]const u8, program: []const u8) bool {
 
 fn findInPath(path_env: ?[]const u8, name: []const u8) bool {
     const path = path_env orelse return false;
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     var dirs = std.mem.tokenizeScalar(u8, path, ':');
     while (dirs.next()) |dir| {
         const full = std.fmt.bufPrint(&buf, "{s}/{s}", .{ dir, name }) catch continue;
@@ -75,7 +76,7 @@ fn findInPath(path_env: ?[]const u8, name: []const u8) bool {
 }
 
 fn isExecutable(path: []const u8) bool {
-    std.posix.access(path, std.posix.X_OK) catch return false;
+    std.Io.Dir.cwd().access(host.io(), path, .{ .execute = true }) catch return false;
     return @import("fs.zig").isNonDirectory(path);
 }
 
@@ -121,27 +122,17 @@ pub fn openFileNotify(
     for (command.argv, 0..) |part, index| argv[index] = part;
     argv[command.argv.len] = file_path;
 
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    child.spawn() catch |err| switch (err) {
+    const io = host.io();
+    var child = std.process.spawn(io, .{ .argv = argv }) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.EditorNotFound,
     };
-    if (on_spawn) |notify| notify(child.id);
-    // An exec failure (missing program, no permission) is only reported by
-    // wait(), through the child's error pipe.
-    const term = child.wait() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FileNotFound, error.AccessDenied, error.InvalidExe, error.NotDir, error.IsDir => return error.EditorNotFound,
+    if (on_spawn) |notify| notify(child.id.?);
+    const term = child.wait(io) catch |err| switch (err) {
+        error.AccessDenied => return error.EditorNotFound,
         else => return error.EditorFailed,
     };
-    switch (term) {
-        .Exited => |code| if (code != 0) return error.EditorFailed,
-        else => return error.EditorFailed,
-    }
+    if (!term.success()) return error.EditorFailed;
 }
 
 test {

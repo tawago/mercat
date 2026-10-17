@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../../platform/host.zig");
 
 pub const Rgb = struct { r: u8, g: u8, b: u8 };
 pub const Srgb = struct { r: u8, g: u8, b: u8 };
@@ -129,7 +130,7 @@ pub fn detectTruecolorFromValue(colorterm: ?[]const u8) bool {
 }
 
 pub fn initTruecolor(allocator: std.mem.Allocator) void {
-    const value = std.process.getEnvVarOwned(allocator, "COLORTERM") catch {
+    const value = host.environ().getAlloc(allocator, "COLORTERM") catch {
         setTruecolor(false);
         return;
     };

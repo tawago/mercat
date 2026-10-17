@@ -36,7 +36,7 @@ fn renderPanel(allocator: std.mem.Allocator, builder: *Builder, code: Block.Code
     var lines = std.mem.splitScalar(u8, code.code, '\n');
     while (lines.next()) |line| {
         try builder.newline();
-        const trimmed = std.mem.trimRight(u8, line, "\r");
+        const trimmed = std.mem.trimEnd(u8, line, "\r");
         const line_width = try geometry.displayWidthFrom(trimmed, text_column);
         if (trimmed.len == 0) {
             try appendPadding(builder, left_pad + max_line_width + 1);
@@ -57,7 +57,7 @@ fn renderPlain(allocator: std.mem.Allocator, builder: *Builder, code: Block.Code
         if (!first) try builder.newline();
         first = false;
         try appendPadding(builder, 1);
-        try appendHighlighted(allocator, builder, code.language, std.mem.trimRight(u8, line, "\r"));
+        try appendHighlighted(allocator, builder, code.language, std.mem.trimEnd(u8, line, "\r"));
     }
 }
 
@@ -87,7 +87,7 @@ fn renderFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bloc
     while (lines.next()) |line| {
         if (!first) try builder.newline();
         first = false;
-        const trimmed = std.mem.trimRight(u8, line, "\r");
+        const trimmed = std.mem.trimEnd(u8, line, "\r");
         const line_width = try geometry.displayWidthFrom(trimmed, text_column);
         try appendPadding(builder, left_pad);
         try appendHighlighted(allocator, builder, code.language, trimmed);
@@ -154,7 +154,7 @@ fn renderFallback(allocator: std.mem.Allocator, builder: *Builder, language: []c
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |line| {
         try builder.newline();
-        const trimmed = std.mem.trimRight(u8, line, "\r");
+        const trimmed = std.mem.trimEnd(u8, line, "\r");
         const line_width = try geometry.displayWidthFrom(trimmed, text_column);
         try appendPadding(builder, 1);
         try builder.appendSpan(.code_block, trimmed);
@@ -181,7 +181,7 @@ fn maxLineWidth(source: []const u8, initial_column: usize) !usize {
     var max_width: usize = 0;
     var lines = std.mem.splitScalar(u8, source, '\n');
     while (lines.next()) |line| {
-        const trimmed = std.mem.trimRight(u8, line, "\r");
+        const trimmed = std.mem.trimEnd(u8, line, "\r");
         max_width = @max(max_width, try geometry.displayWidthFrom(trimmed, initial_column));
     }
     return max_width;

@@ -143,7 +143,7 @@ fn isWordByte(c: u8) bool {
 
 /// Trims blanks and one pair of matching `"` or `'` quotes.
 pub fn unquote(text: []const u8) []const u8 {
-    const t = std.mem.trimRight(u8, std.mem.trimLeft(u8, text, " \t"), " \t\r");
+    const t = std.mem.trimEnd(u8, std.mem.trimStart(u8, text, " \t"), " \t\r");
     if (t.len >= 2 and (t[0] == '"' or t[0] == '\'') and t[t.len - 1] == t[0]) return t[1 .. t.len - 1];
     return t;
 }

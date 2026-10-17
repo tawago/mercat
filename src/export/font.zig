@@ -1,8 +1,6 @@
 const std = @import("std");
 
-const c = @cImport({
-    @cInclude("stb_truetype.h");
-});
+const c = @import("stb_truetype");
 
 pub const ttf_bytes: []const u8 = @embedFile("jetbrains_mono_ttf");
 

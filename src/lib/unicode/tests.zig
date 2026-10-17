@@ -5,7 +5,7 @@ const segmentation = @import("segmentation.zig");
 const testing = std.testing;
 
 test "Unicode 17 official GraphemeBreakTest boundaries" {
-    const data = try std.fs.cwd().readFileAlloc(testing.allocator, "vendor/unicode/17.0.0/GraphemeBreakTest.txt", 1024 * 1024);
+    const data = try std.Io.Dir.cwd().readFileAlloc(testing.io, "vendor/unicode/17.0.0/GraphemeBreakTest.txt", testing.allocator, .limited(1024 * 1024 + 1));
     defer testing.allocator.free(data);
     var lines = std.mem.tokenizeScalar(u8, data, '\n');
     var cases: usize = 0;
@@ -232,7 +232,7 @@ test "legacy clipping returns only valid UTF-8 around malformed boundaries" {
 }
 
 test "legacy cursor walks long input with linear counted work" {
-    const text = "a" ** 4096;
+    const text: []const u8 = &@as([4096]u8, @splat('a'));
     var cursor = unicode.LegacyCursor.init(text);
     var glyphs: usize = 0;
     while (cursor.next()) |_| glyphs += 1;
@@ -247,7 +247,7 @@ test "legacy cursor walks long input with linear counted work" {
 
 test "legacy cursor traversal is linear and remains stopped at malformed input" {
     const scalar_count = 1024;
-    const text = ("日" ** scalar_count) ++ "\x80ignored";
+    const text = @as([scalar_count * 3]u8, @bitCast(@as([scalar_count][3]u8, @splat("日".*)))) ++ "\x80ignored";
     for (0..3) |_| {
         var cursor = unicode.LegacyCursor.init(text);
         var count: usize = 0;
@@ -313,7 +313,7 @@ fn expectSanitized(input: []const u8, want: []const u8) !void {
     defer testing.allocator.free(got);
     try testing.expectEqualStrings(want, got);
     var lines = std.mem.splitScalar(u8, got, '\n');
-    while (lines.next()) |line| _ = try unicode.rawDisplayWidth(std.mem.trimRight(u8, line, "\r"));
+    while (lines.next()) |line| _ = try unicode.rawDisplayWidth(std.mem.trimEnd(u8, line, "\r"));
 }
 
 test "sanitize drops invisible format characters and keeps the text" {

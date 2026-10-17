@@ -4,7 +4,7 @@ Thanks for working on `mercat`.
 
 ## Development Setup
 
-`mercat` currently targets Zig `0.15.1`.
+`mercat` currently targets Zig `0.17.0`.
 
 ```bash
 zig build

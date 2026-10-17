@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const SubgraphEdges = @import("mermaid/mermaid.zig").SubgraphEdges;
 const suggest = @import("suggest.zig");
 pub const loadfile = @import("theme/loadfile.zig");
@@ -121,12 +122,9 @@ pub fn load(allocator: std.mem.Allocator, warnings: *Warnings) !Config {
 }
 
 fn readConfigFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = if (std.fs.path.isAbsolute(path))
-        try std.fs.openFileAbsolute(path, .{})
-    else
-        try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    return file.readToEndAlloc(allocator, 1024 * 1024);
+    const file = try host.openFile(path, .{});
+    defer file.close(host.io());
+    return host.readToEnd(file, allocator, 1024 * 1024);
 }
 
 fn readErrorText(err: anyerror) []const u8 {
@@ -142,12 +140,12 @@ fn readErrorText(err: anyerror) []const u8 {
 }
 
 pub fn resolveConfigPath(allocator: std.mem.Allocator) ![]u8 {
-    if (std.process.getEnvVarOwned(allocator, "XDG_CONFIG_HOME")) |xdg| {
+    if (host.environ().getAlloc(allocator, "XDG_CONFIG_HOME")) |xdg| {
         defer allocator.free(xdg);
         if (xdg.len != 0) return std.fs.path.join(allocator, &.{ xdg, "mercat", "config.toml" });
     } else |_| {}
 
-    if (std.process.getEnvVarOwned(allocator, "HOME")) |home| {
+    if (host.environ().getAlloc(allocator, "HOME")) |home| {
         defer allocator.free(home);
         return std.fs.path.join(allocator, &.{ home, ".config", "mercat", "config.toml" });
     } else |_| {}
@@ -465,7 +463,7 @@ const decodeQuotedString = loadfile.decodeQuotedString;
 pub const EnvLookup = *const fn (name: []const u8) ?[]const u8;
 
 fn processEnv(name: []const u8) ?[]const u8 {
-    return std.posix.getenv(name);
+    return host.getenv(name);
 }
 
 fn applyEnvOverrides(allocator: std.mem.Allocator, cfg: *Config, warnings: *Warnings) !void {

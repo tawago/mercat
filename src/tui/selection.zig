@@ -337,8 +337,8 @@ test "copy preview collapses whitespace and clips to whole graphemes" {
     const cases = [_]struct { in: []const u8, want: []const u8 }{
         .{ .in = "hello", .want = "Copied \"hello\"" },
         .{ .in = "  first\nsecond\t third  ", .want = "Copied \"first second third\"" },
-        .{ .in = ("a" ** 39) ++ "日tail", .want = "Copied \"" ++ ("a" ** 39) ++ " …\"" },
-        .{ .in = "a" ** 60, .want = "Copied \"" ++ ("a" ** copy_preview_cols) ++ " …\"" },
+        .{ .in = @as([39]u8, @splat('a')) ++ "日tail", .want = "Copied \"" ++ @as([39]u8, @splat('a')) ++ " …\"" },
+        .{ .in = &@as([60]u8, @splat('a')), .want = "Copied \"" ++ @as([copy_preview_cols]u8, @splat('a')) ++ " …\"" },
     };
     for (cases) |case| {
         const message = try formatCopyPreview(testing.allocator, case.in);

@@ -115,7 +115,7 @@ fn writeRawSource(allocator: std.mem.Allocator, scratch: *Builder, text: []const
         if (!first) try scratch.newline();
         first = false;
         const clean = switch (mode) {
-            .sanitized => try sanitize(allocator, std.mem.trimRight(u8, line, "\r")),
+            .sanitized => try sanitize(allocator, std.mem.trimEnd(u8, line, "\r")),
             .ascii => try asciiOnly(allocator, line),
         };
         defer allocator.free(clean);

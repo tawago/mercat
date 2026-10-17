@@ -274,7 +274,7 @@ test "writeFile writes the encoded PNG at the document pixel dimensions" {
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
-    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
     defer allocator.free(dir_path);
     const out_path = try std.fs.path.join(allocator, &.{ dir_path, "doc.png" });
     defer allocator.free(out_path);
@@ -282,7 +282,7 @@ test "writeFile writes the encoded PNG at the document pixel dimensions" {
     const result = try writeFile(allocator, doc, &face, .monochrome, out_path, null);
     defer result.deinit(allocator);
 
-    const written = try std.fs.cwd().readFileAlloc(allocator, out_path, 64 * 1024 * 1024);
+    const written = try std.Io.Dir.cwd().readFileAlloc(testing.io, out_path, allocator, .limited(64 * 1024 * 1024));
     defer allocator.free(written);
     try testing.expectEqualSlices(u8, result.encoded.bytes, written);
     const dims = decodeDims(written);
@@ -305,8 +305,8 @@ test "missing constituent leaves an existing target byte-identical" {
 
     var tmp = testing.tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
-    try tmp.dir.writeFile(.{ .sub_path = "existing.png", .data = "original" });
-    const dir_path = try tmp.dir.realpathAlloc(allocator, ".");
+    try tmp.dir.writeFile(std.testing.io, .{ .sub_path = "existing.png", .data = "original" });
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", allocator);
     defer allocator.free(dir_path);
     const out_path = try std.fs.path.join(allocator, &.{ dir_path, "existing.png" });
     defer allocator.free(out_path);
@@ -315,9 +315,9 @@ test "missing constituent leaves an existing target byte-identical" {
     try testing.expectError(error.MissingGlyph, writeFile(allocator, doc, &face, .monochrome, out_path, &diag));
     try testing.expectEqual(@as(u21, 0x0483), diag.missing_codepoint);
     try testing.expectEqual(@as(u32, 0), diag.column);
-    const after = try tmp.dir.readFileAlloc(allocator, "existing.png", 32);
+    const after = try tmp.dir.readFileAlloc(std.testing.io, "existing.png", allocator, .limited(32));
     defer allocator.free(after);
     try testing.expectEqualStrings("original", after);
     var it = tmp.dir.iterate();
-    while (try it.next()) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
+    while (try it.next(std.testing.io)) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
 }

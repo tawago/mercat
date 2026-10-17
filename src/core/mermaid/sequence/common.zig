@@ -44,7 +44,7 @@ pub const Bar = struct {
 pub const Activations = struct {
     pub const tracked = 16;
 
-    starts: [tracked]i32 = .{-1} ** tracked,
+    starts: [tracked]i32 = @splat(-1),
 
     /// Take in one activate or deactivate seen at `pos` along the time axis. An activate opens a
     /// bar one step before `pos`; a deactivate closes the open one one step before `pos`.

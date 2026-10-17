@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const vaxis = @import("vaxis");
 const markdown = @import("../core/markdown/parser.zig");
 const encoding = @import("../core/encoding.zig");
@@ -21,7 +22,6 @@ const unicode = @import("unicode");
 const selection_mod = @import("selection.zig");
 const search_mod = @import("search.zig");
 const term_guard = @import("term_guard.zig");
-const event_loop = @import("event_loop.zig");
 const ctlseqs = vaxis.ctlseqs;
 
 /// How long a status-line message stays before the bar shows just the file.
@@ -69,7 +69,7 @@ fn parseContent(allocator: std.mem.Allocator, content: []const u8, input_source:
 pub const App = struct {
     allocator: std.mem.Allocator,
     vx: vaxis.Vaxis,
-    loop: event_loop.Loop(Event),
+    loop: vaxis.Loop(Event),
     tty: vaxis.Tty,
     tty_buffer: [4096]u8,
 
@@ -119,13 +119,13 @@ pub const App = struct {
         self.editor_command = editor_command;
         self.tty_buffer = undefined;
 
-        self.tty = try vaxis.Tty.init(&self.tty_buffer);
+        self.tty = try vaxis.Tty.init(host.io(), &self.tty_buffer);
         errdefer self.tty.deinit();
 
-        self.vx = try vaxis.init(allocator, .{});
+        self.vx = try vaxis.init(host.io(), allocator, host.environMap(), .{});
         errdefer self.vx.deinit(allocator, self.tty.writer());
 
-        self.loop = .{ .tty = undefined, .vaxis = undefined };
+        self.loop = .init(host.io(), &self.tty, &self.vx);
 
         self.current_content = try allocator.dupe(u8, initial_content);
         errdefer allocator.free(self.current_content);
@@ -140,7 +140,7 @@ pub const App = struct {
 
         self.view_mode = .pager;
         self.status_message = if (theme_warning) |w| try allocator.dupe(u8, w) else null;
-        self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+        self.status_deadline_ms = host.milliTimestamp() + warning_duration_ms;
         self.needs_redraw = true;
         self.toast_message = null;
         self.toast_deadline_ms = 0;
@@ -157,6 +157,7 @@ pub const App = struct {
         self.current_document.deinit(self.allocator);
         self.allocator.free(self.current_content);
         self.loop.stop();
+        self.loop.uninstallResizeHandler();
         const writer = self.tty.writer();
         self.vx.deinit(self.allocator, writer);
         term_guard.uninstall();
@@ -170,16 +171,16 @@ pub const App = struct {
         try self.loop.start();
         try self.vx.enterAltScreen(writer);
 
-        if (std.posix.getenv("TERM_PROGRAM")) |prg| {
+        if (host.getenv("TERM_PROGRAM")) |prg| {
             if (std.mem.eql(u8, prg, "Apple_Terminal")) {
                 self.vx.sgr = .legacy;
             }
         }
 
-        try self.vx.queryTerminal(writer, 1 * std.time.ns_per_s);
+        try self.vx.queryTerminal(writer, .fromSeconds(1));
         try self.vx.setMouseMode(writer, true);
-        if (cookedTermios(&self.tty)) |cooked| {
-            try term_guard.install(self.tty.fd, cooked, .{ .context = self, .on_resume = onResume });
+        if (@hasField(vaxis.Tty, "termios")) {
+            try term_guard.install(self.tty.fd.handle, self.tty.termios, .{ .context = self, .on_resume = onResume });
         }
 
         try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
@@ -190,8 +191,8 @@ pub const App = struct {
                 self.needs_redraw = false;
             }
 
-            const event = self.waitEvent() orelse {
-                self.expireTransient(std.time.milliTimestamp());
+            const event = try self.waitEvent() orelse {
+                self.expireTransient(host.milliTimestamp());
                 self.needs_redraw = true;
                 continue;
             };
@@ -213,19 +214,17 @@ pub const App = struct {
     }
 
     fn initLoop(self: *App) !void {
-        self.loop.tty = &self.tty;
-        self.loop.vaxis = &self.vx;
-        try self.loop.init();
+        try self.loop.installResizeHandler();
     }
 
     /// The next event, or null once a toast or status message is due to
     /// expire.
-    fn waitEvent(self: *App) ?Event {
-        const deadline = self.nextDeadline() orelse return self.loop.nextEvent();
+    fn waitEvent(self: *App) !?Event {
+        const deadline = self.nextDeadline() orelse return try self.loop.nextEvent();
         while (true) {
-            if (self.loop.tryEvent()) |event| return event;
-            if (std.time.milliTimestamp() >= deadline) return null;
-            std.Thread.sleep(30 * std.time.ns_per_ms);
+            if (try self.loop.tryEvent()) |event| return event;
+            if (host.milliTimestamp() >= deadline) return null;
+            try host.io().sleep(.fromMilliseconds(30), .awake);
         }
     }
 
@@ -475,7 +474,7 @@ pub const App = struct {
         if (text.len == 0) return;
 
         const env = clipboard.Env.fromProcess();
-        const native = clipboard.writeNative(self.allocator, text);
+        const native = clipboard.writeNative(text);
         const writer = self.tty.writer();
         var osc52 = try clipboard.writeOsc52(writer, self.allocator, text, if (env.screen and !env.tmux) .screen else .none);
         writer.flush() catch {
@@ -494,7 +493,7 @@ pub const App = struct {
             .failed => |failure| {
                 self.clearToast();
                 try self.setStatusMessage(clipboard.failureMessage(failure), false);
-                self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+                self.status_deadline_ms = host.milliTimestamp() + warning_duration_ms;
             },
         }
     }
@@ -509,7 +508,7 @@ pub const App = struct {
         };
         self.clearToast();
         self.toast_message = message;
-        self.toast_deadline_ms = std.time.milliTimestamp() + message_duration_ms;
+        self.toast_deadline_ms = host.milliTimestamp() + message_duration_ms;
     }
 
     fn clearToast(self: *App) void {
@@ -601,7 +600,7 @@ pub const App = struct {
         defer resolved.deinit(self.allocator);
         const program = try editor.programName(self.allocator, resolved.command);
         defer self.allocator.free(program);
-        if (!editor.programExists(std.posix.getenv("PATH"), program)) {
+        if (!editor.programExists(host.getenv("PATH"), program)) {
             return self.setStatusMessage(try editorNotFoundMessage(self.allocator, program), true);
         }
 
@@ -648,7 +647,7 @@ pub const App = struct {
         };
         if (warning) |message| {
             try self.setStatusMessage(message, true);
-            self.status_deadline_ms = std.time.milliTimestamp() + warning_duration_ms;
+            self.status_deadline_ms = host.milliTimestamp() + warning_duration_ms;
             return true;
         }
         try self.setStatusMessage(try std.fmt.allocPrint(self.allocator, "Reloaded {s}", .{std.fs.path.basename(path)}), true);
@@ -679,7 +678,7 @@ pub const App = struct {
         const writer = self.tty.writer();
         // A resize while stopped or in the editor went to someone else's
         // SIGWINCH; pick up the current size before repainting.
-        const queried = vaxis.Tty.getWinsize(self.tty.fd) catch null;
+        const queried = self.tty.getWinsize() catch null;
         const ws = resizeOnResume(self.vx.screen.width, self.vx.screen.height, queried);
         try enterAltScreenResized(&self.vx, self.allocator, writer, ws);
         if (ws != null) try self.pager.resize(self.vx.window().width, self.vx.window().height -| 1);
@@ -693,7 +692,7 @@ pub const App = struct {
 
     fn onResume(context: *anyopaque) void {
         const self: *App = @ptrCast(@alignCast(context));
-        _ = self.loop.tryPostEvent(.resumed);
+        _ = self.loop.tryPostEvent(.resumed) catch false;
     }
 
     fn handlePromptKey(self: *App, key: vaxis.Key) !bool {
@@ -739,7 +738,7 @@ pub const App = struct {
 
     /// Reloads `path`. Returns the warning for invalid input (owned), if any.
     fn reloadDocument(self: *App, path: []const u8) !?[]u8 {
-        const raw = try std.fs.cwd().readFileAlloc(self.allocator, path, std.math.maxInt(usize));
+        const raw = try std.Io.Dir.cwd().readFileAlloc(host.io(), path, self.allocator, .unlimited);
         defer self.allocator.free(raw);
         const decoded = try encoding.decode(self.allocator, raw);
         const reloaded = if (decoded.owned) @constCast(decoded.text) else try self.allocator.dupe(u8, decoded.text);
@@ -772,7 +771,7 @@ pub const App = struct {
     fn setStatusMessage(self: *App, message: []const u8, owned: bool) !void {
         self.clearStatusMessage();
         self.status_message = if (owned) message else try self.allocator.dupe(u8, message);
-        self.status_deadline_ms = std.time.milliTimestamp() + message_duration_ms;
+        self.status_deadline_ms = host.milliTimestamp() + message_duration_ms;
     }
 
     fn reportMeasureError(self: *App, action: []const u8, err: unicode.MeasureError) !void {
@@ -884,11 +883,6 @@ fn searchCurrentStyle(resolved: *const ResolvedTheme) vaxis.Style {
     if (resolved.accent == .default) return .{ .reverse = true, .bold = true, .ul_style = .single };
     const fg: vaxis.Color = if (resolved.base_bg == .default) .{ .index = 0 } else theme.toVaxisColor(resolved.base_bg);
     return .{ .fg = fg, .bg = theme.toVaxisColor(resolved.accent), .bold = true, .ul_style = .single };
-}
-
-fn cookedTermios(tty: *vaxis.Tty) ?std.posix.termios {
-    if (@hasField(vaxis.Tty, "termios")) return tty.termios;
-    return null;
 }
 
 fn editorNotFoundMessage(allocator: std.mem.Allocator, program: []const u8) ![]u8 {

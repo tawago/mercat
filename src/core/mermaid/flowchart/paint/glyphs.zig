@@ -16,7 +16,7 @@ const open_arrow = [4]u21{ '△', '▷', '▽', '◁' };
 /// What a shape draws on its border in place of the light line; null leaves the light glyph.
 const Outline = struct {
     /// nw, ne, se, sw: the order of the corner roles.
-    corners: [4]?u21 = .{null} ** 4,
+    corners: [4]?u21 = @splat(null),
     west: ?u21 = null,
     east: ?u21 = null,
     /// The top and bottom are double lines; an arm meeting one turns it into a tee.
@@ -34,9 +34,9 @@ const outlines = std.EnumArray(lattice.Shape, Outline).init(.{
     .cylinder = .{ .corners = rounded, .lids = true },
     .circle = .{ .corners = slashed },
     .asymmetric_right = .{ .corners = .{ null, '>', '>', null }, .east = '>' },
-    .rhombus = .{ .corners = .{'◇'} ** 4 },
+    .rhombus = .{ .corners = @splat('◇') },
     .hexagon = .{ .corners = slashed, .west = '<', .east = '>' },
-    .parallelogram = .{ .corners = .{'╱'} ** 4 },
+    .parallelogram = .{ .corners = @splat('╱') },
     .trapezoid = .{ .corners = .{ '/', '\\', '\\', '/' } },
 });
 
@@ -74,8 +74,8 @@ fn arrowhead(kind: lattice.ArrowKind, dir: lattice.Dir4) u21 {
         .none => unreachable,
         .filled => filled_arrow,
         .open => open_arrow,
-        .circle => .{'○'} ** 4,
-        .cross => .{'\u{2715}'} ** 4,
+        .circle => @splat('○'),
+        .cross => @splat('\u{2715}'),
     };
     return row[@intFromEnum(dir)];
 }

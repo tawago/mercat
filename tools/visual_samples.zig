@@ -169,10 +169,9 @@ const samples = [_]Sample{
     },
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
 
     var out = std.ArrayList(u8).empty;
     defer out.deinit(allocator);
@@ -195,25 +194,25 @@ pub fn main() !void {
 
     try writeFooter(allocator, &out, samples.len, fallback_count);
 
-    std.fs.cwd().makePath("docs") catch |err| {
-        const stderr = std.fs.File.stderr();
+    std.Io.Dir.cwd().createDirPath(io, "docs") catch |err| {
+        const stderr = std.Io.File.stderr();
         var buf: [256]u8 = undefined;
         const msg = std.fmt.bufPrint(&buf, "warn: makePath docs failed: {s}\n", .{@errorName(err)}) catch "warn: makePath docs failed\n";
-        try stderr.writeAll(msg);
+        try stderr.writeStreamingAll(io, msg);
     };
 
-    var file = try std.fs.cwd().createFile("docs/visual-samples.html", .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(out.items);
+    var file = try std.Io.Dir.cwd().createFile(io, "docs/visual-samples.html", .{ .truncate = true });
+    defer file.close(io);
+    try file.writeStreamingAll(io, out.items);
 
-    const stderr = std.fs.File.stderr();
+    const stderr = std.Io.File.stderr();
     var buf: [256]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, "wrote docs/visual-samples.html ({d} samples, {d} fallbacks, {d} bytes)\n", .{
         samples.len,
         fallback_count,
         out.items.len,
     }) catch "wrote docs/visual-samples.html\n";
-    try stderr.writeAll(msg);
+    try stderr.writeStreamingAll(io, msg);
 }
 
 fn writeHeader(allocator: std.mem.Allocator, out: *std.ArrayList(u8)) !void {

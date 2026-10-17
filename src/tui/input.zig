@@ -151,26 +151,6 @@ pub fn mapPromptKey(key: Key) PromptAction {
     return .ignore;
 }
 
-/// Rewrites a Home/End key sequence at the start of `seq` in place, before
-/// the vaxis parser sees it. vaxis decodes `CSI 7 ~` / `CSI 8 ~` (rxvt) and
-/// `CSI H` / `CSI F`, but drops `CSI 1 ~` / `CSI 4 ~` — what tmux, GNU screen
-/// and the Linux console send — so they become `CSI 7 ~` / `CSI 8 ~`, keeping
-/// any modifier parameter. A sequence that is not complete yet is left alone;
-/// the caller retries once more bytes arrive.
-pub fn normalizeHomeEnd(seq: []u8) void {
-    if (seq.len < 4 or seq[0] != 0x1b or seq[1] != '[') return;
-    if (seq[2] != '1' and seq[2] != '4') return;
-    if (seq[3] != '~' and seq[3] != ';') return;
-    var i: usize = 3;
-    while (i < seq.len) : (i += 1) {
-        const c = seq[i];
-        if (c >= 0x40 and c <= 0x7e) break;
-        if (c < 0x20 or c > 0x3f) return;
-    }
-    if (i == seq.len or seq[i] != '~') return;
-    seq[2] = if (seq[2] == '1') '7' else '8';
-}
-
 test {
     _ = @import("input_test.zig");
 }

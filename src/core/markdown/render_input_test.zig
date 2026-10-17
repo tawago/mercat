@@ -44,7 +44,7 @@ fn render(input: []const u8, options: Options) !Rendered {
     for (rendered.lines) |line| {
         const joined = try line.joinedText(allocator);
         defer allocator.free(joined);
-        try text.appendSlice(allocator, std.mem.trimRight(u8, joined, " "));
+        try text.appendSlice(allocator, std.mem.trimEnd(u8, joined, " "));
         try text.append(allocator, '\n');
     }
     return .{ .text = try text.toOwnedSlice(allocator), .rendered = rendered, .fallbacks = fallbacks };
@@ -156,7 +156,7 @@ test "links with an empty URL show no angle brackets" {
     for (cases) |case| {
         const out = try renderClean(case.input);
         defer out.deinit();
-        const trimmed = std.mem.trimLeft(u8, out.text, " \n");
+        const trimmed = std.mem.trimStart(u8, out.text, " \n");
         testing.expectEqualStrings(case.want, trimmed) catch |err| {
             std.debug.print("input: {s}\n", .{case.input});
             return err;

@@ -6,12 +6,12 @@ const testing = std.testing;
 
 const Scratch = struct {
     tmp: testing.TmpDir,
-    root: []u8,
+    root: [:0]u8,
 
     fn init() !Scratch {
         var tmp = testing.tmpDir(.{ .iterate = true });
         errdefer tmp.cleanup();
-        const root = try tmp.dir.realpathAlloc(testing.allocator, ".");
+        const root = try tmp.dir.realPathFileAlloc(std.testing.io, ".", testing.allocator);
         return .{ .tmp = tmp, .root = root };
     }
 
@@ -25,12 +25,12 @@ const Scratch = struct {
     }
 
     fn read(self: *Scratch, name: []const u8) ![]u8 {
-        return self.tmp.dir.readFileAlloc(testing.allocator, name, 1024);
+        return self.tmp.dir.readFileAlloc(std.testing.io, name, testing.allocator, .limited(1024));
     }
 
     fn expectNoTemp(self: *Scratch) !void {
         var it = self.tmp.dir.iterate();
-        while (try it.next()) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
+        while (try it.next(std.testing.io)) |entry| try testing.expect(std.mem.indexOf(u8, entry.name, ".mercat-tmp-") == null);
     }
 };
 
@@ -49,24 +49,24 @@ test "writeOutput creates and replaces a regular file, keeping its mode" {
     try fs.writeOutput(testing.allocator, out, "first");
     try expectContent(&s, "out.txt", "first");
 
-    const file = try s.tmp.dir.openFile("out.txt", .{});
-    try file.chmod(0o640);
-    file.close();
+    const file = try s.tmp.dir.openFile(std.testing.io, "out.txt", .{});
+    try file.setPermissions(std.testing.io, @enumFromInt(0o640));
+    file.close(std.testing.io);
     try fs.writeOutput(testing.allocator, out, "second");
     try expectContent(&s, "out.txt", "second");
-    const st = try s.tmp.dir.statFile("out.txt");
-    try testing.expectEqual(@as(std.fs.File.Mode, 0o640), st.mode & 0o7777);
+    const st = try s.tmp.dir.statFile(std.testing.io, "out.txt", .{});
+    try testing.expectEqual(@as(std.posix.mode_t, 0o640), st.permissions.toMode() & 0o7777);
     try s.expectNoTemp();
 }
 
 test "writeOutput writes through a symlink instead of replacing it" {
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.makeDir("sub");
-    try s.tmp.dir.writeFile(.{ .sub_path = "sub/target.txt", .data = "old" });
+    try s.tmp.dir.createDir(std.testing.io, "sub", .default_dir);
+    try s.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "sub/target.txt", .data = "old" });
     // A relative target resolves against the link's own directory.
-    try s.tmp.dir.symLink("sub/target.txt", "link.txt", .{});
-    try s.tmp.dir.symLink("link.txt", "link2.txt", .{});
+    try s.tmp.dir.symLink(std.testing.io, "sub/target.txt", "link.txt", .{});
+    try s.tmp.dir.symLink(std.testing.io, "link.txt", "link2.txt", .{});
     const link = try s.path("link2.txt");
     defer testing.allocator.free(link);
 
@@ -74,14 +74,14 @@ test "writeOutput writes through a symlink instead of replacing it" {
     try expectContent(&s, "sub/target.txt", "new");
     try testing.expectEqual(fs.Kind.symlink, try fs.kindOf(link, false));
     var buf: [64]u8 = undefined;
-    try testing.expectEqualStrings("link.txt", try s.tmp.dir.readLink("link2.txt", &buf));
+    try testing.expectEqualStrings("link.txt", buf[0..try s.tmp.dir.readLink(std.testing.io, "link2.txt", &buf)]);
     try s.expectNoTemp();
 }
 
 test "writeOutput through a dangling symlink creates its target" {
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.symLink("made.txt", "dangling.txt", .{});
+    try s.tmp.dir.symLink(std.testing.io, "made.txt", "dangling.txt", .{});
     const link = try s.path("dangling.txt");
     defer testing.allocator.free(link);
 
@@ -93,9 +93,9 @@ test "writeOutput through a dangling symlink creates its target" {
 test "writeOutput refuses directories and symlink loops" {
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.makeDir("d");
-    try s.tmp.dir.symLink("loop-b", "loop-a", .{});
-    try s.tmp.dir.symLink("loop-a", "loop-b", .{});
+    try s.tmp.dir.createDir(std.testing.io, "d", .default_dir);
+    try s.tmp.dir.symLink(std.testing.io, "loop-b", "loop-a", .{});
+    try s.tmp.dir.symLink(std.testing.io, "loop-a", "loop-b", .{});
     const dir = try s.path("d");
     defer testing.allocator.free(dir);
     const loop = try s.path("loop-a");
@@ -107,17 +107,18 @@ test "writeOutput refuses directories and symlink loops" {
 }
 
 fn drainFifo(path: []const u8, out: *[64]u8, len: *usize) void {
-    const file = std.fs.cwd().openFile(path, .{}) catch return;
-    defer file.close();
-    len.* = file.readAll(out) catch 0;
+    const file = std.Io.Dir.cwd().openFile(std.testing.io, path, .{}) catch return;
+    defer file.close(std.testing.io);
+    var reader = file.readerStreaming(std.testing.io, &.{});
+    len.* = reader.interface.readSliceShort(out) catch 0;
 }
 
 test "writeOutput writes into an existing fifo without replacing it" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var s = try Scratch.init();
     defer s.deinit();
-    const rc = std.os.linux.mknodat(s.tmp.dir.fd, "pipe", std.os.linux.S.IFIFO | 0o600, 0);
-    if (std.os.linux.E.init(rc) != .SUCCESS) return error.SkipZigTest;
+    const rc = std.os.linux.mknodat(s.tmp.dir.handle, "pipe", std.os.linux.S.IFIFO | 0o600, 0);
+    if (std.os.linux.errno(rc) != .SUCCESS) return error.SkipZigTest;
     const pipe = try s.path("pipe");
     defer testing.allocator.free(pipe);
 
@@ -132,7 +133,7 @@ test "writeOutput writes into an existing fifo without replacing it" {
 }
 
 test "over-long path components are errors, not traps" {
-    const long = "a" ** 300 ++ ".md";
+    const long = @as([300]u8, @splat('a')) ++ ".md";
     try testing.expectError(error.NameTooLong, fs.kindOf(long, true));
     try testing.expect(!fs.isDirectory(long));
     try testing.expect(!fs.isNonDirectory(long));
@@ -144,10 +145,10 @@ test "writeOutput refuses a regular file it cannot write, as > does" {
     if (builtin.os.tag != .linux or std.os.linux.geteuid() == 0) return error.SkipZigTest;
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.writeFile(.{ .sub_path = "ro.txt", .data = "RO" });
-    const file = try s.tmp.dir.openFile("ro.txt", .{});
-    try file.chmod(0o444);
-    file.close();
+    try s.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "ro.txt", .data = "RO" });
+    const file = try s.tmp.dir.openFile(std.testing.io, "ro.txt", .{});
+    try file.setPermissions(std.testing.io, @enumFromInt(0o444));
+    file.close(std.testing.io);
     const ro = try s.path("ro.txt");
     defer testing.allocator.free(ro);
 
@@ -160,17 +161,17 @@ test "writeOutput keeps the inode of a file with other hard links" {
     if (builtin.os.tag != .linux) return error.SkipZigTest;
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.writeFile(.{ .sub_path = "own.txt", .data = "x" });
-    const rc = std.os.linux.linkat(s.tmp.dir.fd, "own.txt", s.tmp.dir.fd, "hard.txt", 0);
-    if (std.os.linux.E.init(rc) != .SUCCESS) return error.SkipZigTest;
-    const before = try s.tmp.dir.statFile("own.txt");
+    try s.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "own.txt", .data = "x" });
+    const rc = std.os.linux.linkat(s.tmp.dir.handle, "own.txt", s.tmp.dir.handle, "hard.txt", 0);
+    if (std.os.linux.errno(rc) != .SUCCESS) return error.SkipZigTest;
+    const before = try s.tmp.dir.statFile(std.testing.io, "own.txt", .{});
     const own = try s.path("own.txt");
     defer testing.allocator.free(own);
 
     try fs.writeOutput(testing.allocator, own, "rendered");
     try expectContent(&s, "own.txt", "rendered");
     try expectContent(&s, "hard.txt", "rendered");
-    try testing.expectEqual(before.inode, (try s.tmp.dir.statFile("own.txt")).inode);
+    try testing.expectEqual(before.inode, (try s.tmp.dir.statFile(std.testing.io, "own.txt", .{})).inode);
     try s.expectNoTemp();
 }
 
@@ -178,17 +179,19 @@ test "writeOutput keeps the owner of another user's file" {
     if (builtin.os.tag != .linux or std.os.linux.geteuid() != 0) return error.SkipZigTest;
     var s = try Scratch.init();
     defer s.deinit();
-    try s.tmp.dir.writeFile(.{ .sub_path = "theirs.txt", .data = "x" });
-    const file = try s.tmp.dir.openFile("theirs.txt", .{});
-    try std.posix.fchown(file.handle, 65534, 65534);
-    file.close();
+    try s.tmp.dir.writeFile(std.testing.io, .{ .sub_path = "theirs.txt", .data = "x" });
+    const file = try s.tmp.dir.openFile(std.testing.io, "theirs.txt", .{});
+    try file.setOwner(std.testing.io, 65534, 65534);
+    file.close(std.testing.io);
     const theirs = try s.path("theirs.txt");
     defer testing.allocator.free(theirs);
 
     try fs.writeOutput(testing.allocator, theirs, "rendered");
     try expectContent(&s, "theirs.txt", "rendered");
-    const st = try std.posix.fstatat(s.tmp.dir.fd, "theirs.txt", 0);
-    try testing.expectEqual(@as(std.posix.uid_t, 65534), st.uid);
-    try testing.expectEqual(@as(std.posix.gid_t, 65534), st.gid);
+    var stx: std.os.linux.Statx = undefined;
+    const st_rc = std.os.linux.statx(s.tmp.dir.handle, "theirs.txt", 0, .{ .UID = true, .GID = true }, &stx);
+    try testing.expectEqual(std.os.linux.E.SUCCESS, std.os.linux.errno(st_rc));
+    try testing.expectEqual(@as(std.posix.uid_t, 65534), stx.uid);
+    try testing.expectEqual(@as(std.posix.gid_t, 65534), stx.gid);
     try s.expectNoTemp();
 }

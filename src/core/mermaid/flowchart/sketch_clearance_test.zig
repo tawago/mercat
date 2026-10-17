@@ -10,7 +10,7 @@ test "clearLine prefers a margined line over a closer touch-free-only line" {
     const alloc = arena.allocator();
 
     const want: i32 = 50;
-    var list = std.ArrayList(NodePlacement){};
+    var list = std.ArrayList(NodePlacement).empty;
     var next_id: u32 = 0;
     var row: i32 = want - 20;
     while (row <= want + 20) : (row += 1) {
@@ -38,7 +38,7 @@ test "clearLine settles for touch-free line at the MARGIN_BOUND boundary rather 
     const alloc = arena.allocator();
 
     const want: i32 = 50;
-    var list = std.ArrayList(NodePlacement){};
+    var list = std.ArrayList(NodePlacement).empty;
     var row: i32 = want - 40;
     var next_id: u32 = 0;
     while (row <= want + 29) : (row += 1) {

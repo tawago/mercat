@@ -21,12 +21,12 @@ pub fn mergeInto(out: *ThemeSpec, s: *const ThemeSpec) void {
 
 pub fn overlay(comptime T: type, base: T, over: T) T {
     var r = base;
-    inline for (@typeInfo(T).@"struct".fields) |f| {
-        if (@field(over, f.name)) |v| {
+    inline for (@typeInfo(T).@"struct".field_names) |f_name| {
+        if (@field(over, f_name)) |v| {
             if (comptime @TypeOf(v) == spec.CodeFrameDelta) {
-                @field(r, f.name) = overlay(spec.CodeFrameDelta, @field(r, f.name) orelse .{}, v);
+                @field(r, f_name) = overlay(spec.CodeFrameDelta, @field(r, f_name) orelse .{}, v);
             } else {
-                @field(r, f.name) = v;
+                @field(r, f_name) = v;
             }
         }
     }

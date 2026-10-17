@@ -34,7 +34,7 @@ const Head = struct { kind: Kind, indented: bool, rest: []const u8 };
 
 fn head(src: []const u8) ?Head {
     const line = firstLine(text.stripBom(src)) orelse return null;
-    const body = std.mem.trimLeft(u8, line, " \t");
+    const body = std.mem.trimStart(u8, line, " \t");
     for (keywords) |k| {
         if (std.mem.startsWith(u8, body, k[0])) {
             return .{ .kind = k[1], .indented = body.len != line.len, .rest = body[k[0].len..] };
@@ -69,8 +69,8 @@ fn endsWord(rest: []const u8) bool {
 fn firstLine(src: []const u8) ?[]const u8 {
     var lines = std.mem.tokenizeAny(u8, src, "\r\n");
     while (lines.next()) |raw| {
-        const line = std.mem.trimRight(u8, raw, " \t");
-        const body = std.mem.trimLeft(u8, line, " \t");
+        const line = std.mem.trimEnd(u8, raw, " \t");
+        const body = std.mem.trimStart(u8, line, " \t");
         if (body.len == 0 or std.mem.startsWith(u8, body, "%%")) continue;
         return line;
     }
@@ -83,7 +83,7 @@ fn hasMermaidFence(src: []const u8) bool {
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t");
         if (!std.mem.startsWith(u8, line, "```") and !std.mem.startsWith(u8, line, "~~~")) continue;
-        if (std.mem.startsWith(u8, std.mem.trimLeft(u8, line, "`~ \t"), "mermaid")) return true;
+        if (std.mem.startsWith(u8, std.mem.trimStart(u8, line, "`~ \t"), "mermaid")) return true;
     }
     return false;
 }

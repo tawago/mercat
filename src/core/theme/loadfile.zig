@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../../platform/host.zig");
 
 pub const RawKV = struct { key: []const u8, value: []const u8 };
 
@@ -368,12 +369,12 @@ fn decodeUnicodeEscape(seq: []const u8, digits: usize, out: []u8) ?usize {
 }
 
 pub fn resolveThemeDir(alloc: std.mem.Allocator) !?[]u8 {
-    if (std.process.getEnvVarOwned(alloc, "XDG_CONFIG_HOME")) |xdg| {
+    if (host.environ().getAlloc(alloc, "XDG_CONFIG_HOME")) |xdg| {
         defer alloc.free(xdg);
         return try std.fs.path.join(alloc, &.{ xdg, "mercat", "themes" });
     } else |_| {}
 
-    if (std.process.getEnvVarOwned(alloc, "HOME")) |home| {
+    if (host.environ().getAlloc(alloc, "HOME")) |home| {
         defer alloc.free(home);
         return try std.fs.path.join(alloc, &.{ home, ".config", "mercat", "themes" });
     } else |_| {}
@@ -391,17 +392,16 @@ pub fn readThemeFile(alloc: std.mem.Allocator, dir: []const u8, name: []const u8
         error.FileNotFound => return null,
         else => return err,
     };
-    defer file.close();
+    defer file.close(host.io());
 
-    const contents = try file.readToEndAlloc(alloc, 1024 * 1024);
+    const contents = try host.readToEnd(file, alloc, 1024 * 1024);
     defer alloc.free(contents);
 
     return try parseThemeTables(alloc, contents);
 }
 
-fn openFile(path: []const u8) !std.fs.File {
-    if (std.fs.path.isAbsolute(path)) return std.fs.openFileAbsolute(path, .{});
-    return std.fs.cwd().openFile(path, .{});
+fn openFile(path: []const u8) !std.Io.File {
+    return host.openFile(path, .{});
 }
 
 test {

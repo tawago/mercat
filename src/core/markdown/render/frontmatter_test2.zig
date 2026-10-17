@@ -108,7 +108,7 @@ test "frontmatter fits any width without losing text" {
     var found_key = false;
     for (lines) |line| for (line.spans) |span| {
         if (span.style != .muted) continue;
-        const key = std.mem.trimRight(u8, span.text, " ");
+        const key = std.mem.trimEnd(u8, span.text, " ");
         if (key.len == 0) continue;
         found_key = true;
         try testing.expect(std.mem.endsWith(u8, key, ellipsis));

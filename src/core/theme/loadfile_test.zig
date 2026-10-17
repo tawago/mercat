@@ -90,7 +90,7 @@ test "readThemeFile round-trips a temp theme file; missing returns null" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.writeFile(.{
+    try tmp.dir.writeFile(std.testing.io, .{
         .sub_path = "solarized.toml",
         .data =
         \\[theme.heading1]
@@ -98,7 +98,7 @@ test "readThemeFile round-trips a temp theme file; missing returns null" {
         ,
     });
 
-    const dir_path = try tmp.dir.realpathAlloc(std.testing.allocator, ".");
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
     defer std.testing.allocator.free(dir_path);
 
     var tables = (try readThemeFile(std.testing.allocator, dir_path, "solarized")).?;

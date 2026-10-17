@@ -76,10 +76,10 @@ fn applySlotToken(tok: *StyleToken, s: spec.SlotSpec) void {
 
 pub fn overlaySlots(base: StyleMap, slots: spec.SlotMap) StyleMap {
     var p = base;
-    inline for (@typeInfo(types.SpanStyle).@"enum".fields) |f| {
-        const style = @field(types.SpanStyle, f.name);
+    inline for (@typeInfo(types.SpanStyle).@"enum".field_names) |f_name| {
+        const style = @field(types.SpanStyle, f_name);
         const slot = spec.Slot.fromSpanStyle(style);
-        if (slots.get(slot)) |ss| applySlotToken(&@field(p, f.name), ss);
+        if (slots.get(slot)) |ss| applySlotToken(&@field(p, f_name), ss);
     }
     borrowStructuralDefaults(&p, slots);
     return p;
@@ -96,15 +96,15 @@ fn borrowStructuralDefaults(p: *StyleMap, slots: spec.SlotMap) void {
 fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
     @setEvalBranchQuota(200000);
     var p: StyleMap = undefined;
-    inline for (@typeInfo(StyleMap).@"struct".fields) |f| {
-        @field(p, f.name) = StyleToken{ .fg = .default };
+    inline for (@typeInfo(StyleMap).@"struct".field_names) |f_name| {
+        @field(p, f_name) = StyleToken{ .fg = .default };
     }
     return overlaySlots(p, base_slots);
 }
 
 pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
-    inline for (@typeInfo(render_model.SpanStyle).@"enum".fields) |f| {
-        if (style == @field(render_model.SpanStyle, f.name)) return @field(style_map, f.name);
+    inline for (@typeInfo(render_model.SpanStyle).@"enum".field_names) |f_name| {
+        if (style == @field(render_model.SpanStyle, f_name)) return @field(style_map, f_name);
     }
     unreachable;
 }

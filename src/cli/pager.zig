@@ -1,4 +1,5 @@
 const std = @import("std");
+const host = @import("../platform/host.zig");
 const process = @import("../platform/process.zig");
 const terminal = @import("../platform/terminal.zig");
 const diag = @import("diag.zig");
@@ -27,7 +28,7 @@ pub fn writeOutput(allocator: std.mem.Allocator, output: []const u8, configured_
     const pager_input = try ensureTrailingNewline(allocator, output);
     defer allocator.free(pager_input);
 
-    runPager(allocator, argv.argv, pager_input) catch |err| switch (err) {
+    runPager(argv.argv, pager_input) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => {
             diag.warn("cannot run pager '{s}': {s}; writing directly", .{ pager_command, spawnErrorText(err) });
@@ -47,28 +48,27 @@ fn spawnErrorText(err: anyerror) []const u8 {
 /// Spawns the pager and feeds it `content`. Only a failure to start the pager
 /// is an error: once it runs, quitting early or a non-zero exit is the
 /// pager's business and must not cause the output to be written twice.
-fn runPager(allocator: std.mem.Allocator, argv: []const []const u8, content: []const u8) !void {
+fn runPager(argv: []const []const u8, content: []const u8) !void {
     if (argv.len == 0) return error.EmptyCommand;
 
-    var child = std.process.Child.init(argv, allocator);
-    child.stdin_behavior = .Pipe;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    try child.spawn();
+    var child = try std.process.spawn(host.io(), .{
+        .argv = argv,
+        .stdin = .pipe,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
 
     if (child.stdin) |stdin_pipe| {
-        stdin_pipe.writeAll(content) catch {};
-        stdin_pipe.close();
+        host.writeAll(stdin_pipe, content) catch {};
+        stdin_pipe.close(host.io());
         child.stdin = null;
     }
 
-    // An exec failure (command not found) surfaces here, not from spawn().
-    _ = try child.wait();
+    _ = try child.wait(host.io());
 }
 
 fn resolvePagerCommand(allocator: std.mem.Allocator, configured_pager: []const u8) ![]u8 {
-    if (std.process.getEnvVarOwned(allocator, "PAGER")) |value| {
+    if (host.environ().getAlloc(allocator, "PAGER")) |value| {
         if (std.mem.trim(u8, value, " \t").len != 0) return value;
         allocator.free(value);
     } else |_| {}
@@ -90,7 +90,7 @@ pub fn writeDirect(output: []const u8) !void {
 /// Writes all bytes to stdout. If the reader has gone away (EPIPE), exits 0
 /// without a message, like other well-behaved filters.
 pub fn writeStdout(bytes: []const u8) !void {
-    std.fs.File.stdout().writeAll(bytes) catch |err| switch (err) {
+    host.writeAll(std.Io.File.stdout(), bytes) catch |err| switch (err) {
         error.BrokenPipe => std.process.exit(0),
         else => return err,
     };
@@ -105,11 +105,11 @@ fn ensureTrailingNewline(allocator: std.mem.Allocator, output: []const u8) ![]co
 
 test "runPager reports a missing command as a spawn failure" {
     const argv = [_][]const u8{"/nonexistent/mercat-pager-xyz"};
-    try std.testing.expectError(error.FileNotFound, runPager(std.testing.allocator, &argv, "x\n"));
+    try std.testing.expectError(error.FileNotFound, runPager(&argv, "x\n"));
     try std.testing.expectEqualStrings("command not found", spawnErrorText(error.FileNotFound));
 }
 
 test "runPager ignores a pager that exits non-zero" {
     const argv = [_][]const u8{ "sh", "-c", "exit 3" };
-    try runPager(std.testing.allocator, &argv, "x\n");
+    try runPager(&argv, "x\n");
 }

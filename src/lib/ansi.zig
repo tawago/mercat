@@ -34,8 +34,8 @@ pub fn writeTokenStyled(allocator: std.mem.Allocator, buffer: *std.ArrayList(u8)
 }
 
 fn formatStyle(buffer: []u8, token: theme.StyleToken) ![]const u8 {
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var fixed: std.Io.Writer = .fixed(buffer);
+    const writer = &fixed;
     try writer.writeAll("\x1b[");
     var first = true;
     if (token.bold) {
@@ -64,7 +64,7 @@ fn formatStyle(buffer: []u8, token: theme.StyleToken) ![]const u8 {
         try writeColorSgr(writer, bg, .bg);
     }
     try writer.writeAll("m");
-    return buffer[0..stream.pos];
+    return fixed.buffered();
 }
 
 const Layer = enum { fg, bg };
