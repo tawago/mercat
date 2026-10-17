@@ -210,6 +210,39 @@ describe('redraws', () => {
   })
 })
 
+describe('/mercat on and off', () => {
+  const DRAWN = `Here:\n\n\`\`\`text\n${ART}\n\`\`\`\n\nDone.`
+
+  test('off shows mermaid blocks as written and runs no mercat; on draws them again', async ($, on) => {
+    const w = world(on)
+    await $.session.start(SESSION)
+    await $.ui.render(reply(MERMAID))
+    await w.clock.settle()
+
+    expect(await $.command.run(mercat('off'))).toMatchObject({ text: 'Diagrams off: mermaid blocks show as written' })
+    expect(w.invalidated.at(-1)).toBe('ui.render')
+    await $.ui.render(reply(MERMAID))
+    expect(w.drawn.at(-1)).toBe(MERMAID)
+    await $.ui.render(reply(MERMAID.replace('A-->B', 'A-->C')))
+    expect(w.runs, 'no run while off').toHaveLength(1)
+
+    expect(await $.command.run(mercat('on'))).toMatchObject({ text: 'Diagrams on' })
+    await $.ui.render(reply(MERMAID))
+    expect(w.drawn.at(-1)).toBe(DRAWN)
+  })
+
+  test('a new session starts on', async ($, on) => {
+    const w = world(on)
+    await $.session.start(SESSION)
+    await $.command.run(mercat('off'))
+    await $.session.start(SESSION)
+    await $.ui.render(reply(MERMAID))
+    await w.clock.settle()
+    await $.ui.render(reply(MERMAID))
+    expect(w.drawn.at(-1)).toBe(DRAWN)
+  })
+})
+
 describe('/mercat', () => {
   test('no edits: says so and opens nothing', async ($, on) => {
     const w = world(on)
