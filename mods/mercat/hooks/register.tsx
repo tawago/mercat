@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { MercatEdited, MercatShown } from '../types'
+import type { MercatEdited, MercatIsOff, MercatShown } from '../types'
 import { parseAnsi } from './ansi'
 import type { Line } from './ansi'
 import { mermaidFences, split } from './fences'
@@ -34,6 +34,7 @@ const RUNNING_MAX = 3
 
 const edited = atom({ plugin: 'mercat', key: 'edited' } as const, [] as MercatEdited)
 const shown = atom({ plugin: 'mercat', key: 'shown' } as const, null as MercatShown)
+const isOff = atom({ plugin: 'mercat', key: 'isOff' } as const, false as MercatIsOff)
 
 type Doc = { lines: Line[] } | { error: string }
 
@@ -146,9 +147,10 @@ export const register: Register = on => {
     await $.command.register({
       name: 'mercat',
       description: 'Render a markdown or mermaid file with mercat in a side pane',
-      argumentHint: '[file]',
+      argumentHint: '[file | on | off]',
       immediate: true,
     })
+    await update($, isOff, () => false)
     void checkVersion($)
     return next(e)
   })
@@ -164,6 +166,11 @@ export const register: Register = on => {
   on('command.run', { command: 'mercat' }, async ($, e) => {
     try {
       const arg = e.args.trim()
+      if (arg === 'on' || arg === 'off') {
+        await update($, isOff, () => arg === 'off')
+        $.ui.invalidate('ui.render')
+        return { text: arg === 'off' ? 'Diagrams off: mermaid blocks show as written' : 'Diagrams on' }
+      }
       if (arg !== '') {
         const path = resolvePath(await $.session.cwd(), arg)
         const stat = await $.fs.stat(path).catch(() => undefined)
@@ -195,7 +202,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const text = e.props.text
-    if (e.props.isSummary === true || !/mermaid/i.test(text)) return next(e)
+    if (e.props.isSummary === true || !/mermaid/i.test(text) || (await read($, isOff))) return next(e)
     const fences = mermaidFences(text)
     if (fences.length === 0) return next(e)
     const width = transcriptWidth(e.viewport?.columns)

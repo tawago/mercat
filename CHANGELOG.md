@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Claude Code mod
+
+- **`/mercat off` and `/mercat on`.** Off shows mermaid blocks in replies as
+  written; on draws them again. Each new session starts on.
+
 ## [0.3.3]
 
 ### Claude Code mod
