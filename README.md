@@ -2,13 +2,13 @@
 
 A fast terminal markdown viewer with best-in-class mermaid diagram rendering, written in Zig.
 
+<p align="center">
+  <img src="assets/brand/mercat-hero.png" alt="The mercat meerkat peeking out of a burrow drawn as a flowchart" width="420">
+</p>
+
 [![CI](https://github.com/tawago/mercat/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mercat/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/tawago/mercat)](https://github.com/tawago/mercat/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
-
-![The mercat meerkat peeking out of a burrow drawn as a flowchart](assets/brand/mercat-hero.png)
-
-*Meerkat mascot from [`assets/brand/`](assets/brand/), licensed under the [Creative Commons 4.0 Attribution license](https://creativecommons.org/licenses/by/4.0/).*
 
 ## Installation
 
