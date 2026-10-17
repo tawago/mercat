@@ -1,10 +1,18 @@
-# mercat — cat for markdown, with mermaids
+<p align="center">
+  <img src="assets/brand/mercat-hero.png" alt="The mercat meerkat peeking out of a burrow drawn as a flowchart" width="420">
+</p>
 
-A fast terminal markdown viewer with best-in-class mermaid diagram rendering, written in Zig.
+<h1 align="center">mercat</h1>
 
-[![CI](https://github.com/tawago/mercat/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mercat/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/tawago/mercat)](https://github.com/tawago/mercat/releases)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+<p align="center"><b>cat for markdown, with mermaids</b></p>
+
+<p align="center">A fast terminal markdown viewer with best-in-class mermaid diagram rendering, written in Zig.</p>
+
+<p align="center">
+  <a href="https://github.com/tawago/mercat/actions/workflows/ci.yml"><img src="https://github.com/tawago/mercat/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/tawago/mercat/releases"><img src="https://img.shields.io/github/v/release/tawago/mercat" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later"></a>
+</p>
 
 ## Installation
 
@@ -267,3 +275,7 @@ zig build test
 ```
 
 The public repository keeps contributor-facing tests. Maintainers may also run additional internal validation before releases.
+
+## Brand
+
+The meerkat mascot, wordmark and icons are in [`assets/brand/`](assets/brand/), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
