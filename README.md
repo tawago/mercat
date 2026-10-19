@@ -6,6 +6,10 @@ A fast terminal markdown viewer with best-in-class mermaid diagram rendering, wr
   <img src="assets/brand/mercat-hero.png" alt="The mercat meerkat peeking out of a burrow drawn as a flowchart" width="420">
 </p>
 
+<p align="center">
+  <img src="site/assets/demo-hero.gif" alt="mercat rendering a markdown file and a bare mermaid diagram, then the TUI: scrolling to a flowchart, editing it in vim and seeing the drawing reload" width="600">
+</p>
+
 [![CI](https://github.com/tawago/mercat/actions/workflows/ci.yml/badge.svg)](https://github.com/tawago/mercat/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/tawago/mercat)](https://github.com/tawago/mercat/releases)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)

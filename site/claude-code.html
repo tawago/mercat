@@ -45,29 +45,9 @@
         <div><dt><code>/mercat</code></dt><dd>With no argument, lists the <code>.md</code>, <code>.markdown</code>, <code>.mmd</code> and <code>.mermaid</code> files Claude edited this session, newest first. Pick one to read it; <strong>back</strong> (or <kbd>b</kbd>) returns to the list.</dd></div>
       </dl>
         <article class="card" aria-labelledby="c-plugin">
-          <header class="card-head"><h3 id="c-plugin">What the plugin does with each block</h3><p>Each block Claude writes takes one of two paths.</p></header>
+          <header class="card-head"><h3 id="c-plugin">A real session</h3><p>Claude replies with a mermaid block and the plugin draws it. <code>/mercat off</code> shows the block as written; <code>/mercat on</code> draws it again.</p></header>
           <div class="card-body">
-            <pre class="card-src" aria-label="What the plugin does with each block: the mermaid source"><code><span class="k">flowchart</span> <span class="k">TD</span>
-    A<span class="p">[</span>Claude writes mermaid<span class="p">]</span> <span class="p">--&gt;</span> B<span class="p">{</span>mercat draws it?<span class="p">}</span>
-    B <span class="p">--</span> yes <span class="p">--&gt;</span> C<span class="p">[</span>The drawing<span class="p">]</span>
-    B <span class="p">--</span> no <span class="p">--&gt;</span> D<span class="p">[</span>The raw block<span class="p">]</span></code></pre>
-            <div class="card-draw"><pre class="draw" style="--cols:41" aria-label="What the plugin does with each block, drawn by mercat">┌───────────────────────┐
-│ Claude writes mermaid │
-└───────────┬───────────┘
-            │
-            ▼
-  ◇──────────────────◇
-  │ mercat draws it? │
-  ◇─────────┬────────◇
-            ├───────────────────┐
-            │                   │
-           yes                  no
-            │                   │
-            ▼                   ▼
-     ┌─────────────┐    ┌───────────────┐
-     │ The drawing │    │ The raw block │
-     └─────────────┘    └───────────────┘</pre></div>
-            <p class="card-w">60 columns</p>
+            <video class="demo" src="assets/demo-claude.mp4" width="1240" height="1010" autoplay loop muted playsinline aria-label="A Claude Code session: a mermaid reply drawn by mercat, shown raw after /mercat off, then drawn again after /mercat on"></video>
           </div>
         </article>
     </div>

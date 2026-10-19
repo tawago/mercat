@@ -1,0 +1,6 @@
+flowchart TD
+  A[Open app] --> B{Signed in?}
+  B -->|yes| C[Dashboard]
+  B -->|no| D[Login form]
+  D --> E[Check password]
+  E --> C
