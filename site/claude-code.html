@@ -33,19 +33,20 @@
 <main id="main">
   <div class="page-head">
     <h1>mercat in <span class="nw">Claude Code</span></h1>
-    <p class="lead">A <span class="nw">Claude Code</span> plugin. With it installed, the mermaid blocks Claude writes reach your screen as drawings.</p>
+    <p class="lead">A <span class="nw">Claude Code</span> plugin. It draws the mermaid blocks Claude writes as text diagrams, right in the reply.</p>
     <p class="jump"><a href="#install">Install the plugin ↓</a></p>
   </div>
   <div class="wrap">
     <div class="split">
       <dl class="facts">
-        <div><dt>Diagrams in replies</dt><dd>When Claude writes a <code>```mermaid</code> block, the reply shows it drawn as a text diagram. The raw block shows first, then the drawing replaces it once mercat finishes. If mercat can’t draw it, the raw block stays. Only the screen changes: the stored message stays exactly as Claude wrote it (<kbd>ctrl+o</kbd> shows it).</dd></div>
-        <div><dt>Wide diagrams are marked</dt><dd>A flowchart wider than the reply is drawn cut off at the <code>»</code> marks, with a warning line in color right above it. Other diagram types that don’t fit stay as the raw block.</dd></div>
-        <div><dt><code>/mercat &lt;file&gt;</code></dt><dd>Opens a side pane with the file rendered by mercat, sized to the pane.</dd></div>
-        <div><dt><code>/mercat</code></dt><dd>With no argument, lists the <code>.md</code>, <code>.markdown</code>, <code>.mmd</code> and <code>.mermaid</code> files Claude edited this session, newest first. Pick one to read it; <strong>back</strong> (or <kbd>b</kbd>) returns to the list.</dd></div>
+        <div><dt>Diagrams in replies</dt><dd>When Claude writes a <code>```mermaid</code> block, the plugin draws it in the reply. The raw block shows first, and the drawing replaces it when mercat finishes. If mercat can't draw it, the raw block stays. Only the screen changes. The saved message is still what Claude wrote, and <kbd>ctrl+o</kbd> shows it.</dd></div>
+        <div><dt>Wide diagrams are marked</dt><dd>A flowchart wider than the reply is cut off at the <code>»</code> marks, with a colored warning line above it. Other diagram types that don't fit stay as the raw block.</dd></div>
+        <div><dt><code>/mercat &lt;file&gt;</code></dt><dd>Opens the file in a side pane, drawn by mercat at the pane's width.</dd></div>
+        <div><dt><code>/mercat</code></dt><dd>Lists the <code>.md</code>, <code>.markdown</code>, <code>.mmd</code> and <code>.mermaid</code> files Claude edited this session, newest first. Pick one to read it. <strong>back</strong> or <kbd>b</kbd> returns to the list.</dd></div>
+        <div><dt><code>/mercat off</code>, <code>/mercat on</code></dt><dd>Turn drawing off or on for the session. Replies already on screen switch too.</dd></div>
       </dl>
         <article class="card" aria-labelledby="c-plugin">
-          <header class="card-head"><h3 id="c-plugin">A real session</h3><p>Claude replies with a mermaid block and the plugin draws it. <code>/mercat off</code> shows the block as written; <code>/mercat on</code> draws it again.</p></header>
+          <header class="card-head"><h3 id="c-plugin">A real session</h3><p>Claude replies with a mermaid block and the plugin draws it. <code>/mercat off</code> shows the raw block, and <code>/mercat on</code> draws it again.</p></header>
           <div class="card-body">
             <video class="demo" src="assets/demo-claude.mp4" width="1240" height="1010" autoplay loop muted playsinline aria-label="A Claude Code session: a mermaid reply drawn by mercat, shown raw after /mercat off, then drawn again after /mercat on"></video>
           </div>
@@ -57,8 +58,8 @@
     <div class="wrap">
       <h2 id="h-install">Install</h2>
       <ol class="steps">
-        <li><h3>Put mercat on your <code>PATH</code></h3><p>The plugin calls the mercat binary. If it is missing, the plugin shows one hint per session and leaves diagrams as written. <a href="examples.html#install">Other ways to install</a>.</p><div class="plaque px"><code class="cl">brew install tawago/tap/mercat</code><button class="copy" type="button" data-copy="brew install tawago/tap/mercat" aria-label="Copy the Homebrew command">Copy</button></div></li>
-        <li><h3>Add the plugin</h3><p>At the prompt of a <span class="nw">Claude Code</span> terminal session:</p><div class="plaque px"><code class="cl">/plugin install mercat <span class="nw">--marketplace</span> tawago/mercat</code><button class="copy" type="button" data-copy="/plugin install mercat --marketplace tawago/mercat" aria-label="Copy the plugin install command">Copy</button></div></li>
+        <li><h3>Put mercat on your <code>PATH</code></h3><p>The plugin runs the mercat binary. Without it, the plugin shows one hint per session and leaves diagrams as written. <a href="examples.html#install">Other ways to install</a>.</p><div class="plaque px"><code class="cl">brew install tawago/tap/mercat</code><button class="copy" type="button" data-copy="brew install tawago/tap/mercat" aria-label="Copy the Homebrew command">Copy</button></div></li>
+        <li><h3>Add the plugin</h3><p>At the prompt of a <span class="nw">Claude Code</span> session:</p><div class="plaque px"><code class="cl">/plugin install mercat <span class="nw">--marketplace</span> tawago/mercat</code><button class="copy" type="button" data-copy="/plugin install mercat --marketplace tawago/mercat" aria-label="Copy the plugin install command">Copy</button></div></li>
       </ol>
       <details class="more">
         <summary>In two steps, or from a shell</summary>
@@ -74,7 +75,7 @@
           </div>
         </div>
       </details>
-      <p class="note">The plugin’s version is mercat’s release version. If your mercat is older than the plugin, it shows one upgrade hint at start. Tested with <span class="nw">Claude Code</span> 2.1.299; the plugin API is early access and may change between releases.</p>
+      <p class="note">The plugin's version matches mercat's release version. If your mercat is older than the plugin, you get one upgrade hint at start. Tested with <span class="nw">Claude Code</span> 2.1.299. The plugin API is early access and may change between releases.</p>
     </div>
   </section>
 </main>
