@@ -39,14 +39,14 @@
   <div class="wrap">
     <div class="split">
       <dl class="facts">
-        <div><dt>Diagrams in replies</dt><dd>When Claude writes a <code>```mermaid</code> block, the plugin draws it in the reply. The raw block shows first, and the drawing replaces it when mercat finishes. If mercat can't draw it, the raw block stays. Only the screen changes. The saved message is still what Claude wrote, and <kbd>ctrl+o</kbd> shows it.</dd></div>
-        <div><dt>Wide diagrams are marked</dt><dd>A flowchart wider than the reply is cut off at the <code>»</code> marks, with a colored warning line above it. Other diagram types that don't fit stay as the raw block.</dd></div>
-        <div><dt><code>/mercat &lt;file&gt;</code></dt><dd>Opens the file in a side pane, drawn by mercat at the pane's width.</dd></div>
-        <div><dt><code>/mercat</code></dt><dd>Lists the <code>.md</code>, <code>.markdown</code>, <code>.mmd</code> and <code>.mermaid</code> files Claude edited this session, newest first. Pick one to read it. <strong>back</strong> or <kbd>b</kbd> returns to the list.</dd></div>
-        <div><dt><code>/mercat off</code>, <code>/mercat on</code></dt><dd>Turn drawing off or on for the session. Replies already on screen switch too.</dd></div>
+        <div><dt>Diagrams in replies</dt><dd>Claude writes a <code>```mermaid</code> block, and you see a drawing. If mercat can't draw it, you see the block.</dd></div>
+        <div><dt>Wide flowcharts</dt><dd>They get cut off at <code>»</code>, with a warning above.</dd></div>
+        <div><dt><code>/mercat &lt;file&gt;</code></dt><dd>Opens the file in a side pane.</dd></div>
+        <div><dt><code>/mercat</code></dt><dd>Lists the markdown and mermaid files Claude edited. Pick one to open it.</dd></div>
+        <div><dt><code>/mercat off</code>, <code>/mercat on</code></dt><dd>Shows the raw blocks, or draws them again.</dd></div>
       </dl>
         <article class="card" aria-labelledby="c-plugin">
-          <header class="card-head"><h3 id="c-plugin">A real session</h3><p>Claude replies with a mermaid block and the plugin draws it. <code>/mercat off</code> shows the raw block, and <code>/mercat on</code> draws it again.</p></header>
+          <header class="card-head"><h3 id="c-plugin">A real session</h3><p>Claude replies with a diagram. <code>/mercat off</code> shows the source. <code>/mercat on</code> draws it again.</p></header>
           <div class="card-body">
             <video class="demo" src="assets/demo-claude.mp4" width="1240" height="1010" autoplay loop muted playsinline aria-label="A Claude Code session: a mermaid reply drawn by mercat, shown raw after /mercat off, then drawn again after /mercat on"></video>
           </div>
