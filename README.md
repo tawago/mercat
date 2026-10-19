@@ -57,13 +57,14 @@ zig build -Doptimize=ReleaseFast
   <img src="site/assets/demo-hero.gif" alt="mercat rendering a markdown file and a bare mermaid diagram, then the TUI: scrolling to a flowchart, editing it in vim and seeing the drawing reload" width="600">
 </p>
 
-- Mermaid diagrams drawn as text: flowcharts, sequence, class, ER and state.
-- A TUI pager with vim keys, search and mouse copy.
-- Press `e` to edit the file. mercat reloads it when you quit the editor.
-- Seven built-in themes, plus your own theme files.
-- Tables, task lists, code highlighting and the rest of GitHub-flavored markdown.
-- Plain text and PNG export.
-- A [Claude Code plugin](https://tawago.github.io/mercat/claude-code.html) that draws the mermaid blocks in Claude's replies.
+- **CLI mode**: Render markdown with syntax highlighting to stdout
+- **TUI mode**: Interactive pager with vim-style navigation
+- **Editor integration**: Press `e` to edit in `$VISUAL`/`$EDITOR` (or the configured editor), auto-reloads on return
+- **Themes**: Seven built-in presets (`dark`, `light`, `ansi`, `dracula`, `tokyo-night`, `pink`, `markview`) plus user theme files with per-slot color and glyph control
+- **Pager support**: Pipe through $PAGER or `less -R`
+- **Stdin support**: `cat file.md | mercat` (implicit; `-` still works)
+- **Bare Mermaid**: pipe raw diagram source with no ```` ```mermaid ```` fence
+- **GFM support**: Tables, task lists, fenced code blocks, strikethrough
 
 ## Usage
 
