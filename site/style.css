@@ -238,6 +238,7 @@ pre.draw { margin: 0 auto; width: max-content; color: var(--g-ink); white-space:
   --fs: clamp(10px, calc(100cqw / (var(--cols, 60) * 0.6 + 0.5)), 14px);
   font-size: var(--fs); line-height: 1.25; line-height: round(nearest, 1.25em, 1px); }
 .card-w { position: absolute; right: clamp(1rem, 2vw, 1.5rem); bottom: 0.7rem; font-size: 0.75rem; color: var(--g-mute); }
+.demo { display: block; width: 100%; height: auto; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
 @media (min-width: 790px) {
   .card-body { grid-template-columns: minmax(0, 22rem) minmax(0, 1fr); }
   pre.card-src { border-bottom: 0; border-right: 1px solid var(--hair); border-bottom-left-radius: 6px; font-size: 13px; }
