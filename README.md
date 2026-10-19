@@ -89,22 +89,29 @@ through a pipe, or set `NO_COLOR` to turn it off.
 mercat exits with `0` on success, `1` when something fails at runtime, and `2`
 on a bad command line.
 
-## TUI keys
+## TUI Key Bindings
 
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Line down / up |
-| `Space` / `b` | Page down / up |
-| `d` / `u` | Half page down / up |
-| `g` / `G` | Top / bottom |
-| `/`, `n` / `N` | Search, next / previous match |
-| `Enter` | Follow a footnote link |
+| `j` / `↓` / `Ctrl-E` / `Ctrl-N` | Line down |
+| `k` / `↑` / `Ctrl-Y` / `Ctrl-P` | Line up |
+| `Space` / `f` / `PgDn` / `Ctrl-F` | Page down |
+| `b` / `PgUp` / `Ctrl-B` | Page up |
+| `d` / `Ctrl-D`, `u` / `Ctrl-U` | Half page down / up |
+| `g` / `Home` / `<` | Go to top |
+| `G` / `End` / `>` | Go to bottom |
+| `Enter` | Follow footnote link |
+| `/` | Search (`Enter` confirms, `Esc` cancels) |
+| `n` / `N` | Next / previous match |
+| `Esc` | Clear the selection, then the search highlights |
 | `e` | Edit the file, then reload |
-| `r` | Reload |
-| `m` | Show front matter |
-| `B` | Switch how edges cross subgraph borders |
-| `?` | Help, with every key |
-| `q` | Quit |
+| `r` | Reload file |
+| `m` | Toggle front-matter metadata panel |
+| `B` | Toggle subgraph edges (bridge/cross) |
+| mouse drag | Select and copy text |
+| `?` / `F1` | Toggle help |
+| `Ctrl-Z` | Suspend (`fg` to resume) |
+| `q` / `Ctrl-C` | Quit |
 
 Drag with the mouse to select text. mercat copies it when you let go.
 
