@@ -1,6 +1,6 @@
 import type { ProcessRunResult, SessionMessage } from 'claude-code'
 
-export const MOD_VERSION = '0.3.3'
+export const MOD_VERSION = '0.3.4'
 export const MIN_WIDTH = 20
 export const MAX_WIDTH = 1000
 export const TRANSCRIPT_MARGIN = 1

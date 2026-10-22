@@ -4,10 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.4]
+
 ### Claude Code mod
 
 - **`/mercat off` and `/mercat on`.** Off shows mermaid blocks in replies as
   written; on draws them again. Each new session starts on.
+- **No regex stall on long output.** Trailing whitespace is trimmed without a
+  backtracking regex.
+
+### Hardening
+
+- **Deeply nested documents no longer crash.** Lists, quotes and emphasis
+  nested hundreds or thousands of levels deep render instead of overflowing a
+  counter or the stack. Emphasis nested past 64 levels keeps its text, unstyled.
+- **Huge footnote numbers.** A footnote link like `#fn:18446744073709551615`
+  no longer makes the TUI allocate an index that large.
+- **Config is never read from the working directory.** With `HOME` and
+  `XDG_CONFIG_HOME` both unset, mercat used to read
+  `./.config/mercat/config.toml`; a config names programs to run, so it now
+  reads none. `--help` shows `Config: none`.
+- **Symlinks in shared directories.** When resolving an output path, a symlink
+  in a sticky world-writable directory such as `/tmp` is only followed if it
+  belongs to you or to the directory's owner.
+- **TUI selection highlight** stops at the window edge.
 
 ## [0.3.3]
 
