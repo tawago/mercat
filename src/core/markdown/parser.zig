@@ -60,9 +60,6 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
     };
 }
 
-/// Frees koino's tree post-order through parent links: its own `deinit`
-/// recurses once per nesting level, which a deeply nested document turns
-/// into a stack overflow.
 fn freeTree(root: *koino.nodes.AstNode) void {
     var node = root;
     while (true) {
@@ -537,8 +534,6 @@ fn appendInlineNode(allocator: std.mem.Allocator, result: *std.ArrayList(Inline)
     }
 }
 
-/// Appends the leaves under `root` in document order, without their styling,
-/// walking parent links instead of the call stack.
 fn appendFlattened(allocator: std.mem.Allocator, result: *std.ArrayList(Inline), root: *koino.nodes.AstNode) !void {
     var node = root;
     while (true) {

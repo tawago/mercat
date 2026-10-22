@@ -166,8 +166,6 @@ pub const PagerView = struct {
         rendered.lines = &.{};
         self.viewport.setMetrics(self.viewport.height, self.lines.len);
 
-        // Every numbered footnote has a reference and a definition span, so no
-        // real number exceeds the count of footnote spans in the document.
         var footnote_spans: usize = 0;
         for (self.lines) |line| {
             for (line.spans) |span| {

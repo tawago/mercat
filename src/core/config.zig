@@ -143,8 +143,6 @@ fn readErrorText(err: anyerror) []const u8 {
     };
 }
 
-/// Null when neither variable is set: a config names programs to run, so it
-/// is never looked up relative to the working directory.
 pub fn resolveConfigPath(allocator: std.mem.Allocator) !?[]u8 {
     if (host.environ().getAlloc(allocator, "XDG_CONFIG_HOME")) |xdg| {
         defer allocator.free(xdg);
