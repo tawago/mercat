@@ -66,6 +66,7 @@ pub fn resolveOutputPath(allocator: std.mem.Allocator, path: []const u8) (WriteE
     var hops: usize = 0;
     while (try kindOf(current, false) == .symlink) : (hops += 1) {
         if (hops == max_symlink_hops) return error.SymLinkLoop;
+        if (!try followAllowed(allocator, current)) return error.AccessDenied;
         const target = link_buf[0..try Dir.cwd().readLink(host.io(), current, &link_buf)];
         const next = if (std.fs.path.isAbsolute(target) or std.fs.path.dirname(current) == null)
             try allocator.dupe(u8, target)
@@ -116,6 +117,47 @@ pub fn writeOutput(allocator: std.mem.Allocator, path: []const u8, bytes: []cons
             try host.writeAll(file, bytes);
         },
     }
+}
+
+/// The kernel's protected-symlinks rule, which a user-space link walk would
+/// otherwise skip: in a sticky world-writable directory such as /tmp, only a
+/// link owned by us or by the directory's owner is followed.
+fn followAllowed(allocator: std.mem.Allocator, link: []const u8) !bool {
+    const dir = try allocator.dupeSentinel(u8, std.fs.path.dirname(link) orelse ".", 0);
+    defer allocator.free(dir);
+    const dir_info = ownerOf(dir) orelse return true;
+    if (dir_info.mode & 0o1002 != 0o1002) return true;
+    const link_z = try allocator.dupeSentinel(u8, link, 0);
+    defer allocator.free(link_z);
+    const link_info = ownerOf(link_z) orelse return false;
+    return link_info.uid == euid() or link_info.uid == dir_info.uid;
+}
+
+const Owner = struct { uid: u32, mode: u32 };
+
+/// Owner and mode of `path` itself (a symlink is not followed).
+fn ownerOf(path: [:0]const u8) ?Owner {
+    switch (builtin.os.tag) {
+        .linux => {
+            const linux = std.os.linux;
+            var stx: linux.Statx = undefined;
+            const rc = linux.statx(linux.AT.FDCWD, path, linux.AT.SYMLINK_NOFOLLOW, .{ .UID = true, .MODE = true }, &stx);
+            if (linux.errno(rc) != .SUCCESS) return null;
+            return .{ .uid = stx.uid, .mode = stx.mode };
+        },
+        else => {
+            var st: std.c.Stat = undefined;
+            if (std.c.fstatat(std.c.AT.FDCWD, path, &st, std.c.AT.SYMLINK_NOFOLLOW) != 0) return null;
+            return .{ .uid = st.uid, .mode = @intCast(st.mode) };
+        },
+    }
+}
+
+fn euid() u32 {
+    return switch (builtin.os.tag) {
+        .linux => std.os.linux.geteuid(),
+        else => std.c.geteuid(),
+    };
 }
 
 /// Whether the effective user owns `file`. File.Stat carries no owner.

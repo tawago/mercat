@@ -93,3 +93,31 @@ test "every block records its raw source" {
     for (expected, 0..) |want, index| try testing.expectEqualStrings(want, doc.blockSource(index).?);
     try testing.expect(doc.blockSource(expected.len) == null);
 }
+
+fn inlineDepth(inlines: []const Inline) usize {
+    var deepest: usize = 0;
+    for (inlines) |inline_| {
+        const below = switch (inline_) {
+            .strong, .emphasis, .strikethrough => |children| 1 + inlineDepth(children),
+            .link => |link| 1 + inlineDepth(link.text),
+            .image => |image| 1 + inlineDepth(image.alt),
+            else => 0,
+        };
+        deepest = @max(deepest, below);
+    }
+    return deepest;
+}
+
+test "emphasis nested past the depth cap keeps its text, flattened" {
+    const allocator = testing.allocator;
+    const stars: [400]u8 = @splat('*');
+    const source = stars ++ "x" ++ stars;
+    var doc = try parser.parse(allocator, source);
+    defer doc.deinit(allocator);
+    const content = doc.blocks[0].paragraph.content;
+    try testing.expect(inlineDepth(content) <= 64);
+    var out: std.ArrayList(u8) = .empty;
+    defer out.deinit(allocator);
+    try shape(allocator, &out, content);
+    try testing.expect(std.mem.indexOfScalar(u8, out.items, 'x') != null);
+}

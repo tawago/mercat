@@ -194,3 +194,23 @@ test "the project README parses without exhausting the stack" {
     defer document.deinit(std.testing.allocator);
     try std.testing.expect(document.blocks.len > 0);
 }
+
+test "deep nesting and lone-CR indents render without a counter overflow" {
+    const allocator = testing.allocator;
+    const sources = [_][]const u8{ "- ", "1. ", ">" };
+    for (sources) |unit| {
+        const source = try allocator.alloc(u8, unit.len * 300 + 2);
+        defer allocator.free(source);
+        for (0..300) |i| @memcpy(source[i * unit.len ..][0..unit.len], unit);
+        @memcpy(source[unit.len * 300 ..], " x");
+        const text = try renderText(source, .{ .width = 80 });
+        defer text.deinit();
+        try testing.expect(text.find("x") != null);
+    }
+
+    const spaces: [300]u8 = @splat(' ');
+    const cr_source = "\r\rp\nq\n" ++ spaces ++ "r\n";
+    const text = try renderText(cr_source, .{ .width = 80 });
+    defer text.deinit();
+    try testing.expect(text.find("r") != null);
+}

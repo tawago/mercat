@@ -166,6 +166,16 @@ pub const PagerView = struct {
         rendered.lines = &.{};
         self.viewport.setMetrics(self.viewport.height, self.lines.len);
 
+        // Every numbered footnote has a reference and a definition span, so no
+        // real number exceeds the count of footnote spans in the document.
+        var footnote_spans: usize = 0;
+        for (self.lines) |line| {
+            for (line.spans) |span| {
+                const url = span.url orelse continue;
+                if (std.mem.startsWith(u8, url, "#fn:") or std.mem.startsWith(u8, url, "#fnref:")) footnote_spans += 1;
+            }
+        }
+
         var index: std.ArrayList(FootnoteEntry) = .empty;
         errdefer index.deinit(self.allocator);
 
@@ -174,12 +184,12 @@ pub const PagerView = struct {
                 const url = span.url orelse continue;
                 if (std.mem.startsWith(u8, url, "#fn:")) {
                     const n = std.fmt.parseInt(usize, url[4..], 10) catch continue;
-                    if (n == 0) continue;
+                    if (n == 0 or n > footnote_spans) continue;
                     while (index.items.len < n) try index.append(self.allocator, .{});
                     if (index.items[n - 1].ref_line == null) index.items[n - 1].ref_line = li;
                 } else if (std.mem.startsWith(u8, url, "#fnref:")) {
                     const n = std.fmt.parseInt(usize, url[7..], 10) catch continue;
-                    if (n == 0) continue;
+                    if (n == 0 or n > footnote_spans) continue;
                     while (index.items.len < n) try index.append(self.allocator, .{});
                     if (index.items[n - 1].def_line == null) index.items[n - 1].def_line = li;
                 }
@@ -231,6 +241,25 @@ test "followFootnoteLink jumps to definition" {
     const def_line = pager.footnote_index[0].def_line.?;
     try std.testing.expect(pager.viewport.top <= def_line);
     try std.testing.expect(pager.viewport.top + pager.viewport.height > def_line);
+}
+
+test "a footnote number past the document's footnotes is not indexed" {
+    const allocator = std.testing.allocator;
+    var document = try markdown.parse(allocator,
+        \\[huge](#fn:18446744073709551615) and <fnref id="9000000000000000000">x</fnref>
+        \\and a real note[^a].
+        \\
+        \\[^a]: The definition.
+    );
+    defer document.deinit(allocator);
+
+    const rt = resolveMod.builtinResolved(allocator, "dark");
+    var pager = PagerView.init(allocator, "fixture", &document, &rt, true, .bridge);
+    defer pager.deinit();
+    try pager.resize(80, 10);
+
+    try std.testing.expectEqual(@as(usize, 1), pager.footnote_index.len);
+    try std.testing.expect(pager.footnote_index[0].def_line != null);
 }
 
 test "selection maps screen rows to document text" {
