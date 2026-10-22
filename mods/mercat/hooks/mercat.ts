@@ -22,7 +22,7 @@ export function diagramInput(source: string): string {
 }
 
 export function diagramOf(run: ProcessRunResult): string | undefined {
-  const out = run.stdout.replace(/\s+$/, '')
+  const out = run.stdout.trimEnd()
   const isDrawn =
     run.exitCode === 0 &&
     out.trim() !== '' &&

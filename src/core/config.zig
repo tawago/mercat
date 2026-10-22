@@ -105,20 +105,24 @@ pub fn load(allocator: std.mem.Allocator, warnings: *Warnings) !Config {
     var cfg = try parseTomlLike(allocator, default_config_text);
     errdefer cfg.deinit(allocator);
 
-    const path = try resolveConfigPath(allocator);
-    defer allocator.free(path);
+    if (try resolveConfigPath(allocator)) |path| {
+        defer allocator.free(path);
+        try applyConfigFile(allocator, &cfg, path, warnings);
+    }
 
+    try applyEnvOverrides(allocator, &cfg, warnings);
+    return cfg;
+}
+
+fn applyConfigFile(allocator: std.mem.Allocator, cfg: *Config, path: []const u8, warnings: *Warnings) !void {
     if (readConfigFile(allocator, path)) |contents| {
         defer allocator.free(contents);
-        try applySource(allocator, &cfg, contents, path, warnings);
+        try applySource(allocator, cfg, contents, path, warnings);
     } else |err| switch (err) {
         error.FileNotFound => {},
         error.OutOfMemory => return error.OutOfMemory,
         else => warnings.add("cannot read config file {s}: {s}; using defaults", .{ path, readErrorText(err) }),
     }
-
-    try applyEnvOverrides(allocator, &cfg, warnings);
-    return cfg;
 }
 
 fn readConfigFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -139,18 +143,18 @@ fn readErrorText(err: anyerror) []const u8 {
     };
 }
 
-pub fn resolveConfigPath(allocator: std.mem.Allocator) ![]u8 {
+pub fn resolveConfigPath(allocator: std.mem.Allocator) !?[]u8 {
     if (host.environ().getAlloc(allocator, "XDG_CONFIG_HOME")) |xdg| {
         defer allocator.free(xdg);
-        if (xdg.len != 0) return std.fs.path.join(allocator, &.{ xdg, "mercat", "config.toml" });
+        if (xdg.len != 0) return try std.fs.path.join(allocator, &.{ xdg, "mercat", "config.toml" });
     } else |_| {}
 
     if (host.environ().getAlloc(allocator, "HOME")) |home| {
         defer allocator.free(home);
-        return std.fs.path.join(allocator, &.{ home, ".config", "mercat", "config.toml" });
+        return try std.fs.path.join(allocator, &.{ home, ".config", "mercat", "config.toml" });
     } else |_| {}
 
-    return allocator.dupe(u8, ".config/mercat/config.toml");
+    return null;
 }
 
 pub fn parseTomlLike(allocator: std.mem.Allocator, source: []const u8) !Config {

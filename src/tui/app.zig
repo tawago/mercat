@@ -424,7 +424,7 @@ pub const App = struct {
         } orelse return;
         const cy: u16 = @intCast(row);
         var col: usize = range.start;
-        while (col < range.end) : (col += 1) {
+        while (col < range.end and col < root.width) : (col += 1) {
             const cx: u16 = @intCast(col);
             if (root.readCell(cx, cy)) |cell| {
                 var highlighted = cell;

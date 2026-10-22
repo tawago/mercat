@@ -34,7 +34,7 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
             .autolink = true,
         },
     });
-    defer root.deinit();
+    defer freeTree(root);
 
     var blocks: std.ArrayList(Block) = .empty;
     defer {
@@ -58,6 +58,22 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !Document {
         .sources = sources,
         .source_buffer = preprocessed,
     };
+}
+
+fn freeTree(root: *koino.nodes.AstNode) void {
+    var node = root;
+    while (true) {
+        while (node.first_child) |child| node = child;
+        const parent = node.parent;
+        const next = node.next;
+        if (node != root) {
+            if (parent) |p| p.first_child = next;
+        }
+        node.data.deinit(node.allocator);
+        node.allocator.destroy(node);
+        if (node == root) return;
+        node = next orelse parent.?;
+    }
 }
 
 /// A document holding one mermaid diagram: a bare `.mmd` file or stdin that
@@ -171,7 +187,7 @@ fn appendParagraphBlockWithSource(allocator: std.mem.Allocator, blocks: *std.Arr
     while (idx < source.len) : (idx += 1) {
         const char = source[idx];
         if (char == ' ') {
-            spaces += 1;
+            spaces +|= 1;
         } else if (char == '\t') {
             spaces +|= 4;
         } else if (char == '\n' or char == '\r') {
@@ -234,7 +250,7 @@ fn collectBlockQuoteBlocks(allocator: std.mem.Allocator, node: *koino.nodes.AstN
 
     var child = node.first_child;
     while (child) |current| : (child = current.next) {
-        try appendChildBlock(allocator, &result, current, depth + 1);
+        try appendChildBlock(allocator, &result, current, depth +| 1);
     }
 
     return .{
@@ -465,36 +481,39 @@ fn collectInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode) ![]I
         for (result.items) |item| item.deinit(allocator);
         result.deinit(allocator);
     }
-    try appendInlineNode(allocator, &result, node);
+    try appendInlineNode(allocator, &result, node, 0);
     return try result.toOwnedSlice(allocator);
 }
 
-fn appendInlineNode(allocator: std.mem.Allocator, result: *std.ArrayList(Inline), node: *koino.nodes.AstNode) anyerror!void {
+const max_inline_depth = 64;
+
+fn appendInlineNode(allocator: std.mem.Allocator, result: *std.ArrayList(Inline), node: *koino.nodes.AstNode, depth: usize) anyerror!void {
+    if (depth >= max_inline_depth) return appendFlattened(allocator, result, node);
     switch (node.data.value) {
         .Emph => {
-            const children = try collectChildInlines(allocator, node);
+            const children = try collectChildInlines(allocator, node, depth + 1);
             errdefer freeInlines(allocator, children);
             try result.append(allocator, .{ .emphasis = children });
         },
         .Strong => {
-            const children = try collectChildInlines(allocator, node);
+            const children = try collectChildInlines(allocator, node, depth + 1);
             errdefer freeInlines(allocator, children);
             try result.append(allocator, .{ .strong = children });
         },
         .Strikethrough => {
-            const children = try collectChildInlines(allocator, node);
+            const children = try collectChildInlines(allocator, node, depth + 1);
             errdefer freeInlines(allocator, children);
             try result.append(allocator, .{ .strikethrough = children });
         },
         .Link => |link| {
-            const children = try collectChildInlines(allocator, node);
+            const children = try collectChildInlines(allocator, node, depth + 1);
             errdefer freeInlines(allocator, children);
             const url = try clean(allocator, link.url);
             errdefer allocator.free(url);
             try result.append(allocator, .{ .link = .{ .text = children, .url = url } });
         },
         .Image => |image| {
-            const children = try collectChildInlines(allocator, node);
+            const children = try collectChildInlines(allocator, node, depth + 1);
             errdefer freeInlines(allocator, children);
             const url = try clean(allocator, image.url);
             errdefer allocator.free(url);
@@ -509,13 +528,30 @@ fn appendInlineNode(allocator: std.mem.Allocator, result: *std.ArrayList(Inline)
             }
             var child = node.first_child;
             while (child) |current| : (child = current.next) {
-                try appendInlineNode(allocator, result, current);
+                try appendInlineNode(allocator, result, current, depth + 1);
             }
         },
     }
 }
 
-fn collectChildInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode) ![]Inline {
+fn appendFlattened(allocator: std.mem.Allocator, result: *std.ArrayList(Inline), root: *koino.nodes.AstNode) !void {
+    var node = root;
+    while (true) {
+        if (node.first_child) |child| {
+            node = child;
+            continue;
+        }
+        if (try leafInline(allocator, node.data.value)) |inline_| {
+            errdefer inline_.deinit(allocator);
+            try result.append(allocator, inline_);
+        }
+        while (node != root and node.next == null) node = node.parent.?;
+        if (node == root) return;
+        node = node.next.?;
+    }
+}
+
+fn collectChildInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode, depth: usize) ![]Inline {
     var result: std.ArrayList(Inline) = .empty;
     errdefer {
         for (result.items) |item| item.deinit(allocator);
@@ -523,7 +559,7 @@ fn collectChildInlines(allocator: std.mem.Allocator, node: *koino.nodes.AstNode)
     }
     var child = node.first_child;
     while (child) |current| : (child = current.next) {
-        try appendInlineNode(allocator, &result, current);
+        try appendInlineNode(allocator, &result, current, depth);
     }
     return try result.toOwnedSlice(allocator);
 }

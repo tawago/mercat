@@ -160,14 +160,14 @@ pub fn renderListItem(allocator: std.mem.Allocator, builder: *Builder, item: Blo
         try builder.newline();
         switch (nested) {
             .unordered_list_item => |n| {
-                const nested_bullet = try bulletMarker(allocator, decor, depth + 1);
+                const nested_bullet = try bulletMarker(allocator, decor, depth +| 1);
                 defer allocator.free(nested_bullet);
-                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth + 1, options);
+                try renderListItem(allocator, builder, n, width, nested_bullet, .bullet, depth +| 1, options);
             },
             .ordered_list_item => |n| {
                 const nested_marker = try orderedMarker(allocator, decor, n.marker);
                 defer allocator.free(nested_marker);
-                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth + 1, options);
+                try renderListItem(allocator, builder, n, width, nested_marker, .ordered, depth +| 1, options);
             },
             // Sibling lists step in by depth; task items match them.
             .task_list_item => try renderIndentedBlock(allocator, builder, nested, width, indent_count + 2, options),

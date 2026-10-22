@@ -43,10 +43,16 @@ function stripIndent(line: string, n: number): string {
   return line.slice(i)
 }
 
+function trimNewlines(text: string): string {
+  let end = text.length
+  while (end > 0 && text[end - 1] === '\n') end--
+  return text.slice(0, end)
+}
+
 export function textFence(rendered: string, indent = ''): string {
   const runs = rendered.match(/`+/g) ?? []
   const ticks = '`'.repeat(Math.max(3, ...runs.map(r => r.length + 1)))
-  const body = rendered.replace(/\n+$/, '').split('\n').map(l => indent + l)
+  const body = trimNewlines(rendered).split('\n').map(l => indent + l)
   return [`${indent}${ticks}text`, ...body, `${indent}${ticks}`].join('\n')
 }
 

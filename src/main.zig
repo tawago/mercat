@@ -173,9 +173,10 @@ fn run(allocator: std.mem.Allocator, argv: []const [:0]const u8) !void {
 
 fn showHelp(allocator: std.mem.Allocator) !void {
     const path = try config.resolveConfigPath(allocator);
-    defer allocator.free(path);
-    const state = if (std.Io.Dir.cwd().access(host.io(), path, .{})) |_| "" else |_| " (not present; defaults apply)";
-    const line = try std.fmt.allocPrint(allocator, "Config: {s}{s}\n  TOML; command-line flags win over environment, environment over config.\n", .{ path, state });
+    defer if (path) |p| allocator.free(p);
+    const shown = path orelse "none (HOME and XDG_CONFIG_HOME unset)";
+    const state = if (path) |p| (if (std.Io.Dir.cwd().access(host.io(), p, .{})) |_| "" else |_| " (not present; defaults apply)") else "";
+    const line = try std.fmt.allocPrint(allocator, "Config: {s}{s}\n  TOML; command-line flags win over environment, environment over config.\n", .{ shown, state });
     defer allocator.free(line);
     writeStdoutOrFail(args.help_text);
     writeStdoutOrFail(line);
