@@ -142,6 +142,46 @@ test "plain output defaults to 120 columns off a terminal and -w bounds it" {
     try testing.expect(maxLineBytes(w60.stdout) <= 60);
 }
 
+test "a config in the working directory is never read, even with HOME and XDG_CONFIG_HOME unset" {
+    try requireBinary();
+    const allocator = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try writeTmpFile(&tmp, "wide.md", wide_markdown);
+    try tmp.dir.createDirPath(testing.io, ".config/mercat");
+    try writeTmpFile(&tmp, ".config/mercat/config.toml", "[display]\nwidth = 30\n");
+    const dir = try tmp.dir.realPathFileAlloc(testing.io, ".", allocator);
+    defer allocator.free(dir);
+    const exe = try std.Io.Dir.cwd().realPathFileAlloc(testing.io, mercat_exe_path, allocator);
+    defer allocator.free(exe);
+
+    var env = try testing.environ.createMap(allocator);
+    defer env.deinit();
+    for (steering_env_names) |name| _ = env.swapRemove(name);
+    _ = env.swapRemove("XDG_CONFIG_HOME");
+    try env.put("HOME", dir);
+    const homed = try std.process.run(allocator, testing.io, .{
+        .argv = &.{ exe, "--format", "plain", "wide.md" },
+        .environ_map = &env,
+        .cwd = .{ .dir = tmp.dir },
+    });
+    defer allocator.free(homed.stdout);
+    defer allocator.free(homed.stderr);
+    try testing.expect(maxLineBytes(homed.stdout) <= 30);
+
+    _ = env.swapRemove("HOME");
+    const homeless = try std.process.run(allocator, testing.io, .{
+        .argv = &.{ exe, "--format", "plain", "wide.md" },
+        .environ_map = &env,
+        .cwd = .{ .dir = tmp.dir },
+    });
+    defer allocator.free(homeless.stdout);
+    defer allocator.free(homeless.stderr);
+    try testing.expect(homeless.term.success());
+    try testing.expect(maxLineBytes(homeless.stdout) > 30);
+}
+
 test "renders a .mmd flowchart to plain text with box-drawing" {
     try requireBinary();
     const allocator = testing.allocator;
