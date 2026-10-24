@@ -1,6 +1,6 @@
-# mercat — cat for markdown, with mermaids
+# mercat — mermaid diagrams, drawn in your terminal
 
-A fast terminal markdown viewer with best-in-class mermaid diagram rendering, written in Zig.
+`cat` for markdown, with mermaids. Flowcharts drawn as text that fits your terminal width; also a markdown viewer. Written in Zig.
 
 <p align="center">
   <img src="assets/brand/mercat-hero.png" alt="The mercat meerkat peeking out of a burrow drawn as a flowchart" width="420">
