@@ -47,6 +47,10 @@
     B --> C
     C --> E
     D --> F`,
+    wide: `flowchart LR
+  Ingest[Ingest raw events] --> Parse[Parse and validate] --> Enrich[Enrich with user data] --> Dedupe[Remove duplicates] --> Agg[Aggregate per hour] --> Store[(Write to warehouse)] --> Report[Build daily report] --> Send([Email the team])
+  Parse -->|invalid| Quarantine[Quarantine bad rows]
+  Quarantine --> Alert([Page the on-call])`,
   };
 
   // ---------- width ----------
