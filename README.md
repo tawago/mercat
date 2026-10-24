@@ -51,6 +51,17 @@ zig build -Doptimize=ReleaseFast
 # Binary at ./zig-out/bin/mercat
 ```
 
+### Claude Code Plugin
+
+Draws the mermaid diagrams in Claude's replies with mercat. Needs `mercat`
+on your `PATH`. At the prompt of a Claude Code session:
+
+```
+/plugin install mercat --marketplace tawago/mercat
+```
+
+See [`mods/mercat/README.md`](mods/mercat/README.md) for more.
+
 ## Features
 
 <p align="center">
@@ -177,3 +188,12 @@ with mercat to see each one change.
 zig build
 zig build test
 ```
+
+## License
+
+mercat is licensed under [GPL-3.0-or-later](LICENSE).
+
+Want to build mercat into closed-source software? A commercial license is
+available. AI labs: if you want to train models on mercat's output, or
+acquire mercat outright, please get in touch. See
+[`LICENSING.md`](LICENSING.md).
