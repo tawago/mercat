@@ -132,9 +132,9 @@ html { scrollbar-gutter: stable; }
   .home .top { position: absolute; inset: 0 0 auto 0; }
   .hero {
     position: absolute;
-    left: calc(var(--ox) + var(--imgw) * 0.452);
+    left: calc(var(--ox) + var(--imgw) * 0.46);
     top: max(calc(var(--oy) + var(--imgh) * 0.085), 4.75rem);
-    width: min(calc(var(--imgw) * 0.43), calc(100vw - var(--ox) - var(--imgw) * 0.452 - var(--m)));
+    width: min(calc(var(--imgw) * 0.44), calc(100vw - var(--ox) - var(--imgw) * 0.46 - var(--m)));
   }
   .hero h1 { font-size: clamp(2rem, calc(var(--imgw) * 0.0335), 6rem); }
   .hero .lead { margin-top: 0.75em; font-size: clamp(1rem, calc(var(--imgw) * 0.0113), 1.75rem); }
@@ -249,7 +249,8 @@ pre.term-out {
   font: inherit; line-height: 1.25; line-height: round(nearest, 1.25em, 1px); font-variant-ligatures: none;
 }
 .term[data-state="loading"] .out, .term[data-state="idle"] .out, .term[data-state="error"] .out { color: var(--sand); font-family: var(--text); white-space: normal; }
-.probe { position: absolute; visibility: hidden; white-space: pre; }
+.probe { position: absolute; left: 0; top: 0; visibility: hidden; white-space: pre; }
+.term { overflow: clip; }
 .term .note { white-space: pre-wrap; padding: 0 1rem 0.9rem; font: 0.8125rem / 1.4 var(--text); color: var(--gold); }
 .term .note:empty { display: none; }
 .grip {
