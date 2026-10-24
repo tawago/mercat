@@ -5,7 +5,6 @@ import { parseAnsi, plainText, xterm256 } from '../hooks/ansi'
 import { mermaidFences, rewrite, split, textFence } from '../hooks/fences'
 import {
   diagramInput,
-  clipNoteOf,
   isOlder,
   versionOf,
   diagramOf,
@@ -13,6 +12,7 @@ import {
   paneTitle,
   Lru,
   newestFirst,
+  noteOf,
   resolvePath,
   transcriptWidth,
 } from '../hooks/mercat'
@@ -119,10 +119,17 @@ describe('mercat helpers', () => {
     expect(diagramOf(run('art', { stderr: 'warning: mermaid parse failed' }))).toBeUndefined()
     expect(diagramOf(run('art»', { stderr: 'mercat: warning: mermaid: diagram clipped: true width 121 > budget 70\n' }))).toBe('art»')
     expect(diagramOf(run('art', { exitCode: 1 }))).toBeUndefined()
-    expect(clipNoteOf('mercat: warning: mermaid: diagram clipped: true width 121 > budget 93\n')).toBe(
+    expect(noteOf('mercat: warning: mermaid: diagram clipped: true width 121 > budget 93\n')).toBe(
       '⚠ mercat: diagram clipped, needs 121 columns, has 93. Widen the terminal to see it whole.',
     )
-    expect(clipNoteOf('')).toBeUndefined()
+    expect(noteOf('')).toBeUndefined()
+    const dropped =
+      'mercat: warning: mermaid: label "After device verification" on edge 4 (M -> V) has no faithful place and is not drawn\n'
+    expect(diagramOf(run('art', { stderr: dropped }))).toBe('art')
+    expect(noteOf(dropped)).toBe('⚠ mercat: label "After device verification" on M → V dropped, no room to place it.')
+    expect(noteOf(`mercat: warning: mermaid: diagram clipped: true width 121 > budget 93\n${dropped}`)!.split('\n')).toHaveLength(2)
+    const unrouted = 'mercat: warning: mermaid: edge 2 (A -> B) could not be routed without illegal ink and is not drawn\n'
+    expect(diagramOf(run('art', { stderr: unrouted }))).toBeUndefined()
     expect(versionOf('mercat 0.3.2\n')).toBe('0.3.2')
     expect(isOlder('0.3.1', '0.3.2')).toBe(true)
     expect(isOlder('0.10.0', '0.9.9')).toBe(false)
