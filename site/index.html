@@ -48,15 +48,17 @@
   <div class="wrap">
     <h2 id="try-h">Try your own diagram</h2>
     <p class="sec-lead">Paste Mermaid, or pick an example. Drag the terminal’s right edge to change its width; mercat redraws to fit, just like <code>mercat -w <span data-cols>80</span></code>.</p>
+    <div class="play-body">
     <div class="play-src">
       <div class="presets" role="group" aria-label="Examples">
         <button type="button" data-preset="ci" aria-pressed="false">CI pipeline</button>
         <button type="button" data-preset="rails" aria-pressed="false">Merging lines</button>
-        <button type="button" data-preset="nested" aria-pressed="false">Subgraphs</button>
+        <button type="button" data-preset="layers" aria-pressed="false">Subgraphs</button>
       </div>
       <label class="vh" for="play-src">Mermaid source</label>
-      <textarea id="play-src" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12"></textarea>
+      <textarea id="play-src" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12"></textarea>
     </div>
+    <div class="play-out">
     <div class="term-lane">
       <div class="term" data-engine="mercat" data-state="idle">
         <div class="term-bar"><span>mercat</span><span><span data-cols>80</span> columns</span></div>
@@ -78,6 +80,8 @@
         <pre class="term-out"><code class="out">Loading beautiful-mermaid…</code></pre>
         <p class="note"></p>
       </div>
+    </div>
+    </div>
     </div>
     <p class="credits">Everything runs in your browser; nothing is sent anywhere. mermaid-ascii and beautiful-mermaid are MIT-licensed projects by their own authors, run here unmodified: each uses its default settings, and mermaid-ascii also gets the width limit.</p>
   </div>

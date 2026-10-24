@@ -30,18 +30,23 @@
   Deploy --> Smoke{Smoke ok?}
   Smoke -->|no| Rollback[Rollback] --> Fix
   Smoke -->|yes| Done([Done])`,
-    nested: `flowchart LR
-    P[Alpha and Bravo records] --> Q[Delta Vault account]
-    subgraph Inner["Inner: Delta Co"]
-        Q --> M[Hidden fields, seeds and tokens]
-        M --> N[Digest node]
+    layers: `graph LR
+    subgraph Frontend["Frontend Layer"]
+        A["Web Server"]
+        B["Load Balancer"]
     end
-    subgraph Outer["Open: Ledger on Echo Network"]
-        K[Digest, sender, receiver and entry details]
+    subgraph Backend["Backend Layer"]
+        C["API Gateway"]
+        D["Service Mesh"]
     end
-    N -->|Owner asks for public release| K
-    M -->|After device verification| V[Remote client]
-    K -->|Verify digest and status| V`,
+    subgraph Data["Data Layer"]
+        E["Database"]
+        F["Cache"]
+    end
+    A --> C
+    B --> C
+    C --> E
+    D --> F`,
   };
 
   // ---------- width ----------
