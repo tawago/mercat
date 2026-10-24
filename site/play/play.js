@@ -59,6 +59,7 @@
   const chrome = () => { const cs = getComputedStyle(pre); return parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight); };
   const fits = () => Math.max(MIN, Math.min(MAX, Math.floor((root.querySelector('.term-lane').clientWidth - chrome()) / cellW())));
   let cols = 80;
+  const widthIn = $('#ctl-w');
 
   function setCols(n, rerender = true) {
     cols = Math.max(MIN, Math.min(fits(), Math.round(n)));
@@ -66,6 +67,8 @@
     colsOut.forEach((o) => { o.textContent = cols; });
     grip.setAttribute('aria-valuenow', cols);
     grip.setAttribute('aria-valuemax', fits());
+    widthIn.max = fits();
+    widthIn.value = cols;
     if (rerender) schedule(0);
   }
 
@@ -87,7 +90,28 @@
     setCols(to);
     share();
   });
-  new ResizeObserver(() => { if (cols > fits()) setCols(fits()); }).observe(root.querySelector('.term-lane'));
+  widthIn.addEventListener('input', () => setCols(Number(widthIn.value)));
+  widthIn.addEventListener('change', () => share());
+  new ResizeObserver(() => { if (cols > fits()) setCols(fits()); else widthIn.max = fits(); }).observe(root.querySelector('.term-lane'));
+
+  // ---------- text size ----------
+  const SIZES = [8, 9, 10, 11, 12, 13, 14, 16];
+  const fsOut = $('#ctl-fs');
+  let size = 10;
+  try { size = Number(localStorage.getItem('mercat-play-size')) || size; } catch {}
+  function setSize(px) {
+    size = px;
+    root.style.setProperty('--cell', `${px}px`);
+    fsOut.textContent = `${px}px`;
+    root.querySelector('[data-font="-1"]').disabled = px === SIZES[0];
+    root.querySelector('[data-font="1"]').disabled = px === SIZES[SIZES.length - 1];
+    try { localStorage.setItem('mercat-play-size', String(px)); } catch {}
+    setCols(cols, false);
+  }
+  root.querySelectorAll('[data-font]').forEach((b) => b.addEventListener('click', () => {
+    const i = SIZES.indexOf(size) + Number(b.dataset.font);
+    if (SIZES[i]) setSize(SIZES[i]);
+  }));
 
   // ---------- renderers ----------
   const engines = [...root.querySelectorAll('[data-engine]')].map((el) => ({
@@ -140,6 +164,47 @@
     debounce = setTimeout(() => engines.forEach((eng) => eng.worker && send(eng)), ms);
   }
 
+  // ---------- highlighting ----------
+  const hl = $('.editor .hl code');
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const TOKENS = new RegExp([
+    /(%%.*)/,                                                                   // comment
+    /("(?:[^"\\]|\\.)*")/,                                                  // string
+    /(\|[^|\n]*\|)/,                                                         // edge label
+    /((?:[<ox]?(?:-{2,}|={2,}|-\.+-|~{3,})[>ox]?)|(?:--?\.?-?>)|&)/,           // link operator
+    /(\(\[|\[\(|\(\(|\)\)|\]\)|\)\]|\[\[|\]\]|\{\{|\}\}|[\[\](){}>])/, // shape bracket
+    /\b(flowchart|graph|subgraph|end|direction|classDef|class|style|linkStyle|click)\b/, // keyword
+    /\b(TD|TB|BT|LR|RL)\b/,                                                   // direction
+  ].map((r) => r.source).join('|'), 'g');
+  const ids = (t) => t.split(/([A-Za-z_][\w-]*)/).map((p, i) => (i % 2 ? `<span class="i">${p}</span>` : esc(p))).join('');
+  function paintLine(line) {
+    let out = '', depth = 0, last = 0;
+    for (const m of line.matchAll(TOKENS)) {
+      const plain = line.slice(last, m.index);
+      out += depth ? `<span class="t">${esc(plain)}</span>` : ids(plain);
+      const [tok, c, str, lab, link, br, kw, dir] = m;
+      if (c) out += `<span class="c">${esc(c)}</span>`;
+      else if (str) out += `<span class="s">${esc(str)}</span>`;
+      else if (lab) out += `<span class="a">|</span><span class="t">${esc(lab.slice(1, -1))}</span><span class="a">|</span>`;
+      else if (link && !depth) out += `<span class="a">${esc(link)}</span>`;
+      else if (br) {
+        if (/^[[({]/.test(br)) depth++; else if (br !== '>') depth = Math.max(0, depth - 1);
+        out += `<span class="d">${esc(br)}</span>`;
+      } else if ((kw || dir) && !depth) out += `<span class="k">${tok}</span>`;
+      else out += depth ? `<span class="t">${esc(tok)}</span>` : esc(tok);
+      last = m.index + tok.length;
+    }
+    const rest = line.slice(last);
+    return out + (depth ? `<span class="t">${esc(rest)}</span>` : ids(rest));
+  }
+  function paint() {
+    hl.innerHTML = src.value.split('\n').map(paintLine).join('\n') + '\n';
+    syncScroll();
+  }
+  const hlPre = $('.editor .hl');
+  const syncScroll = () => { hlPre.scrollTop = src.scrollTop; hlPre.scrollLeft = src.scrollLeft; };
+  src.addEventListener('scroll', syncScroll);
+
   // ---------- source, presets, sharing ----------
   const enc = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const dec = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
@@ -150,10 +215,12 @@
 
   root.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
     src.value = PRESETS[b.dataset.preset];
+    paint();
     root.querySelectorAll('[data-preset]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
     schedule(0); share();
   }));
   src.addEventListener('input', () => {
+    paint();
     root.querySelectorAll('[data-preset]').forEach((x) => x.setAttribute('aria-pressed', 'false'));
     schedule(150); share();
   });
@@ -163,6 +230,8 @@
   try { if (hash.get('try')) initial = dec(hash.get('try')); } catch {}
   src.value = initial;
   if (initial === PRESETS.ci) root.querySelector('[data-preset="ci"]').setAttribute('aria-pressed', 'true');
+  paint();
+  setSize(SIZES.includes(size) ? size : 10);
   setCols(Number(hash.get('w')) || Math.min(80, fits()), false);
   if (hash.get('try')) root.scrollIntoView();
 

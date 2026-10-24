@@ -192,7 +192,7 @@ html { scrollbar-gutter: stable; }
 /* ---------- home: the playground below the first screen ---------- */
 /* the full face: drawings use box-drawing glyphs the hero's subset leaves out */
 @font-face { font-family: "Mono full"; src: url(assets/JetBrainsMono-Regular.ttf) format("truetype"); font-weight: 400; font-display: swap; }
-.play { --mono: "Mono full", Menlo, Consolas, monospace; }
+.play { --mono: "Mono full", Menlo, Consolas, monospace; --cell: 10px; }
 .try-link { display: inline-block; margin-left: 1.25em; padding: 6px 0; font-weight: 600; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
 .play { padding-block: clamp(3rem, 7vw, 5.5rem) 0; }
 .play .sec-lead code { color: var(--ink); font-weight: 500; }
@@ -203,14 +203,42 @@ html { scrollbar-gutter: stable; }
   min-height: 40px; padding: 0 1rem; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--hair);
 }
 .presets button[aria-pressed="true"] { color: var(--on-dark); background: var(--burrow); box-shadow: none; }
-#play-src {
-  width: 100%; min-height: 12rem; resize: vertical; padding: 1rem 1.1rem; border: 0; border-radius: 6px;
-  background: var(--well); color: var(--g-ink); box-shadow: inset 0 0 0 1px var(--hair);
-  font: 13px / 1.6 var(--mono); font-variant-ligatures: none; tab-size: 4;
+/* the editor: a transparent textarea over its highlighted copy */
+.editor { position: relative; border-radius: 6px; background: var(--well); box-shadow: inset 0 0 0 1px var(--hair); }
+.editor .hl, #play-src {
+  margin: 0; padding: 1rem 1.1rem; border: 0; white-space: pre; overflow: auto;
+  font: 13px / 1.6 var(--mono); font-variant-ligatures: none; letter-spacing: 0; tab-size: 4;
 }
+.editor .hl { position: absolute; inset: 0; color: var(--g-ink); pointer-events: none; scrollbar-width: none; }
+.editor .hl::-webkit-scrollbar { display: none; }
+#play-src {
+  position: relative; display: block; width: 100%; min-height: 12rem; resize: vertical;
+  background: transparent; color: transparent; caret-color: var(--ink);
+}
+#play-src::selection { color: transparent; background: rgb(246 178 65 / 0.45); }
+#play-src:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 6px; }
+.hl .k { color: #8a3b12; font-weight: 500; }
+.hl .d { color: #a0611a; }
+.hl .a { color: #2f6f7e; }
+.hl .t { color: #3d6b2a; }
+.hl .s { color: #7a4a8c; }
+.hl .c { color: var(--g-mute); font-style: italic; }
+.hl .i { color: var(--ink); }
+/* width and text size */
+.play-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; margin-bottom: 0.75rem; font-size: var(--fs-small); font-weight: 600; }
+.ctl-w { display: flex; align-items: center; gap: 0.6rem; flex: 1 1 18rem; max-width: 34rem; }
+.ctl-w input { flex: 1; accent-color: var(--soil); min-width: 6rem; }
+.ctl-w output { font-weight: 500; white-space: nowrap; min-width: 6.5em; }
+.ctl-font { display: inline-flex; align-items: center; gap: 0.25rem; }
+.ctl-font output { min-width: 3.2em; text-align: center; font-weight: 500; }
+.ctl-font button {
+  font: 600 var(--fs-small) / 1 var(--text); color: var(--g-ink); background: var(--card); border: 0; cursor: pointer;
+  min-width: 40px; min-height: 36px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--hair);
+}
+.ctl-font button:disabled { opacity: 0.4; cursor: default; }
 .term-lane { margin-top: 1.25rem; min-width: 0; }
 .term {
-  --cell: 10px; position: relative; background: var(--ink); color: var(--on-dark); border-radius: 6px;
+  position: relative; background: var(--ink); color: var(--on-dark); border-radius: 6px;
   width: calc(var(--cols, 80) * 1ch + 2rem + 14px); max-width: 100%; font: 400 var(--cell) / 1.3 var(--mono);
 }
 .dragging, .dragging * { cursor: ew-resize !important; user-select: none; }
@@ -242,7 +270,7 @@ pre.term-out {
   background-attachment: local;
 }
 .credits { margin-top: 1.25rem; font-size: var(--fs-small); color: var(--g-sub); max-width: 70ch; }
-@media (max-width: 559px) { .term { --cell: 10px; } .try-link { margin-left: 0; display: block; } }
+@media (max-width: 559px) { .try-link { margin-left: 0; display: block; } }
 .play pre.term-out { min-height: 5rem; }
 .play .cmp-h { font-size: 1rem; }
 /* wide screens: the source on the left stays put; the three terminals stack on the right */
@@ -251,6 +279,7 @@ pre.term-out {
   .play-body { display: grid; grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr); gap: 1.5rem; align-items: start; margin-top: clamp(1.5rem, 3vw, 2rem); }
   .play-src { position: sticky; top: 1rem; margin-top: 0; }
   #play-src { height: calc(100svh - 6rem); resize: none; }
+  .play-out .play-ctl { position: sticky; top: 0; z-index: 2; background: var(--paper); padding-block: 0.5rem; margin-top: -0.5rem; }
   .play-out .term-lane { margin-top: 0; }
   .play .cmp-h { margin-top: 1.75rem; }
 }

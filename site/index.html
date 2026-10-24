@@ -56,9 +56,20 @@
         <button type="button" data-preset="layers" aria-pressed="false">Subgraphs</button>
       </div>
       <label class="vh" for="play-src">Mermaid source</label>
-      <textarea id="play-src" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12"></textarea>
+      <div class="editor">
+        <pre class="hl" aria-hidden="true"><code></code></pre>
+        <textarea id="play-src" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12"></textarea>
+      </div>
     </div>
     <div class="play-out">
+      <div class="play-ctl">
+        <label class="ctl-w">Width <input type="range" id="ctl-w" min="24" max="200" value="80"> <output for="ctl-w"><span data-cols>80</span> columns</output></label>
+        <span class="ctl-font" role="group" aria-label="Text size">
+          <button type="button" data-font="-1" aria-label="Smaller text">A−</button>
+          <output id="ctl-fs">10px</output>
+          <button type="button" data-font="1" aria-label="Larger text">A+</button>
+        </span>
+      </div>
     <div class="term-lane">
       <div class="term" data-engine="mercat" data-state="idle">
         <div class="term-bar"><span>mercat</span><span><span data-cols>80</span> columns</span></div>
