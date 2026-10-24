@@ -7,7 +7,7 @@ pub fn deadSpace(allocator: std.mem.Allocator, s: sketch.Sketch, label_cells: []
     const area = w * h;
     if (area == 0) return 0;
 
-    var covered = try std.DynamicBitSet.initEmpty(allocator, area);
+    var covered = try std.DynamicBitSet.initEmpty(allocator, @intCast(area));
     defer covered.deinit();
 
     for (s.clusters) |c| markRect(&covered, s.bbox, c.rect);
@@ -59,7 +59,7 @@ fn markCell(covered: *std.DynamicBitSet, bbox: sketch.Rect, x: i32, y: i32) void
     if (x < bbox.x or y < bbox.y or x >= bbox.right() or y >= bbox.bottom()) return;
     const col: u64 = @intCast(x - bbox.x);
     const row: u64 = @intCast(y - bbox.y);
-    covered.set(row * @as(u64, bbox.w) + col);
+    covered.set(@intCast(row * @as(u64, bbox.w) + col));
 }
 
 pub fn edgeStretch(s: sketch.Sketch) u64 {

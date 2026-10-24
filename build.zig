@@ -107,6 +107,8 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run mercat");
     run_step.dependOn(&run_cmd.step);
 
+    addWasmStep(b);
+
     const test_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -373,4 +375,24 @@ fn linkExportFont(b: *std.Build, module: *std.Build.Module, stb_mod: *std.Build.
     module.addAnonymousImport("jetbrains_mono_ttf", .{
         .root_source_file = b.path("assets/fonts/JetBrainsMono-Regular.ttf"),
     });
+}
+
+/// `zig build wasm`: the mermaid renderer as zig-out/web/mercat.wasm for the site's playground.
+fn addWasmStep(b: *std.Build) void {
+    const target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const optimize: std.builtin.OptimizeMode = .ReleaseSafe;
+    const unicode_mod = b.createModule(.{ .root_source_file = b.path("src/lib/unicode.zig"), .target = target, .optimize = optimize });
+    const prim_mod = b.createModule(.{ .root_source_file = b.path("src/core/mermaid/flowchart/base/types.zig"), .target = target, .optimize = optimize });
+    prim_mod.addImport("unicode", unicode_mod);
+    const text_mod = b.createModule(.{ .root_source_file = b.path("src/lib/text.zig"), .target = target, .optimize = optimize });
+    const root = b.createModule(.{ .root_source_file = b.path("src/wasm.zig"), .target = target, .optimize = optimize });
+    root.addImport("unicode", unicode_mod);
+    root.addImport("prim", prim_mod);
+    root.addImport("text", text_mod);
+    root.strip = true;
+    const wasm = b.addExecutable(.{ .name = "mercat", .root_module = root });
+    wasm.entry = .disabled;
+    wasm.rdynamic = true;
+    const install = b.addInstallArtifact(wasm, .{ .dest_dir = .{ .override = .{ .custom = "web" } } });
+    b.step("wasm", "Build the mermaid renderer to zig-out/web/mercat.wasm").dependOn(&install.step);
 }

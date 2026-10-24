@@ -97,8 +97,8 @@ html { scrollbar-gutter: stable; }
 /* ======================================================================
    home: one screen, the whole savanna
    ====================================================================== */
-.home, .home body { height: 100%; overflow: hidden; background: var(--sky); }
-.home body {
+.first {
+  position: relative; overflow: hidden; background: var(--sky);
   --ar: 1.77683; /* 1672 / 941 */
   --imgw: max(100vw, 100svh * var(--ar));
   --imgh: calc(var(--imgw) / var(--ar));
@@ -107,7 +107,7 @@ html { scrollbar-gutter: stable; }
   height: 100vh; height: 100svh;
 }
 .scene {
-  position: fixed; inset: 0; z-index: 0;
+  position: absolute; inset: 0; z-index: 0;
   background: var(--sky) url(assets/savanna.webp) no-repeat var(--ox) var(--oy) / var(--imgw) var(--imgh);
   image-rendering: pixelated;
 }
@@ -143,7 +143,7 @@ html { scrollbar-gutter: stable; }
 
 /* phones and tall screens: the words above, the meerkat and its burrow below */
 @media (orientation: portrait), (max-width: 559px) {
-  .home body { display: flex; flex-direction: column; }
+  .first { display: flex; flex-direction: column; }
   .scene { order: 3; position: relative; inset: auto; flex: 1 1 0; min-height: 0; margin-top: 0.5rem;
     background-size: auto 113%; background-position: 32% 100%; }
   .hero { padding: clamp(1.25rem, 4svh, 3rem) var(--m) 0; }
@@ -173,7 +173,7 @@ html { scrollbar-gutter: stable; }
 
 /* short landscape screens: the sky is too low for the words, so they get a patch of sky of their own */
 @media (orientation: landscape) and (min-width: 560px) and (max-height: 540px) {
-  .home body { --oy: calc((100svh - var(--imgh)) * 0.25); }
+  .first { --oy: calc((100svh - var(--imgh)) * 0.25); }
   .top { padding-top: 8px; }
   .top nav a { padding-block: 6px; }
   .hero {
@@ -188,6 +188,58 @@ html { scrollbar-gutter: stable; }
   .hero .say { font-size: 0.75rem; margin-top: 0.3em; }
   .hero .plaque > code { padding-block: 0.4em; }
 }
+
+/* ---------- home: the playground below the first screen ---------- */
+.try-link { display: inline-block; margin-left: 1.25em; padding: 6px 0; font-weight: 600; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
+.play { padding-block: clamp(3rem, 7vw, 5.5rem) 0; }
+.play .sec-lead code { color: var(--ink); font-weight: 500; }
+.play-src { margin-top: clamp(1.5rem, 3vw, 2rem); display: grid; gap: 0.75rem; }
+.presets { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.presets button {
+  font: 600 var(--fs-small) / 1 var(--text); color: var(--g-ink); background: var(--card); border: 0; cursor: pointer;
+  min-height: 40px; padding: 0 1rem; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--hair);
+}
+.presets button[aria-pressed="true"] { color: var(--on-dark); background: var(--burrow); box-shadow: none; }
+#play-src {
+  width: 100%; min-height: 12rem; resize: vertical; padding: 1rem 1.1rem; border: 0; border-radius: 6px;
+  background: var(--well); color: var(--g-ink); box-shadow: inset 0 0 0 1px var(--hair);
+  font: 13px / 1.6 var(--mono); font-variant-ligatures: none; tab-size: 4;
+}
+.term-lane { margin-top: 1.25rem; min-width: 0; }
+.term {
+  --cell: 14px; position: relative; background: var(--ink); color: var(--on-dark); border-radius: 6px;
+  width: calc(var(--cols, 80) * 1ch + 2rem + 14px); max-width: 100%; font: 400 var(--cell) / 1.3 var(--mono);
+}
+.dragging, .dragging * { cursor: ew-resize !important; user-select: none; }
+.term-bar { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 1rem; font: 600 0.8125rem / 1.2 var(--text); color: var(--sand); border-bottom: 1px solid rgb(246 229 192 / 0.12); white-space: nowrap; overflow: hidden; }
+.term-bar a { color: inherit; }
+pre.term-out {
+  margin: 0; padding: 1rem calc(1rem + 14px) 1rem 1rem; overflow-x: auto; white-space: pre; min-height: 8rem;
+  font: inherit; line-height: 1.25; line-height: round(nearest, 1.25em, 1px); font-variant-ligatures: none;
+}
+.term[data-state="loading"] .out, .term[data-state="idle"] .out, .term[data-state="error"] .out { color: var(--sand); font-family: var(--text); white-space: normal; }
+.probe { position: absolute; visibility: hidden; white-space: pre; }
+.term .note { white-space: pre-wrap; padding: 0 1rem 0.9rem; font: 0.8125rem / 1.4 var(--text); color: var(--gold); }
+.term .note:empty { display: none; }
+.grip {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 14px; cursor: ew-resize; touch-action: none;
+  background: var(--burrow); border-radius: 0 6px 6px 0; display: grid; place-items: center;
+}
+.grip::after { content: ""; width: 4px; height: 36px; border-radius: 2px; background: var(--sand); opacity: 0.7; }
+.grip:hover::after, .dragging .grip::after { opacity: 1; background: var(--gold); }
+.grip:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
+.cmp-h { margin-top: clamp(2.5rem, 5vw, 3.5rem); }
+.play .panel-note { margin-top: 0.4rem; max-width: 70ch; }
+.cmp { margin-top: 1rem; display: grid; gap: 1rem; }
+.term-cmp { width: 100%; }
+.term-cmp pre.term-out {
+  padding-right: 1rem;
+  background: linear-gradient(to right, transparent calc(1rem + var(--cols, 80) * 1ch), rgb(246 229 192 / 0.05) 0) no-repeat,
+    repeating-linear-gradient(to bottom, var(--gold) 0 6px, transparent 6px 12px) no-repeat calc(1rem + var(--cols, 80) * 1ch) 0 / 1px 100%;
+  background-attachment: local;
+}
+.credits { margin-top: 1.25rem; font-size: var(--fs-small); color: var(--g-sub); max-width: 70ch; }
+@media (max-width: 559px) { .term { --cell: 12px; } .try-link { margin-left: 0; display: block; } }
 
 /* ======================================================================
    inner pages: the paper surface

@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - site/**
+      - src/**
+      - build.zig
+      - build.zig.zon
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -29,6 +32,20 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: site/play/mermaid-ascii/go.mod
+          cache-dependency-path: site/play/mermaid-ascii/go.sum
+
+      - name: Build the playground renderers
+        run: bash site/play/build.sh
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
