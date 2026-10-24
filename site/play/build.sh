@@ -10,3 +10,5 @@ cp "$root/zig-out/web/mercat.wasm" "$bin/mercat.wasm"
 
 (cd "$root/site/play/mermaid-ascii" && GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" -o "$bin/mermaid-ascii.wasm" .)
 cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" "$bin/wasm_exec.js"
+# mermaid-ascii is MIT: its license travels with the copy we serve
+(cd "$root/site/play/mermaid-ascii" && cp "$(go list -m -f '{{.Dir}}' github.com/AlexanderGrooff/mermaid-ascii)/LICENSE" "$bin/mermaid-ascii-LICENSE.txt")
