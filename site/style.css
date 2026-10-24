@@ -262,7 +262,7 @@ pre.term-out {
 .grip:focus-visible { outline: 3px solid var(--gold); outline-offset: -3px; }
 .cmp-h { margin-top: clamp(2.5rem, 5vw, 3.5rem); }
 .play .panel-note { margin-top: 0.4rem; max-width: 70ch; }
-.cmp { margin-top: 1rem; display: grid; gap: 1rem; }
+.cmp { margin-top: 1rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
 .term-cmp { width: 100%; }
 .term-cmp pre.term-out {
   padding-right: 1rem;
