@@ -41,3 +41,6 @@ jobs:
 
       - name: Verify version output
         run: zig build -Doptimize=ReleaseSafe run -- --version
+
+      - name: Build the playground renderer
+        run: zig build wasm

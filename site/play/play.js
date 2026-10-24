@@ -162,10 +162,14 @@
   if (hash.get('try')) root.scrollIntoView();
 
   // the renderers load only when the playground comes near the screen
-  const io = new IntersectionObserver((entries) => {
-    if (!entries.some((e) => e.isIntersecting)) return;
-    io.disconnect();
-    engines.forEach((eng) => { spawn(eng); send(eng); });
-  }, { rootMargin: '600px' });
-  io.observe(root);
+  const wake = (el, names) => {
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      engines.filter((eng) => names.includes(eng.name)).forEach((eng) => { spawn(eng); send(eng); });
+    }, { rootMargin: '300px' });
+    io.observe(el);
+  };
+  wake(term, ['mercat']);
+  wake(root.querySelector('.cmp'), ['mermaid-ascii', 'beautiful-mermaid']);
 })();

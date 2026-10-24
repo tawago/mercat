@@ -190,6 +190,9 @@ html { scrollbar-gutter: stable; }
 }
 
 /* ---------- home: the playground below the first screen ---------- */
+/* the full face: drawings use box-drawing glyphs the hero's subset leaves out */
+@font-face { font-family: "Mono full"; src: url(assets/JetBrainsMono-Regular.ttf) format("truetype"); font-weight: 400; font-display: swap; }
+.play { --mono: "Mono full", Menlo, Consolas, monospace; }
 .try-link { display: inline-block; margin-left: 1.25em; padding: 6px 0; font-weight: 600; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
 .play { padding-block: clamp(3rem, 7vw, 5.5rem) 0; }
 .play .sec-lead code { color: var(--ink); font-weight: 500; }
