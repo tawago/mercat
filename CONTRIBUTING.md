@@ -37,6 +37,12 @@ Before opening a pull request:
 2. Follow existing naming and layout conventions.
 3. Avoid unrelated refactors in the same change.
 
+## License Of Contributions
+
+mercat is offered under GPL-3.0-or-later and, separately, under commercial
+licenses (see [`LICENSING.md`](LICENSING.md)). By opening a pull request,
+you agree that your contribution may be distributed under both.
+
 ## Reporting Issues
 
 Include your platform, terminal, Zig version, reproduction steps, and sample markdown when relevant.
