@@ -34,6 +34,7 @@
 <main class="hero">
   <h1>Mermaid diagrams, drawn in your terminal.</h1>
   <p class="lead">Your agent digs the plan. mercat shows you the tunnels.</p>
+  <p class="watch"><button type="button" class="film-open" aria-haspopup="dialog" aria-controls="film">▶ Watch the film <span class="dim">(40s)</span></button></p>
   <div class="get">
     <p class="say" id="say-brew">Install with Homebrew</p>
     <div class="plaque px"><code class="cl">brew install tawago/tap/mercat</code><button class="copy" type="button" data-copy="brew install tawago/tap/mercat" aria-label="Copy the Homebrew command">Copy</button></div>
@@ -41,6 +42,10 @@
     <div class="plaque px"><code class="cl">/plugin install mercat <span class="nw">--marketplace</span> tawago/mercat</code><button class="copy" type="button" data-copy="/plugin install mercat --marketplace tawago/mercat" aria-label="Copy the Claude Code plugin command">Copy</button></div>
   </div>
 </main>
+<dialog class="film" id="film" aria-label="mercat film">
+  <button type="button" class="film-close" aria-label="Close the film">×</button>
+  <video src="assets/promo-cli.mp4" poster="assets/promo-cli.jpg" width="1920" height="1080" controls preload="none" playsinline></video>
+</dialog>
 <p class="vh" aria-live="polite" id="live"></p>
 <script src="script.js" defer></script>
 </body>
