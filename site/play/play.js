@@ -95,7 +95,7 @@
   new ResizeObserver(() => { if (cols > fits()) setCols(fits()); else widthIn.max = fits(); }).observe(root.querySelector('.term-lane'));
 
   // ---------- text size ----------
-  const SIZES = [8, 9, 10, 11, 12, 13, 14, 16];
+  const SIZES = [6, 7, 8, 9, 10, 11, 12];
   const fsOut = $('#ctl-fs');
   let size = 10;
   try { size = Number(localStorage.getItem('mercat-play-size')) || size; } catch {}
