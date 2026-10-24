@@ -8,7 +8,6 @@ import { mermaidFences, split } from './fences'
 import {
   basename,
   clampWidth,
-  clipNoteOf,
   diagramArgv,
   diagramInput,
   diagramOf,
@@ -20,6 +19,7 @@ import {
   MISSING_HINT,
   MOD_VERSION,
   newestFirst,
+  noteOf,
   paneTitle,
   printable,
   relativeTo,
@@ -104,7 +104,7 @@ async function drawDiagram($: EngineInterface, key: string, source: string, widt
   try {
     const run = await $.process.run(diagramArgv(width), { stdin: diagramInput(source), timeoutMs: 10_000 })
     const art = diagramOf(run)
-    const note = clipNoteOf(run.stderr)
+    const note = noteOf(run.stderr)
     diagrams.set(key, art === undefined ? null : note === undefined ? { art } : { art, note })
     if (art !== undefined && !everDrawn.has(key)) {
       everDrawn.set(key, true)

@@ -26,7 +26,7 @@ export function diagramOf(run: ProcessRunResult): string | undefined {
   const isDrawn =
     run.exitCode === 0 &&
     out.trim() !== '' &&
-    !run.stderr.split('\n').some(l => /warning:/.test(l) && !/diagram clipped/.test(l)) &&
+    !run.stderr.split('\n').some(l => /warning:/.test(l) && !/diagram clipped|label ".*" on edge .* is not drawn/.test(l)) &&
     !out.includes('<PARSE ERROR') &&
     !/^[ \t]*`{3,}mermaid/im.test(out)
   return isDrawn ? out : undefined
@@ -44,11 +44,14 @@ export function isOlder(have: string, want: string): boolean {
 export const upgradeHint = (have: string) =>
   `mercat ${have} is older than this mod (${MOD_VERSION}) — brew upgrade tawago/tap/mercat`
 
-export function clipNoteOf(stderr: string): string | undefined {
-  const m = /diagram clipped: true width (\d+) > budget (\d+)/.exec(stderr)
-  return m === null
-    ? undefined
-    : `⚠ mercat: diagram clipped, needs ${m[1]} columns, has ${m[2]}. Widen the terminal to see it whole.`
+export function noteOf(stderr: string): string | undefined {
+  const notes: string[] = []
+  const clip = /diagram clipped: true width (\d+) > budget (\d+)/.exec(stderr)
+  if (clip !== null)
+    notes.push(`⚠ mercat: diagram clipped, needs ${clip[1]} columns, has ${clip[2]}. Widen the terminal to see it whole.`)
+  for (const m of stderr.matchAll(/label "(.*)" on edge \d+ \((.+) -> (.+)\) .* is not drawn/g))
+    notes.push(`⚠ mercat: label "${printable(m[1]!)}" on ${printable(m[2]!)} → ${printable(m[3]!)} dropped, no room to place it.`)
+  return notes.length === 0 ? undefined : notes.join('\n')
 }
 
 export class Lru<V> {
