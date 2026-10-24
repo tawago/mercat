@@ -187,6 +187,7 @@ html { scrollbar-gutter: stable; }
    ====================================================================== */
 .page-head { padding: clamp(2.5rem, 6vw, 4.5rem) var(--m) 0; max-width: 76rem; margin-inline: auto; }
 .page-head h1 { font-weight: 800; font-stretch: 108%; letter-spacing: -0.03em; line-height: 1; font-size: clamp(2.25rem, 1.5rem + 3vw, 3.75rem); }
+.page-head .promo { display: block; width: 100%; height: auto; margin-top: 1.5rem; border-radius: 6px; background: #000; }
 .page-head .lead { margin-top: 1rem; font-size: var(--fs-lead); line-height: 1.45; color: var(--g-sub); max-width: 46ch; }
 .page-head .jump { margin-top: 0.75rem; font-weight: 600; }
 .page-head .jump a { display: inline-block; padding-block: 6px; text-decoration-color: var(--soil); }
