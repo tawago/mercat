@@ -210,7 +210,7 @@ html { scrollbar-gutter: stable; }
 }
 .term-lane { margin-top: 1.25rem; min-width: 0; }
 .term {
-  --cell: 12px; position: relative; background: var(--ink); color: var(--on-dark); border-radius: 6px;
+  --cell: 10px; position: relative; background: var(--ink); color: var(--on-dark); border-radius: 6px;
   width: calc(var(--cols, 80) * 1ch + 2rem + 14px); max-width: 100%; font: 400 var(--cell) / 1.3 var(--mono);
 }
 .dragging, .dragging * { cursor: ew-resize !important; user-select: none; }
@@ -242,7 +242,7 @@ pre.term-out {
   background-attachment: local;
 }
 .credits { margin-top: 1.25rem; font-size: var(--fs-small); color: var(--g-sub); max-width: 70ch; }
-@media (max-width: 559px) { .term { --cell: 11px; } .try-link { margin-left: 0; display: block; } }
+@media (max-width: 559px) { .term { --cell: 10px; } .try-link { margin-left: 0; display: block; } }
 .play pre.term-out { min-height: 5rem; }
 .play .cmp-h { font-size: 1rem; }
 /* wide screens: the source on the left stays put; the three terminals stack on the right */
