@@ -114,6 +114,13 @@ html { scrollbar-gutter: stable; }
 .hero { position: relative; z-index: 2; }
 .hero h1 { font-weight: 800; font-stretch: 108%; letter-spacing: -0.03em; line-height: 0.98; }
 .hero .lead { line-height: 1.35; }
+.hero .watch { margin-top: 0.6em; }
+.film-open { font: inherit; font-weight: 600; color: var(--ink); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
+.film-open .dim { font-weight: 400; }
+.film { padding: 0; border: 0; background: #000; width: min(92vw, calc(88svh * 16 / 9)); max-width: none; }
+.film::backdrop { background: rgb(0 0 0 / 0.82); }
+.film video { display: block; width: 100%; height: auto; }
+.film-close { position: absolute; top: 6px; right: 6px; z-index: 1; width: 40px; height: 40px; font-size: 26px; line-height: 1; color: #fff; background: rgb(0 0 0 / 0.55); border: 0; border-radius: 50%; cursor: pointer; }
 .hero .get { display: grid; gap: 0.35em; }
 .hero .say { font-size: clamp(0.8125rem, calc(var(--imgw) * 0.0088), 1.125rem); font-weight: 600; line-height: 1.3; margin-top: 0.75em; }
 .hero .say:first-child { margin-top: 0; }
@@ -187,6 +194,7 @@ html { scrollbar-gutter: stable; }
    ====================================================================== */
 .page-head { padding: clamp(2.5rem, 6vw, 4.5rem) var(--m) 0; max-width: 76rem; margin-inline: auto; }
 .page-head h1 { font-weight: 800; font-stretch: 108%; letter-spacing: -0.03em; line-height: 1; font-size: clamp(2.25rem, 1.5rem + 3vw, 3.75rem); }
+.page-head .promo { display: block; width: 100%; height: auto; margin-top: 1.5rem; border-radius: 6px; background: #000; }
 .page-head .lead { margin-top: 1rem; font-size: var(--fs-lead); line-height: 1.45; color: var(--g-sub); max-width: 46ch; }
 .page-head .jump { margin-top: 0.75rem; font-weight: 600; }
 .page-head .jump a { display: inline-block; padding-block: 6px; text-decoration-color: var(--soil); }

@@ -26,6 +26,16 @@
     });
   });
 
+  // the film plays in a dialog; closing it pauses
+  const film = document.getElementById('film');
+  if (film) {
+    const v = film.querySelector('video');
+    document.querySelector('.film-open').addEventListener('click', () => { film.showModal(); v.play().catch(() => {}); });
+    film.querySelector('.film-close').addEventListener('click', () => film.close());
+    film.addEventListener('click', (e) => { if (e.target === film) film.close(); });
+    film.addEventListener('close', () => v.pause());
+  }
+
   // tabs: one per chart type, each linkable by its #hash
   const tabs = [...document.querySelectorAll('[role="tab"]')];
   if (tabs.length) {
