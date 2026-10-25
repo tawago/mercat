@@ -1,4 +1,4 @@
-// The playground: one source, three renderers in workers, one width.
+// The playground: one source, four renderers in workers, one width.
 // The width is the terminal's columns; renderers that take a limit get it minus 2, like `mercat -w`.
 (() => {
   const root = document.getElementById('try');
@@ -126,14 +126,19 @@
   // ---------- renderers ----------
   const engines = [...root.querySelectorAll('[data-engine]')].map((el) => ({
     name: el.dataset.engine, el, out: el.querySelector('.out'), note: el.querySelector('.note'),
-    worker: null, seq: 0, busy: false, queued: false, timer: 0,
+    worker: null, loaded: false, seq: 0, busy: false, queued: false, timer: 0,
   }));
 
   function spawn(eng) {
     eng.worker?.terminate();
     eng.worker = new Worker(`play/worker.js?e=${eng.name}`, { type: 'module' });
-    eng.worker.onmessage = ({ data }) => done(eng, data);
+    eng.worker.onmessage = ({ data }) => {
+      if (!data.loaded) return done(eng, data);
+      eng.loaded = true;
+      arm(eng);
+    };
     eng.busy = false;
+    eng.loaded = false;
   }
 
   function send(eng) {
@@ -142,7 +147,13 @@
     const id = ++eng.seq;
     if (eng.el.dataset.state === 'idle') eng.el.dataset.state = 'loading';
     eng.worker.postMessage({ id, src: src.value, width: Math.max(cols - 2, 1) });
+    arm(eng);
+  }
+
+  // the clock runs only once the renderer has loaded: a slow download is not a slow render
+  function arm(eng) {
     clearTimeout(eng.timer);
+    if (!eng.loaded || !eng.busy) return;
     eng.timer = setTimeout(() => {
       spawn(eng);
       show(eng, { error: `Stopped: took longer than ${TIMEOUT / 1000} seconds.` });
@@ -255,5 +266,5 @@
     io.observe(el);
   };
   wake(term, ['mercat']);
-  wake(root.querySelector('.cmp'), ['mermaid-ascii', 'beautiful-mermaid']);
+  wake(root.querySelector('.cmp'), ['mermaid-ascii', 'beautiful-mermaid', 'termaid']);
 })();
