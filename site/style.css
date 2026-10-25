@@ -155,6 +155,14 @@ html { scrollbar-gutter: stable; }
 @media (orientation: portrait) and (min-width: 700px) {
   .hero .get { font-size: 15px; }
 }
+/* narrow phones: the picture is at most 1.3 screens wide, so all four chambers stay in view */
+@media (orientation: portrait) and (max-width: 559px) {
+  .scene { background-size: auto clamp(calc(100vw / 1.77683), 113%, calc(130vw / 1.77683)); background-position: 15% 100%; }
+}
+/* the picture's sky meets the page's sky without a seam */
+@media (orientation: portrait), (max-width: 559px) {
+  .scene::before { content: ""; position: absolute; inset: 0 0 auto; height: 40%; background: linear-gradient(var(--sky), rgb(246 229 192 / 0)); pointer-events: none; }
+}
 @media (orientation: portrait) and (max-height: 720px), (max-width: 380px) {
   .top { padding-top: 10px; }
   .top nav ul { gap: 0 1.25rem; }
