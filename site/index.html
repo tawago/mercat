@@ -26,6 +26,7 @@
 <link rel="preload" as="image" href="assets/savanna.webp" fetchpriority="high">
 </head>
 <body>
+<div class="first">
 <div class="scene" role="img" aria-label="Pixel-art savanna: a meerkat stands on its mound among acacias and dry grass; below, its burrow branches into four chambers."></div>
 <header class="top">
   <a class="mark" href="./" aria-current="page"><img src="assets/wordmark.png" width="218" height="36" alt="mercat, home"></a>
@@ -34,7 +35,7 @@
 <main class="hero">
   <h1>Mermaid diagrams, drawn in your terminal.</h1>
   <p class="lead">Your agent digs the plan. mercat shows you the tunnels.</p>
-  <p class="watch"><button type="button" class="film-open" aria-haspopup="dialog" aria-controls="film">▶ Watch the film <span class="dim">(40s)</span></button></p>
+  <p class="watch"><button type="button" class="film-open" aria-haspopup="dialog" aria-controls="film">▶ Watch the film <span class="dim">(40s)</span></button><a class="try-link" href="#try">Try your own diagram ↓</a></p>
   <div class="get">
     <p class="say" id="say-brew">Install with Homebrew</p>
     <div class="plaque px"><code class="cl">brew install tawago/tap/mercat</code><button class="copy" type="button" data-copy="brew install tawago/tap/mercat" aria-label="Copy the Homebrew command">Copy</button></div>
@@ -42,11 +43,79 @@
     <div class="plaque px"><code class="cl">/plugin install mercat <span class="nw">--marketplace</span> tawago/mercat</code><button class="copy" type="button" data-copy="/plugin install mercat --marketplace tawago/mercat" aria-label="Copy the Claude Code plugin command">Copy</button></div>
   </div>
 </main>
+</div>
+<section class="play" id="try" aria-labelledby="try-h">
+  <div class="wrap">
+    <h2 id="try-h">Try your own diagram</h2>
+    <p class="sec-lead">Paste Mermaid, or pick an example. Drag the terminal’s right edge to change its width; mercat redraws to fit, just like <code>mercat -w <span data-cols>80</span></code>.</p>
+    <div class="play-body">
+    <div class="play-src">
+      <div class="presets" role="group" aria-label="Examples">
+        <button type="button" data-preset="ci" aria-pressed="false">Clear finish line</button>
+        <button type="button" data-preset="rails" aria-pressed="false">Faithful lines</button>
+        <button type="button" data-preset="layers" aria-pressed="false">Better subgraphs</button>
+        <button type="button" data-preset="wide" aria-pressed="false">Fits your terminal</button>
+      </div>
+      <label class="vh" for="play-src">Mermaid source</label>
+      <div class="editor">
+        <pre class="hl" aria-hidden="true"><code></code></pre>
+        <textarea id="play-src" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12"></textarea>
+      </div>
+    </div>
+    <div class="play-out">
+      <div class="play-ctl">
+        <label class="ctl-w">Width <input type="range" id="ctl-w" min="24" max="200" value="80"> <output for="ctl-w"><span data-cols>80</span> columns</output></label>
+        <span class="ctl-font" role="group" aria-label="Text size">
+          <button type="button" data-font="-1" aria-label="Smaller text">A−</button>
+          <output id="ctl-fs">10px</output>
+          <button type="button" data-font="1" aria-label="Larger text">A+</button>
+        </span>
+      </div>
+    <div class="term-lane">
+      <div class="term" data-engine="mercat" data-state="idle">
+        <div class="term-bar"><span>mercat</span><span><span data-cols>80</span> columns</span></div>
+        <pre class="term-out"><code class="out">Loading mercat…</code></pre>
+        <p class="note" aria-live="polite"></p>
+        <div class="grip" role="slider" tabindex="0" aria-label="Terminal width in columns" aria-valuemin="24" aria-valuemax="200" aria-valuenow="80"></div>
+      </div>
+    </div>
+    <h3 class="cmp-h">The same diagram in two other terminal renderers</h3>
+    <p class="panel-note">Same source, same <span data-cols>80</span>-column terminal (the dashed line). mermaid-ascii gets the same width limit as mercat; beautiful-mermaid has no width option, so it draws at its natural size.</p>
+    <div class="cmp">
+      <div class="term term-cmp" data-engine="mermaid-ascii" data-state="idle">
+        <div class="term-bar"><a href="https://github.com/AlexanderGrooff/mermaid-ascii">mermaid-ascii</a><span>commit 5a9df15</span></div>
+        <pre class="term-out"><code class="out">Loading mermaid-ascii…</code></pre>
+        <p class="note"></p>
+      </div>
+      <div class="term term-cmp" data-engine="beautiful-mermaid" data-state="idle">
+        <div class="term-bar"><a href="https://github.com/lukilabs/beautiful-mermaid">beautiful-mermaid</a><span>1.1.3</span></div>
+        <pre class="term-out"><code class="out">Loading beautiful-mermaid…</code></pre>
+        <p class="note"></p>
+      </div>
+    </div>
+    </div>
+    </div>
+  </div>
+</section>
+<footer class="foot">
+  <div class="horizon" aria-hidden="true"></div>
+  <div class="foot-body">
+    <div class="wrap foot-row">
+      <ul class="foot-links">
+        <li><a href="https://github.com/tawago/mercat">GitHub</a></li>
+        <li><a href="https://github.com/tawago/mercat/releases">Releases</a></li>
+        <li><a href="https://github.com/tawago/mercat/issues">Issues</a></li>
+      </ul>
+      <p>Code under <a href="https://github.com/tawago/mercat/blob/main/LICENSE">GPL-3.0-or-later</a>. The meerkat and the wordmark are under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; credit “mercat”.</p>
+    </div>
+  </div>
+</footer>
 <dialog class="film" id="film" aria-label="mercat film">
   <button type="button" class="film-close" aria-label="Close the film">×</button>
   <video src="assets/promo-cli.mp4" poster="assets/promo-cli.jpg" width="1920" height="1080" controls preload="none" playsinline></video>
 </dialog>
 <p class="vh" aria-live="polite" id="live"></p>
 <script src="script.js" defer></script>
+<script src="play/play.js" defer></script>
 </body>
 </html>

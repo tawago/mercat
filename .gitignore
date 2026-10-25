@@ -31,3 +31,6 @@ scripts/judge-loop.sh
 
 # Engine-generated mod typings
 mods/mercat/.claude-plugin/types/
+
+# Playground renderers, built by site/play/build.sh
+site/play/bin/

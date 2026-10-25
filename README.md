@@ -2,6 +2,8 @@
 
 `cat` for markdown, with mermaids. Flowcharts drawn as text that fits your terminal width; also a markdown viewer. Written in Zig.
 
+**[Try it in your browser →](https://tawago.github.io/mercat/#try)** Paste a diagram, drag the width, compare with other renderers.
+
 <p align="center">
   <img src="assets/brand/mercat-hero.png" alt="The mercat meerkat peeking out of a burrow drawn as a flowchart" width="420">
 </p>
