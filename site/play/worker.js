@@ -1,4 +1,4 @@
-// One renderer per worker, picked by ?e=: mercat, mermaid-ascii or beautiful-mermaid.
+// One renderer per worker, picked by ?e=: mercat, mermaid-ascii, beautiful-mermaid or termaid.
 // A renderer that throws or traps reports `dead`, and the page starts a fresh worker.
 const engine = new URL(self.location.href).searchParams.get('e');
 
@@ -38,10 +38,29 @@ const loaders = {
     const m = await import('https://cdn.jsdelivr.net/npm/beautiful-mermaid@1.1.3/+esm');
     return (src) => ({ text: m.renderMermaidASCII(src, { colorMode: 'none' }) });
   },
+  // termaid is pure Python: Pyodide runs it, and its CLI's own --width fit does the fitting
+  async termaid() {
+    const { loadPyodide } = await import('https://cdn.jsdelivr.net/pyodide/v0.28.3/full/pyodide.mjs');
+    const py = await loadPyodide();
+    await py.loadPackage('micropip');
+    await py.pyimport('micropip').install('termaid==0.9.1');
+    const fit = py.runPython(`
+import argparse
+from termaid import render, cli
+args = argparse.Namespace(show_ids=False, ascii=False, padding_x=4, padding_y=2, sharp_edges=False,
+                          gap=4, inline_edge_labels=False, no_auto_fit=False)
+lambda src, width: cli._render_one(src, args, render, target_width=width)
+`);
+    return (src, width) => {
+      try { return { text: fit(src, width) }; } catch (e) {
+        return { error: `termaid could not draw this diagram: ${String(e.message).trim().split('\n').pop()}` };
+      }
+    };
+  },
 };
 
 const ready = loaders[engine]();
-ready.catch(() => {});
+ready.then(() => postMessage({ loaded: true }), () => {});
 
 self.onmessage = async ({ data }) => {
   let render;
