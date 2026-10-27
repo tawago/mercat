@@ -13,9 +13,100 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceDiagram {
     return parseSequenceDiagram(&s);
 }
 
+/// An open block: a fragment, or a block the diagram does not draw whose `end` must not close
+/// the fragment around it.
+const Block = union(enum) { fragment: model.FragmentKind, ignored };
+
+const max_depth = 64;
+
+const Blocks = struct {
+    stack: [max_depth]Block = undefined,
+    len: usize = 0,
+    overflow: usize = 0,
+
+    fn push(self: *Blocks, block: Block) void {
+        if (self.len == max_depth) {
+            self.overflow += 1;
+            return;
+        }
+        self.stack[self.len] = block;
+        self.len += 1;
+    }
+
+    fn pop(self: *Blocks) ?Block {
+        if (self.overflow > 0) {
+            self.overflow -= 1;
+            return .ignored;
+        }
+        if (self.len == 0) return null;
+        self.len -= 1;
+        return self.stack[self.len];
+    }
+
+    fn top(self: *const Blocks) ?Block {
+        if (self.overflow > 0) return .ignored;
+        if (self.len == 0) return null;
+        return self.stack[self.len - 1];
+    }
+};
+
+const fragment_words = [_]struct { []const u8, model.FragmentKind }{
+    .{ "loop", .loop },
+    .{ "alt", .alt },
+    .{ "opt", .opt },
+    .{ "par", .par },
+    .{ "critical", .critical },
+    .{ "break", .break_ },
+};
+
+/// Fragment openers, dividers, `end`, and the ignored `rect` and `box` blocks; false when the
+/// line starts with none of them.
+fn parseBlockLine(s: *Scanner, diagram: *SequenceDiagram, blocks: *Blocks) !bool {
+    for (fragment_words) |entry| {
+        if (!s.consumeKeyword(entry[0])) continue;
+        if (blocks.overflow > 0 or blocks.len == max_depth) {
+            blocks.push(.ignored);
+        } else {
+            blocks.push(.{ .fragment = entry[1] });
+            try diagram.addElement(.{ .fragment_open = .{ .kind = entry[1], .guard = guardText(s) } });
+        }
+        s.skipToNextLine();
+        return true;
+    }
+    if (s.consumeKeyword("rect") or s.consumeKeyword("box")) {
+        blocks.push(.ignored);
+        s.skipToNextLine();
+        return true;
+    }
+    for ([_][]const u8{ "else", "and", "option" }) |word| {
+        if (!s.consumeKeyword(word)) continue;
+        const guard = guardText(s);
+        if (blocks.top()) |block| switch (block) {
+            .fragment => |kind| if (kind.dividerWord()) |divider| {
+                if (std.mem.eql(u8, divider, word)) try diagram.addElement(.{ .fragment_divider = .{ .guard = guard } });
+            },
+            .ignored => {},
+        };
+        s.skipToNextLine();
+        return true;
+    }
+    if (s.consumeKeyword("end")) {
+        if (blocks.pop()) |block| if (block == .fragment) try diagram.addElement(.fragment_close);
+        s.skipToNextLine();
+        return true;
+    }
+    return false;
+}
+
+fn guardText(s: *Scanner) []const u8 {
+    s.skipWhitespace();
+    return std.mem.trim(u8, s.restOfLine(), " \t\r");
+}
+
 fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
     var diagram = SequenceDiagram.init(s.allocator);
     errdefer diagram.deinit();
+    var blocks: Blocks = .{};
 
     s.skipWhitespaceAndComments();
 
@@ -59,25 +150,17 @@ fn parseSequenceDiagram(s: *Scanner) !SequenceDiagram {
             try parseActivation(s, &diagram, false);
             continue;
         }
-        if (skipBlockKeyword(s)) {
-            s.skipToNextLine();
-            continue;
-        }
+        if (try parseBlockLine(s, &diagram, &blocks)) continue;
 
         if (!try parseSequenceMessage(s, &diagram)) {
             s.skipToNextLine();
         }
     }
+    while (blocks.pop()) |block| {
+        if (block == .fragment) try diagram.addElement(.fragment_close);
+    }
 
     return diagram;
-}
-
-fn skipBlockKeyword(s: *Scanner) bool {
-    const keywords = [_][]const u8{ "loop", "alt", "else", "opt", "par", "critical", "break", "rect", "end" };
-    for (keywords) |keyword| {
-        if (s.consumeKeyword(keyword)) return true;
-    }
-    return false;
 }
 
 fn parseParticipantDecl(s: *Scanner, diagram: *SequenceDiagram) !void {
@@ -116,11 +199,7 @@ fn parseAlias(s: *Scanner) []const u8 {
         if (!s.isAtEnd()) s.advance();
         return alias;
     }
-    const start = s.pos;
-    while (!s.isLineEnd() and !scan.isWhitespace(s.current())) {
-        s.advance();
-    }
-    return s.source[start..s.pos];
+    return std.mem.trim(u8, s.restOfLine(), " \t\r");
 }
 
 fn parseSequenceMessage(s: *Scanner, diagram: *SequenceDiagram) !bool {
@@ -139,6 +218,9 @@ fn parseSequenceMessage(s: *Scanner, diagram: *SequenceDiagram) !bool {
         return false;
     };
 
+    s.skipWhitespace();
+    const activates = s.matchChar('+');
+    const deactivates = !activates and s.matchChar('-');
     s.skipWhitespace();
 
     const to = s.identifier();
@@ -160,6 +242,8 @@ fn parseSequenceMessage(s: *Scanner, diagram: *SequenceDiagram) !bool {
         .arrow_type = arrow,
         .is_self_message = std.mem.eql(u8, from, to),
     });
+    if (activates) try diagram.addActivation(.{ .participant = to, .is_activate = true });
+    if (deactivates) try diagram.addActivation(.{ .participant = from, .is_activate = false });
 
     s.skipToNextLine();
     return true;
@@ -369,4 +453,80 @@ test "parse sequence diagram with notes" {
     try testing.expectEqualStrings("Alice", second.participant1);
     try testing.expectEqualStrings("Bob", second.participant2.?);
     try testing.expectEqualStrings("They greet", second.text);
+}
+
+fn tags(diagram: *const SequenceDiagram, buf: []Element) []Element {
+    for (diagram.elements.items, 0..) |element, i| buf[i] = element;
+    return buf[0..diagram.elements.items.len];
+}
+
+test "fragments nest as the source nests them, and operands keep declared order" {
+    const testing = std.testing;
+    const source =
+        \\sequenceDiagram
+        \\    loop every batch
+        \\        A->>B: send
+        \\        alt room
+        \\            B->>C: enqueue
+        \\        else full
+        \\            B-->>A: retry
+        \\        end
+        \\    end
+    ;
+    var diagram = try parse(testing.allocator, source);
+    defer diagram.deinit();
+    var buf: [16]Element = undefined;
+    const want = [_]Element{ .fragment_open, .message, .fragment_open, .message, .fragment_divider, .message, .fragment_close, .fragment_close };
+    try testing.expectEqualSlices(Element, &want, tags(&diagram, &buf));
+    try testing.expectEqual(model.FragmentKind.loop, diagram.elements.items[0].fragment_open.kind);
+    try testing.expectEqualStrings("every batch", diagram.elements.items[0].fragment_open.guard);
+    try testing.expectEqualStrings("full", diagram.elements.items[4].fragment_divider.guard);
+}
+
+test "a rect's end never closes its parent, a stray end is ignored, and end of input closes every fragment" {
+    const testing = std.testing;
+    const source =
+        \\sequenceDiagram
+        \\    end
+        \\    opt maybe
+        \\        rect rgb(0, 0, 0)
+        \\            A->>B: inside
+        \\        end
+        \\        A->>B: still inside
+        \\    par one
+        \\        A->>B: x
+        \\    and two
+        \\        else not a divider here
+        \\        A->>C: y
+    ;
+    var diagram = try parse(testing.allocator, source);
+    defer diagram.deinit();
+    var buf: [16]Element = undefined;
+    const want = [_]Element{ .fragment_open, .message, .message, .fragment_open, .message, .fragment_divider, .message, .fragment_close, .fragment_close };
+    try testing.expectEqualSlices(Element, &want, tags(&diagram, &buf));
+    try testing.expectEqual(model.FragmentKind.par, diagram.elements.items[3].fragment_open.kind);
+}
+
+test "the plus shorthand activates the receiver and the minus shorthand deactivates the sender, after the message" {
+    const testing = std.testing;
+    const source =
+        \\sequenceDiagram
+        \\    A->>+B: call
+        \\    B-->>-A: back
+        \\    A-)B: async
+        \\    A--)B: async dashed
+    ;
+    var diagram = try parse(testing.allocator, source);
+    defer diagram.deinit();
+    var buf: [16]Element = undefined;
+    const want = [_]Element{ .message, .activation, .message, .activation, .message, .message };
+    try testing.expectEqualSlices(Element, &want, tags(&diagram, &buf));
+    try testing.expectEqualStrings("B", diagram.elements.items[0].message.to);
+    try testing.expectEqualStrings("B", diagram.elements.items[1].activation.participant);
+    try testing.expect(diagram.elements.items[1].activation.is_activate);
+    try testing.expectEqualStrings("B", diagram.elements.items[3].activation.participant);
+    try testing.expect(!diagram.elements.items[3].activation.is_activate);
+    try testing.expectEqual(SequenceArrowType.solid_open, diagram.elements.items[4].message.arrow_type);
+    try testing.expectEqual(SequenceArrowType.dashed_open, diagram.elements.items[5].message.arrow_type);
+    try testing.expectEqual(@as(usize, 2), diagram.participants.items.len);
 }

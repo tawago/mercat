@@ -181,12 +181,6 @@ pub const Canvas = struct {
         self.drawText(x, y, text, priority);
     }
 
-    pub fn drawTextCenteredSpanning(self: *Canvas, rect: Rect, text: []const u8, priority: Priority) Allocator.Error!void {
-        const text_width: i32 = @intCast(unicode.rawDisplayWidth(text) catch return);
-        const x = rect.x + @divFloor(@as(i32, @intCast(rect.width)) - text_width, 2);
-        try self.drawTextSpanning(x, rect.y + @divFloor(@as(i32, @intCast(rect.height)), 2), text, priority);
-    }
-
     pub fn drawHorizontalLine(self: *Canvas, y: i32, x1: i32, x2: i32, char: u21, priority: Priority) void {
         const start = @min(x1, x2);
         const end = @max(x1, x2);

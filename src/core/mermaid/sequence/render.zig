@@ -1,54 +1,49 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const parse = @import("parse.zig");
-const model = @import("model.zig");
+const seq = @import("seq.zig");
+const normalize = @import("normalize.zig");
 const fit = @import("fit.zig");
 const ladder = @import("../shared/ladder.zig");
 const top_down = @import("tb.zig");
 const left_right = @import("lr.zig");
-const top_down_wrapped = @import("tb_wrap.zig");
 
 pub fn render(allocator: Allocator, source: []const u8, max_width: u32) !ladder.Fit {
     var diagram = try parse.parse(allocator, source);
     defer diagram.deinit();
+    if (diagram.participants.items.len == 0) return .{ .drawn = "" };
 
-    const painter = Painter{ .allocator = allocator, .diagram = &diagram };
-    return ladder.firstFit(fit.ladder(diagram.direction, diagram.direction_explicit), painter, max_width);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const sequence = try normalize.normalize(arena.allocator(), &diagram);
+
+    const painter = Painter{ .allocator = allocator, .sequence = &sequence };
+    const rungs = fit.ladder(diagram.direction, diagram.direction_explicit, sequence.hasTopDownOnly());
+    return ladder.firstFit(rungs, painter, max_width);
 }
 
-pub const Painter = struct {
+const Painter = struct {
     allocator: Allocator,
-    diagram: *model.SequenceDiagram,
+    sequence: *const seq.Sequence,
 
-    pub fn draw(self: Painter, spacing: fit.Spacing, max_width: u32) !ladder.Fit {
-        if (spacing.wrap) {
-            return top_down_wrapped.render(self.allocator, self.diagram, spacing, max_width) catch |err| switch (err) {
-                error.OutOfMemory => err,
-                else => .{ .too_wide = std.math.maxInt(u32) },
-            };
-        }
-        return switch (spacing.direction orelse self.diagram.direction) {
-            .LR => left_right.render(self.allocator, self.diagram, spacing, max_width),
-            else => top_down.render(self.allocator, self.diagram, spacing, max_width),
+    pub fn draw(self: Painter, rung: fit.Rung, max_width: u32) !ladder.Fit {
+        return switch (rung) {
+            .top_down => top_down.render(self.allocator, self.sequence, max_width),
+            .left_right => left_right.render(self.allocator, self.sequence, max_width),
         };
     }
 };
 
-pub const wide_self_message =
-    \\sequenceDiagram
-    \\    participant P as Sender
-    \\    participant API as Ingest endpoint
-    \\    participant DB as DataStore
-    \\    participant W as Worker
-    \\    P->>API: Signed request
-    \\    API->>API: Validate signature and size/schema limits
-    \\    API->>DB: Transaction: dedupe + minimized record + event + task
-    \\    API-->>P: Acknowledge
-    \\    W->>DB: Lease task
-    \\    W->>P: Fetch authoritative current value when needed
-    \\    W->>DB: Commit normalized value + Domain event
-;
-
 test {
-    _ = @import("tb_wrap_test.zig");
+    _ = @import("normalize.zig");
+    _ = @import("tb.zig");
+    _ = @import("tb_text.zig");
+    _ = @import("tb_rows.zig");
+    _ = @import("tb_columns.zig");
+    _ = @import("tb_frames.zig");
+    _ = @import("ink.zig");
+    _ = @import("tb_paint.zig");
+    _ = @import("lr.zig");
+    _ = @import("fit.zig");
+    _ = @import("parse.zig");
 }

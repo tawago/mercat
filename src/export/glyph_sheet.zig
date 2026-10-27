@@ -84,6 +84,9 @@ pub const misc_render_glyphs = [_]u21{
     0x253C,
     0x00A7,
     0x00BB,
+    0x00D7,
+    'v',
+    '^',
 };
 
 pub fn allRendererOwned(buf: *std.ArrayList(u21), allocator: std.mem.Allocator) !void {

@@ -82,7 +82,7 @@ test "a flowchart the parser refuses shows its banner above the source" {
 
 test "a diagram too wide for the width shows its source with no banner" {
     const allocator = testing.allocator;
-    const out = try renderBlockText(allocator, "mermaid", "sequenceDiagram\nAlice->>Bob: a very long message text here", 20, true);
+    const out = try renderBlockText(allocator, "mermaid", "sequenceDiagram\nAlice->>Bob: averyverylongmessagetextwithnospace", 20, true);
     defer allocator.free(out);
     try testing.expect(std.mem.startsWith(u8, out, "```mermaid\n sequenceDiagram "));
 }
