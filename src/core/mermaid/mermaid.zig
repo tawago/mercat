@@ -32,7 +32,10 @@ pub fn render(allocator: std.mem.Allocator, source: []const u8, options: Options
         .er => er.render(allocator, source, options.max_width),
         .state => state.render(allocator, source, options.max_width),
         .unsupported => return .{ .not_drawn = .{} },
-    } catch return .{ .not_drawn = .{} };
+    } catch |err| {
+        std.log.warn("mermaid: {s} diagram not drawn: {s}", .{ kindName(kind), @errorName(err) });
+        return .{ .not_drawn = .{} };
+    };
     return switch (fit) {
         .drawn => |text| .{ .drawn = text },
         .too_wide => |width| blk: {
@@ -68,6 +71,7 @@ test "each kind over the budget reports its measured width, draws at that width,
         .{ class.render, "classDiagram\n    class Animal\n    class Duck\n    class Fish\n    class Zebra\n    Animal <|-- Duck\n    Animal <|-- Fish\n    Animal <|-- Zebra\n", "classDiagram\n" },
         .{ er.render, "erDiagram\n    CUSTOMER ||--o{ ORDER : places\n    ORDER ||--|{ LINE_ITEM : contains\n", "erDiagram\n" },
         .{ state.render, "stateDiagram-v2\n    [*] --> Idle\n    Idle --> Running : start\n    Running --> Idle : stop\n    Running --> [*]\n", "stateDiagram-v2\n" },
+        .{ sequence.render, "sequenceDiagram\n    participant B as Browser\n    B->>S: POST /login with a long body\n    activate S\n    alt ok\n        S-->>B: 200 + token\n    end\n    deactivate S\n", "sequenceDiagram\n" },
     };
     inline for (cases) |case| {
         const render_kind = case[0];

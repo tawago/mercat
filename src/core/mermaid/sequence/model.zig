@@ -33,21 +33,9 @@ pub const SequenceArrowType = enum {
 pub const Participant = struct {
     id: []const u8,
     alias: ?[]const u8 = null,
-    x: i32 = 0,
-    y: i32 = 0,
-    box_width: u32 = 0,
 
     pub fn displayName(self: *const Participant) []const u8 {
         return self.alias orelse self.id;
-    }
-
-    /// The box width that fits the name: four columns wider than it, and at least eight.
-    pub fn naturalWidth(self: *const Participant) u32 {
-        return @max(@as(u32, @intCast(self.displayName().len + 4)), 8);
-    }
-
-    pub fn centerX(self: *const Participant) i32 {
-        return self.x + @as(i32, @intCast(self.box_width / 2));
     }
 };
 
@@ -71,10 +59,43 @@ pub const Activation = struct {
     is_activate: bool,
 };
 
+pub const FragmentKind = enum {
+    loop,
+    alt,
+    opt,
+    par,
+    critical,
+    break_,
+
+    pub fn word(self: FragmentKind) []const u8 {
+        return switch (self) {
+            .break_ => "break",
+            else => @tagName(self),
+        };
+    }
+
+    /// The keyword that opens a later operand of this kind, if it has one.
+    pub fn dividerWord(self: FragmentKind) ?[]const u8 {
+        return switch (self) {
+            .alt => "else",
+            .par => "and",
+            .critical => "option",
+            else => null,
+        };
+    }
+};
+
+pub const FragmentOpen = struct { kind: FragmentKind, guard: []const u8 };
+
+pub const FragmentDivider = struct { guard: []const u8 };
+
 pub const SequenceElement = union(enum) {
     message: Message,
     note: SequenceNote,
     activation: Activation,
+    fragment_open: FragmentOpen,
+    fragment_divider: FragmentDivider,
+    fragment_close,
 };
 
 pub const SequenceDiagram = struct {
@@ -118,13 +139,8 @@ pub const SequenceDiagram = struct {
         try self.elements.append(self.allocator, .{ .activation = activation });
     }
 
-    pub fn getParticipant(self: *const SequenceDiagram, id: []const u8) ?*const Participant {
-        for (self.participants.items) |*p| {
-            if (std.mem.eql(u8, p.id, id)) {
-                return p;
-            }
-        }
-        return null;
+    pub fn addElement(self: *SequenceDiagram, element: SequenceElement) !void {
+        try self.elements.append(self.allocator, element);
     }
 
     pub fn getParticipantIndex(self: *const SequenceDiagram, id: []const u8) ?usize {
