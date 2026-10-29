@@ -161,7 +161,7 @@ describe('replies', () => {
     await $.ui.render(reply(MERMAID.replace('A-->B', 'C-->D')))
     await w.clock.settle()
     expect(w.drawn.every(text => text.includes('```mermaid'))).toBe(true)
-    expect(w.toasts).toEqual(['mercat not found on PATH — brew install tawago/tap/mercat'])
+    expect(w.toasts).toEqual(['mercat not found on PATH — see https://github.com/tawago/mercat#installation'])
     expect(w.runs.length, 'no render retries').toBeLessThanOrEqual(1)
   })
 

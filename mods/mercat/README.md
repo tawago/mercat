@@ -15,7 +15,7 @@ mercat on your `PATH`:
 brew install tawago/tap/mercat
 ```
 
-If it is missing, the mod shows one hint per session and leaves diagrams as written.
+Or any other method under [Installation](../../README.md#installation). If it is missing, the mod shows one hint per session and leaves diagrams as written.
 
 The mod's version is mercat's release version. If your mercat is older than the mod, it shows one upgrade hint at start.
 

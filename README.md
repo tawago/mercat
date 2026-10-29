@@ -32,6 +32,23 @@ sudo apt install ./mercat_<version>_amd64.deb   # Debian/Ubuntu
 sudo dnf install ./mercat-<version>.x86_64.rpm  # Fedora/RHEL
 ```
 
+### Nix and Flox
+
+[llm-agents.nix](https://github.com/numtide/llm-agents.nix) packages mercat for
+`aarch64-darwin`, `aarch64-linux` and `x86_64-linux`:
+
+```bash
+nix run github:numtide/llm-agents.nix#mercat -- --help
+```
+
+The same package is in the `agent-stacks` Flox catalog. Installing from it
+needs a FloxHub login; see
+[agent-pkgs](https://github.com/agent-stacks/agent-pkgs#installing-with-flox):
+
+```bash
+flox install agent-stacks/mercat
+```
+
 ### Installer Script
 
 ```bash

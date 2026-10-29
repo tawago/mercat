@@ -4,7 +4,7 @@ export const MOD_VERSION = '0.3.4'
 export const MIN_WIDTH = 20
 export const MAX_WIDTH = 1000
 export const TRANSCRIPT_MARGIN = 1
-export const MISSING_HINT = 'mercat not found on PATH — brew install tawago/tap/mercat'
+export const MISSING_HINT = 'mercat not found on PATH — see https://github.com/tawago/mercat#installation'
 
 export const clampWidth = (n: number) => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.floor(n)))
 
