@@ -35,6 +35,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--paper); color-scheme: light; -webkit-text-size-adjust: 100%; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
   font-family: var(--text); font-size: var(--fs-body); line-height: 1.55;
@@ -106,21 +107,22 @@ html { scrollbar-gutter: stable; }
   --oy: calc((100svh - var(--imgh)) * 0.6);
   height: 100vh; height: 100svh;
 }
-.scene {
-  position: absolute; inset: 0; z-index: 0;
+.scene { position: absolute; inset: 0; z-index: 0; container-type: size; }
+/* the picture's placement inside the scene, in the scene's own units */
+.scene > *, .scene::before {
+  --imgw: max(100cqw, 100cqh * var(--ar));
+  --imgh: calc(var(--imgw) / var(--ar));
+  --ox: calc((100cqw - var(--imgw)) * 0.45);
+  --oy: calc((100cqh - var(--imgh)) * 0.6);
+}
+.art {
+  position: absolute; inset: 0;
   background: var(--sky) url(assets/savanna.webp) no-repeat var(--ox) var(--oy) / var(--imgw) var(--imgh);
   image-rendering: pixelated;
 }
 .hero { position: relative; z-index: 2; }
-.hero h1 { font-weight: 800; font-stretch: 108%; letter-spacing: -0.03em; line-height: 0.98; }
-.hero .lead { line-height: 1.35; }
-.hero .watch { margin-top: 0.6em; }
-.film-open { font: inherit; font-weight: 600; color: var(--ink); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
-.film-open .dim { font-weight: 400; }
-.film { padding: 0; border: 0; background: #000; width: min(92vw, calc(88svh * 16 / 9)); max-width: none; }
-.film::backdrop { background: rgb(0 0 0 / 0.82); }
-.film video { display: block; width: 100%; height: auto; }
-.film-close { position: absolute; top: 6px; right: 6px; z-index: 1; width: 40px; height: 40px; font-size: 26px; line-height: 1; color: #fff; background: rgb(0 0 0 / 0.55); border: 0; border-radius: 50%; cursor: pointer; }
+.hero h1 { font-weight: 800; font-stretch: 108%; letter-spacing: -0.03em; line-height: 1.06; }
+.hero .watch { margin-top: 0.875rem; }
 .hero .get { display: grid; gap: 0.35em; }
 .hero .say { font-size: clamp(0.8125rem, calc(var(--imgw) * 0.0088), 1.125rem); font-weight: 600; line-height: 1.3; margin-top: 0.75em; }
 .hero .say:first-child { margin-top: 0; }
@@ -133,23 +135,23 @@ html { scrollbar-gutter: stable; }
   .hero {
     position: absolute;
     left: calc(var(--ox) + var(--imgw) * 0.46);
-    top: max(calc(var(--oy) + var(--imgh) * 0.085), 4.75rem);
+    top: max(calc(var(--oy) + var(--imgh) * 0.09), 5rem);
     width: min(calc(var(--imgw) * 0.44), calc(100vw - var(--ox) - var(--imgw) * 0.46 - var(--m)));
   }
-  .hero h1 { font-size: clamp(2rem, calc(var(--imgw) * 0.0335), 6rem); }
-  .hero .lead { margin-top: 0.75em; font-size: clamp(1rem, calc(var(--imgw) * 0.0113), 1.75rem); }
-  .hero .get { margin-top: clamp(1.1rem, calc(var(--imgw) * 0.016), 2.25rem); font-size: clamp(13px, calc(var(--imgw) * 0.0084), 19px); max-width: calc(var(--imgw) * 0.36); }
+  .hero h1 { font-size: clamp(1.625rem, calc(var(--imgw) * 0.028), 5rem); text-wrap: balance; }
+  .hero .watch { margin-top: clamp(0.875rem, calc(var(--imgw) * 0.011), 2rem); font-size: clamp(15px, calc(var(--imgw) * 0.0108), 26px); }
+  .hero .get { margin-top: clamp(1.375rem, calc(var(--imgw) * 0.019), 2.75rem); font-size: clamp(13px, calc(var(--imgw) * 0.0084), 19px); max-width: calc(var(--imgw) * 0.41); }
 }
 
 /* phones and tall screens: the words above, the meerkat and its burrow below */
 @media (orientation: portrait), (max-width: 559px) {
   .first { display: flex; flex-direction: column; }
-  .scene { order: 3; position: relative; inset: auto; flex: 1 1 0; min-height: 0; margin-top: 0.5rem;
-    background-size: auto 113%; background-position: 32% 100%; }
-  .hero { padding: clamp(1.25rem, 4svh, 3rem) var(--m) 0; }
-  .hero h1 { font-size: clamp(1.75rem, 8.4vw, 3.5rem); max-width: 12em; }
-  .hero .lead { margin-top: 0.6rem; font-size: clamp(1rem, 4.2vw, 1.375rem); max-width: 30em; }
-  .hero .get { margin-top: clamp(1rem, 3svh, 2rem); font-size: 13px; max-width: 36rem; }
+  .scene { order: 3; position: relative; inset: auto; flex: 1 1 0; min-height: 0; margin-top: 0.5rem; }
+  .scene > *, .scene::before { --imgh: 113cqh; --imgw: calc(var(--imgh) * var(--ar)); --ox: calc((100cqw - var(--imgw)) * 0.32); --oy: calc(100cqh - var(--imgh)); }
+  .hero { padding: clamp(0.25rem, 1.5svh, 1.25rem) var(--m) 0; }
+  .hero h1 { font-size: clamp(1.25rem, 9vw, 4.5rem); text-wrap: balance; }
+  .hero .watch { margin-top: clamp(0.875rem, 3svh, 1.75rem); }
+  .hero .get { margin-top: clamp(1.25rem, 5svh, 3rem); font-size: 13px; max-width: 36rem; }
   .hero .say { font-size: 0.875rem; }
 }
 @media (orientation: portrait) and (min-width: 700px) {
@@ -157,20 +159,20 @@ html { scrollbar-gutter: stable; }
 }
 /* narrow phones: the picture is at most 1.3 screens wide, so all four chambers stay in view */
 @media (orientation: portrait) and (max-width: 559px) {
-  .scene { background-size: auto clamp(calc(100vw / 1.77683), 113%, calc(130vw / 1.77683)); background-position: 15% 100%; }
+  .scene > *, .scene::before { --imgh: clamp(calc(100cqw / var(--ar)), 113cqh, calc(130cqw / var(--ar))); --ox: calc((100cqw - var(--imgw)) * 0.15); }
 }
 /* the picture's sky meets the page's sky without a seam */
 @media (orientation: portrait), (max-width: 559px) {
-  .scene::before { content: ""; position: absolute; inset: 0 0 auto; height: 40%; background: linear-gradient(var(--sky), rgb(246 229 192 / 0)); pointer-events: none; }
+  .scene::before { content: ""; position: absolute; inset: 0 0 auto; height: max(0px, calc(var(--oy) + var(--imgh) * 0.27)); z-index: 3; background: linear-gradient(var(--sky), rgb(246 229 192 / 0)); pointer-events: none; }
 }
 @media (orientation: portrait) and (max-height: 720px), (max-width: 380px) {
   .top { padding-top: 10px; }
   .top nav ul { gap: 0 1.25rem; }
   .top nav a { padding-block: 6px; }
-  .hero { padding-top: 0.75rem; }
-  .hero h1 { font-size: clamp(1.625rem, 7.6vw, 2.5rem); }
-  .hero .lead { font-size: 1rem; margin-top: 0.4rem; }
-  .hero .get { margin-top: 0.875rem; gap: 0.25em; }
+  .hero { padding-top: 0.25rem; }
+  .hero h1 { font-size: clamp(1.125rem, 9vw, 3.5rem); }
+  .hero .watch { margin-top: 0.75rem; }
+  .hero .get { margin-top: 1.125rem; gap: 0.25em; }
   .hero .say { font-size: 0.8125rem; margin-top: 0.4em; }
   .hero .plaque > code { padding-block: 0.5em; }
 }
@@ -191,18 +193,85 @@ html { scrollbar-gutter: stable; }
     background: rgb(246 229 192 / 0.94);
   }
   .hero h1 { font-size: clamp(1.375rem, 3.2vw, 2rem); }
-  .hero .lead { font-size: 0.9375rem; margin-top: 0.4rem; }
-  .hero .get { margin-top: 0.625rem; font-size: 12px; max-width: none; gap: 0.25em; }
+  .hero .watch { margin-top: 0.5rem; font-size: 13px; }
+  .hero .get { margin-top: 0.75rem; font-size: 12px; max-width: none; gap: 0.25em; }
   .hero .say { font-size: 0.75rem; margin-top: 0.3em; }
   .hero .plaque > code { padding-block: 0.4em; }
 }
+
+/* ---------- home: the film, one more chamber of the burrow, dug into the soil below the picture ---------- */
+.film {
+  --deep: #4e250e; --or: clamp(2.5rem, 6vw, 4.5rem);
+  position: relative; margin-top: -1px; background: var(--deep); color: var(--on-dark);
+  padding-block: clamp(2.5rem, 5vw, 4.5rem) clamp(4rem, 8vw, 7rem);
+}
+/* the soil ends in a pixel step, the way the picture's edges do */
+.film::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 16px; pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--deep) 0 41%, transparent 0 63%, var(--deep) 0 70%, transparent 0) 0 0 / 152px 8px repeat-x,
+    linear-gradient(90deg, transparent 0 18%, var(--deep) 0 31%, transparent 0 79%, var(--deep) 0 84%, transparent 0) 40px 0 / 232px 8px repeat-x,
+    linear-gradient(90deg, var(--deep) 0 8%, transparent 0) 16px 8px / 152px 8px repeat-x;
+  /* the step pauses where "Or…" sits on the edge */
+  -webkit-mask: linear-gradient(90deg, #000 calc(50% - var(--or) * 1.6), transparent 0 calc(50% + var(--or) * 1.6), #000 0);
+  mask: linear-gradient(90deg, #000 calc(50% - var(--or) * 1.6), transparent 0 calc(50% + var(--or) * 1.6), #000 0);
+}
+.film-body { display: grid; justify-items: center; text-align: center; }
+.film h2 { color: var(--on-dark); }
+/* the wall steps at the corners in whole pixels, like the chambers in the picture; the figure draws a dark outline around it */
+.film-frame {
+  --s: clamp(4px, 0.5vw, 7px); --line: #2e1407;
+  margin: clamp(1.5rem, 3vw, 2.25rem) 0 0; width: 100%;
+  max-width: min(60rem, calc((100svh - 11rem) * 16 / 9));
+  filter: drop-shadow(var(--s) 0 0 var(--line)) drop-shadow(calc(var(--s) * -1) 0 0 var(--line)) drop-shadow(0 var(--s) 0 var(--line)) drop-shadow(0 calc(var(--s) * -1) 0 var(--line));
+}
+.film-wall {
+  padding: var(--s); background: #8a5530;
+  clip-path: polygon(0 calc(var(--s) * 2), var(--s) calc(var(--s) * 2), var(--s) var(--s), calc(var(--s) * 2) var(--s), calc(var(--s) * 2) 0,
+    calc(100% - var(--s) * 2) 0, calc(100% - var(--s) * 2) var(--s), calc(100% - var(--s)) var(--s), calc(100% - var(--s)) calc(var(--s) * 2), 100% calc(var(--s) * 2),
+    100% calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s) * 2), calc(100% - var(--s)) calc(100% - var(--s)), calc(100% - var(--s) * 2) calc(100% - var(--s)), calc(100% - var(--s) * 2) 100%,
+    calc(var(--s) * 2) 100%, calc(var(--s) * 2) calc(100% - var(--s)), var(--s) calc(100% - var(--s)), var(--s) calc(100% - var(--s) * 2), 0 calc(100% - var(--s) * 2));
+}
+/* the screen notches one step, so the wall turns each corner */
+.film-screen {
+  clip-path: polygon(0 var(--s), var(--s) var(--s), var(--s) 0, calc(100% - var(--s)) 0, calc(100% - var(--s)) var(--s), 100% var(--s),
+    100% calc(100% - var(--s)), calc(100% - var(--s)) calc(100% - var(--s)), calc(100% - var(--s)) 100%, var(--s) 100%, var(--s) calc(100% - var(--s)), 0 calc(100% - var(--s)));
+}
+.film-screen { position: relative; aspect-ratio: 16 / 9; background: #000; container-type: inline-size; }
+.film-screen video { display: block; width: 100%; height: 100%; }
+.film-screen video:focus-visible { outline-color: var(--gold); outline-offset: -3px; }
+/* the poster dims under one centred play button */
+.film-play { position: absolute; inset: 0; display: block; border: 0; padding: 0; cursor: pointer; background: rgb(24 12 4 / 0.45); transition: background-color 180ms ease; color: var(--ink); }
+.film-play > span {
+  position: absolute; left: 50%; top: 50%; translate: -50% -50%;
+  display: grid; place-items: center; width: clamp(3.5rem, 9cqi, 6rem); aspect-ratio: 1; border-radius: 50%;
+  background: var(--gold); transition: scale 140ms var(--ease-out), background-color 180ms ease;
+}
+.film-play > span::before { content: ""; width: 34%; height: 38%; margin-left: 8%; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.film-play:hover { background: rgb(24 12 4 / 0.3); }
+.film-play:hover > span { background: #f8c066; scale: 1.06; }
+.film-play:focus-visible { outline: 0; }
+.film-play:focus-visible > span { outline: 3px solid var(--on-dark); outline-offset: 3px; }
+/* "Or…" straddles the edge: cream on the soil above, soil on the paper below */
+.film-or {
+  position: absolute; left: 50%; top: 100%; translate: -50% -50%; rotate: -7deg; z-index: 1; margin: 0;
+  font-weight: 800; font-stretch: 108%; font-size: var(--or); line-height: 1; letter-spacing: -0.02em;
+}
+.film-or a {
+  display: block; padding-inline: 0.1em; text-decoration: none; color: transparent;
+  background: linear-gradient(187deg, var(--on-dark) 50%, var(--deep) 0); -webkit-background-clip: text; background-clip: text;
+}
+.film-or a:hover { background-image: linear-gradient(187deg, var(--gold) 50%, var(--soil) 0); }
 
 /* ---------- home: the playground below the first screen ---------- */
 /* the full face: drawings use box-drawing glyphs the hero's subset leaves out */
 @font-face { font-family: "Mono full"; src: url(assets/JetBrainsMono-Regular.ttf) format("truetype"); font-weight: 400; font-display: swap; }
 .play { --mono: "Mono full", Menlo, Consolas, monospace; --cell: 10px; }
-.try-link { display: inline-block; margin-left: 1.25em; padding: 6px 0; font-weight: 600; text-decoration-color: var(--soil); text-underline-offset: 0.25em; }
+.try-link { display: inline-block; padding: 0.55em 1.15em; font-weight: 700; line-height: 1.2; letter-spacing: 0.01em; color: var(--ink); background: var(--gold); border-radius: 4px; text-decoration: none; box-shadow: 0 2px 0 var(--soil); }
+.try-link:hover { background: #f8c066; }
+.try-link:active { transform: translateY(2px); box-shadow: none; }
 .play { padding-block: clamp(3rem, 7vw, 5.5rem) 0; }
+.film + .play { padding-top: clamp(4.5rem, 9vw, 7rem); }
 .play .sec-lead code { color: var(--ink); font-weight: 500; }
 .play-src { margin-top: clamp(1.5rem, 3vw, 2rem); display: grid; gap: 0.75rem; }
 .presets { display: flex; flex-wrap: wrap; gap: 0.5rem; }
@@ -279,7 +348,6 @@ pre.term-out {
   background-attachment: local;
 }
 .credits { margin-top: 1.25rem; font-size: var(--fs-small); color: var(--g-sub); max-width: 70ch; }
-@media (max-width: 559px) { .try-link { margin-left: 0; display: block; } }
 .play pre.term-out { min-height: 5rem; }
 .play .cmp-h { font-size: 1rem; }
 /* wide screens: the source on the left stays put; the three terminals stack on the right */
@@ -309,59 +377,19 @@ h3 { font-size: 1.125rem; font-weight: 700; line-height: 1.3; letter-spacing: -0
 .sec-lead { margin-top: 0.75rem; color: var(--g-sub); max-width: 52ch; }
 .sec-lead a { color: var(--ink); font-weight: 600; }
 
-/* tabs */
-.tabbar { position: sticky; top: 0; z-index: 2; background: var(--paper); margin-top: clamp(1.75rem, 4vw, 2.75rem); border-bottom: 1px solid var(--hair); }
-[role="tablist"] { display: flex; flex-wrap: wrap; gap: 0 0.25rem; margin: 0 0 0 -0.75rem; }
-@media (max-width: 479px) { [role="tab"] { padding: 0 0.625rem; min-height: 44px; } }
-[role="tab"] {
-  flex: none; font: 600 var(--fs-body) / 1.2 var(--text); background: transparent; color: var(--g-sub);
-  border: 0; cursor: pointer; min-height: 48px; padding: 0 0.75rem; box-shadow: inset 0 -3px 0 transparent;
-  transition: color 180ms ease, box-shadow 180ms ease;
-}
-[role="tab"][aria-selected="true"] { color: var(--ink); box-shadow: inset 0 -3px 0 var(--soil); }
-@media (hover: hover) and (pointer: fine) { [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); } }
-[role="tab"]:focus-visible { outline: 3px solid var(--ink); outline-offset: -6px; }
-.panel { padding-top: clamp(1.5rem, 3vw, 2.25rem); }
-.panel:focus-visible { outline-offset: 6px; }
 .panel-note { color: var(--g-sub); font-size: var(--fs-small); }
-.js .panel:not(.is-on) { display: none; }
-.panel > h2 { font-size: 1.375rem; letter-spacing: -0.015em; }
-.js .panel > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* cards */
-.cards { display: grid; gap: clamp(1rem, 2vw, 1.5rem); }
-.panel-note + .cards { margin-top: 1rem; }
 .card { background: var(--card); border-radius: 6px; min-width: 0; box-shadow: 0 0 0 1px var(--hair); }
 .card-head { padding: clamp(1.1rem, 2.2vw, 1.5rem) clamp(1.1rem, 2.4vw, 2rem) clamp(0.9rem, 1.8vw, 1.2rem); }
 .card-head h3 { font-weight: 600; }
 .card-head p { margin-top: 0.2rem; font-size: var(--fs-small); color: var(--g-sub); }
 .card-body { display: grid; border-top: 1px solid var(--hair); position: relative; }
-pre.card-src {
-  margin: 0; background: var(--well); color: var(--g-ink);
-  font-size: 12px; line-height: 1.7; white-space: pre; overflow-x: auto;
-  padding: clamp(1rem, 2vw, 1.5rem) clamp(1.1rem, 2.4vw, 2rem);
-  border-bottom: 1px solid var(--hair);
-}
-.card-src .k, .card-src .p { color: var(--g-mute); }
-.card-draw { min-width: 0; display: grid; align-content: center; overflow-x: auto; container-type: inline-size;
-  padding: clamp(1.5rem, 4vw, 3rem) clamp(1rem, 2.4vw, 2rem) 2.5rem; }
-.card-draw[data-more] { -webkit-mask-image: linear-gradient(to left, transparent, #000 2.5rem); mask-image: linear-gradient(to left, transparent, #000 2.5rem); }
-pre.draw { margin: 0 auto; width: max-content; color: var(--g-ink); white-space: pre;
-  --fs: clamp(10px, calc(100cqw / (var(--cols, 60) * 0.6 + 0.5)), 14px);
-  font-size: var(--fs); line-height: 1.25; line-height: round(nearest, 1.25em, 1px); }
-.card-w { position: absolute; right: clamp(1rem, 2vw, 1.5rem); bottom: 0.7rem; font-size: 0.75rem; color: var(--g-mute); }
 .demo { display: block; width: 100%; max-width: 100%; height: auto; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px; }
-@media (min-width: 790px) {
-  .card-body { grid-template-columns: minmax(0, 22rem) minmax(0, 1fr); }
-  pre.card-src { border-bottom: 0; border-right: 1px solid var(--hair); border-bottom-left-radius: 6px; font-size: 13px; }
-  .card-draw { min-height: 12rem; }
-}
-@media (max-width: 479px) { .card-draw { padding-inline: 0.75rem; } }
 
 /* install */
-.install { border-top: 1px solid var(--hair); }
 .ways { display: grid; gap: 2.25rem clamp(2rem, 4vw, 4rem); margin-top: clamp(2rem, 4vw, 3rem); }
-@media (min-width: 1000px) { .ways { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .way-wide { grid-column: 1 / -1; } }
+@media (min-width: 1000px) { .ways { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .way { min-width: 0; display: grid; align-content: start; }
 .way p { margin-top: 0.25rem; max-width: 60ch; color: var(--g-ink); }
 .way p a, .way p code { color: var(--ink); }
@@ -382,8 +410,6 @@ pre.draw { margin: 0 auto; width: max-content; color: var(--g-ink); white-space:
 .facts code, .facts kbd { font-weight: 500; color: var(--ink); }
 .split { display: grid; gap: clamp(2rem, 4vw, 3.5rem); margin-top: clamp(2rem, 4vw, 3rem); }
 @media (min-width: 1100px) { .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
-.split .card-body { grid-template-columns: minmax(0, 1fr); }
-.split pre.card-src { border-right: 0; border-bottom: 1px solid var(--hair); border-bottom-left-radius: 0; }
 .steps { margin: clamp(1.5rem, 3vw, 2rem) 0 0; padding: 0; list-style: none; display: grid; gap: 1.75rem; max-width: 46rem; counter-reset: s; }
 .steps > li { counter-increment: s; display: grid; grid-template-columns: 2rem minmax(0, 1fr); column-gap: 0.75rem; }
 .steps > li::before { content: counter(s); font-weight: 800; font-stretch: 108%; font-size: 1.25rem; line-height: 1.3; color: var(--soil); }
@@ -404,4 +430,4 @@ pre.draw { margin: 0 auto; width: max-content; color: var(--g-ink); white-space:
 .foot p { font-size: var(--fs-small); max-width: 64ch; }
 .foot :focus-visible { outline-color: var(--gold); }
 
-@media (prefers-reduced-motion: reduce) { .copy, [role="tab"] { transition-duration: 1ms; } }
+@media (prefers-reduced-motion: reduce) { .copy, .film-play > span { transition-duration: 1ms; } }

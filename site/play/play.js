@@ -57,6 +57,29 @@
   Report --> Send([Email the team])
   Parse -->|invalid| Quarantine[Quarantine bad rows]
   Quarantine --> Alert([Page the on-call])`,
+    acts: `sequenceDiagram
+    participant B as Browser
+    participant S as Server
+    participant D as Database
+    B->>S: POST /login
+    activate S
+    S->>D: find user
+    D-->>S: user row
+    alt password ok
+        S-->>B: 200 + token
+        B-->>S: response
+        activate B
+        deactivate B
+        deactivate S
+        activate D
+        loop
+          S--)D: pole
+          deactivate D
+        end
+    else bad password
+        S-->>B: 401
+    end
+    deactivate S`,
   };
 
   // ---------- width ----------
@@ -247,10 +270,10 @@
   });
 
   const hash = new URLSearchParams(location.hash.slice(1));
-  let initial = PRESETS.ci;
+  let initial = PRESETS.layers;
   try { if (hash.get('try')) initial = dec(hash.get('try')); } catch {}
   src.value = initial;
-  if (initial === PRESETS.ci) root.querySelector('[data-preset="ci"]').setAttribute('aria-pressed', 'true');
+  if (initial === PRESETS.layers) root.querySelector('[data-preset="layers"]').setAttribute('aria-pressed', 'true');
   paint();
   setSize(SIZES.includes(size) ? size : 10);
   setCols(Number(hash.get('w')) || Math.min(80, fits()), false);
