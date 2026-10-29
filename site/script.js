@@ -26,57 +26,12 @@
     });
   });
 
-  // the film plays in a dialog; closing it pauses
-  const film = document.getElementById('film');
+  // the film: one play button over the poster; the mp4 loads only once asked for
+  const film = document.querySelector('.film-screen');
   if (film) {
-    const v = film.querySelector('video');
-    document.querySelector('.film-open').addEventListener('click', () => { film.showModal(); v.play().catch(() => {}); });
-    film.querySelector('.film-close').addEventListener('click', () => film.close());
-    film.addEventListener('click', (e) => { if (e.target === film) film.close(); });
-    film.addEventListener('close', () => v.pause());
+    const v = film.querySelector('video'), b = film.querySelector('.film-play');
+    v.controls = false; b.hidden = false;
+    v.addEventListener('play', () => { b.hidden = true; v.controls = true; });
+    b.addEventListener('click', () => { v.controls = true; b.hidden = true; v.focus(); v.play().catch(() => {}); });
   }
-
-  // tabs: one per chart type, each linkable by its #hash
-  const tabs = [...document.querySelectorAll('[role="tab"]')];
-  if (tabs.length) {
-    const panels = tabs.map((t) => document.getElementById(t.getAttribute('aria-controls')));
-    const show = (i, { focus = false, hash = false } = {}) => {
-      tabs.forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
-      panels.forEach((p, k) => p.classList.toggle('is-on', k === i));
-      if (focus) tabs[i].focus();
-      if (hash) history.replaceState(null, '', '#' + tabs[i].dataset.hash);
-      stops();
-    };
-    const fromHash = () => {
-      const i = tabs.findIndex((t) => '#' + t.dataset.hash === location.hash);
-      if (i >= 0) { show(i); return true; }
-      return false;
-    };
-    tabs.forEach((t, i) => {
-      t.addEventListener('click', () => show(i, { hash: true }));
-      t.addEventListener('keydown', (e) => {
-        const n = tabs.length;
-        const to = { ArrowRight: (i + 1) % n, ArrowLeft: (i - 1 + n) % n, Home: 0, End: n - 1 }[e.key];
-        if (to === undefined) return;
-        e.preventDefault(); show(to, { focus: true, hash: true });
-      });
-    });
-    addEventListener('hashchange', () => {
-      if (fromHash()) document.querySelector('.tabbar').scrollIntoView({ block: 'start' });
-    });
-    if (!fromHash()) show(0);
-    else requestAnimationFrame(() => document.querySelector('.tabbar').scrollIntoView({ block: 'start' }));
-  }
-
-  // a scrolling block is a tab stop only while it really scrolls; a cut-off drawing fades at its edge
-  function stops() {
-    document.querySelectorAll('.card-src, .card-draw').forEach((p) => {
-      const scrolls = p.scrollWidth > p.clientWidth + 1;
-      p.tabIndex = scrolls ? 0 : -1;
-      if (p.classList.contains('card-draw')) p.toggleAttribute('data-more', p.scrollLeft + p.clientWidth < p.scrollWidth - 1);
-    });
-  }
-  document.querySelectorAll('.card-draw').forEach((p) => p.addEventListener('scroll', () => p.toggleAttribute('data-more', p.scrollLeft + p.clientWidth < p.scrollWidth - 1), { passive: true }));
-  stops(); addEventListener('resize', stops);
-  document.fonts && document.fonts.ready.then(stops);
 })();

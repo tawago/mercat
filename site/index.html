@@ -19,7 +19,7 @@
 <link rel="apple-touch-icon" href="assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..108,400..800&display=swap&text=%20%21%22%23%24%25%26%27%28%29%2A%2B%2C-.%2F0123456789%3A%3B%3C%3D%3E%3F%40ABCDEFGHIJKLMNOPQRSTUVWXYZ%5B%5C%5D%5E_%60abcdefghijklmnopqrstuvwxyz%7B%7C%7D~%C2%B7%E2%80%99%E2%80%9C%E2%80%9D%E2%86%93">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..108,400..800&display=swap&text=%20%21%22%23%24%25%26%27%28%29%2A%2B%2C-.%2F0123456789%3A%3B%3C%3D%3E%3F%40ABCDEFGHIJKLMNOPQRSTUVWXYZ%5B%5C%5D%5E_%60abcdefghijklmnopqrstuvwxyz%7B%7C%7D~%C2%B7%E2%80%99%E2%80%9C%E2%80%9D%E2%80%A6%E2%86%93%E2%96%BC">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=block&text=%20%21%22%23%24%25%26%27%28%29%2A%2B%2C-.%2F0123456789%3A%3B%3C%3D%3E%3F%40ABCDEFGHIJKLMNOPQRSTUVWXYZ%5B%5C%5D%5E_%60abcdefghijklmnopqrstuvwxyz%7B%7C%7D~%C2%BB%E2%80%99%E2%94%80%E2%94%82%E2%94%84%E2%94%86%E2%94%8C%E2%94%90%E2%94%94%E2%94%98%E2%94%9C%E2%94%AC%E2%94%BC%E2%95%AD%E2%95%AE%E2%95%AF%E2%95%B0%E2%96%B3%E2%96%B6%E2%96%BA%E2%96%BC%E2%97%80%E2%97%84%E2%97%87%E2%97%8E%E2%97%8F">
 <link rel="stylesheet" href="style.css">
 <script>document.documentElement.classList.add('js')</script>
@@ -27,15 +27,14 @@
 </head>
 <body>
 <div class="first">
-<div class="scene" role="img" aria-label="Pixel-art savanna: a meerkat stands on its mound among acacias and dry grass; below, its burrow branches into four chambers."></div>
+<div class="scene"><div class="art" role="img" aria-label="Pixel-art savanna: a meerkat stands on its mound among acacias and dry grass; below, its burrow branches into four chambers."></div></div>
 <header class="top">
   <a class="mark" href="./" aria-current="page"><img src="assets/wordmark.png" width="218" height="36" alt="mercat, home"></a>
-  <nav aria-label="Main"><ul><li><a href="claude-code.html">Claude Mod</a></li><li><a href="examples.html">Examples</a></li><li><a href="https://github.com/tawago/mercat">GitHub</a></li></ul></nav>
+  <nav aria-label="Main"><ul><li><a href="claude-code.html">Claude Mod</a></li><li><a href="https://github.com/tawago/mercat">GitHub</a></li></ul></nav>
 </header>
 <main class="hero">
-  <h1>Mermaid diagrams, drawn in your terminal.</h1>
-  <p class="lead">Your agent digs the plan. mercat shows you the tunnels.</p>
-  <p class="watch"><button type="button" class="film-open" aria-haspopup="dialog" aria-controls="film">▶ Watch the film <span class="dim">(40s)</span></button><a class="try-link" href="#try">Try your own diagram ↓</a></p>
+  <h1>Mermaid viewer that actually works in your terminal</h1>
+  <p class="watch"><a class="try-link" href="#try">▼ Try it live ▼</a></p>
   <div class="get">
     <p class="say" id="say-brew">Install with Homebrew</p>
     <div class="plaque px"><code class="cl">brew install tawago/tap/mercat</code><button class="copy" type="button" data-copy="brew install tawago/tap/mercat" aria-label="Copy the Homebrew command">Copy</button></div>
@@ -44,6 +43,18 @@
   </div>
 </main>
 </div>
+<section class="film" aria-labelledby="film-h">
+  <div class="wrap film-body">
+    <h2 id="film-h">Watch</h2>
+    <figure class="film-frame"><div class="film-wall">
+      <div class="film-screen">
+        <video src="assets/promo-cli.mp4" poster="assets/promo-cli.jpg" width="1920" height="1080" controls preload="none" playsinline aria-label="A short film: mercat draws mermaid diagrams in the terminal"></video>
+        <button class="film-play" type="button" hidden aria-label="Play the film, 40 seconds, with sound"><span></span></button>
+      </div>
+    </div></figure>
+  </div>
+  <p class="film-or"><a href="#try">Or…</a></p>
+</section>
 <section class="play" id="try" aria-labelledby="try-h">
   <div class="wrap">
     <h2 id="try-h">Try your own diagram</h2>
@@ -51,10 +62,11 @@
     <div class="play-body">
     <div class="play-src">
       <div class="presets" role="group" aria-label="Examples">
-        <button type="button" data-preset="ci" aria-pressed="false">Clear finish line</button>
-        <button type="button" data-preset="rails" aria-pressed="false">Faithful lines</button>
         <button type="button" data-preset="layers" aria-pressed="false">Better subgraphs</button>
+        <button type="button" data-preset="rails" aria-pressed="false">Faithful lines</button>
         <button type="button" data-preset="wide" aria-pressed="false">Fits your terminal</button>
+        <button type="button" data-preset="ci" aria-pressed="false">Clear finish line</button>
+        <button type="button" data-preset="acts" aria-pressed="false">Good activations</button>
       </div>
       <label class="vh" for="play-src">Mermaid source</label>
       <div class="editor">
@@ -115,10 +127,6 @@
     </div>
   </div>
 </footer>
-<dialog class="film" id="film" aria-label="mercat film">
-  <button type="button" class="film-close" aria-label="Close the film">×</button>
-  <video src="assets/promo-cli.mp4" poster="assets/promo-cli.jpg" width="1920" height="1080" controls preload="none" playsinline></video>
-</dialog>
 <p class="vh" aria-live="polite" id="live"></p>
 <script src="script.js" defer></script>
 <script src="play/play.js" defer></script>
