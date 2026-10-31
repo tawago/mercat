@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.5]
+
+### Sequence diagrams
+
+- **Blocks are drawn.** `loop`, `alt`, `opt`, `par`, `critical` and `break`
+  used to be dropped, so both branches of an `alt` read as always happening.
+  Each block is now a box around just the participants it involves, with its
+  kind and guard on the top edge; `else`, `and` and `option` are dashed
+  dividers. Nested blocks sit one cell inside.
+- **Activations follow the source.** Bars start and end where `activate`,
+  `deactivate` or `+`/`-` put them, including after a block's `end`. A bar
+  reopened right after closing joins at `├─┤`; a message passing a bar shows
+  `│┄│`.
+- **Labels sit above their line**, inside one gap, never on a bar. Gaps are
+  only as wide as their labels plus a 3-column margin.
+- **Lost and async messages.** `-x` ends in `×` and `-)` ends in `>`, distinct
+  from `►`.
+- **Participant names are never shortened**; long ones wrap inside their box.
+- **Narrow widths.** When a diagram is too wide, the margin shrinks, then the
+  widest label breaks at a word, then a plain diagram (no activations, blocks
+  or notes) may draw left-right; if nothing fits, the source is shown with the
+  reason.
+
+Flowchart, class, ER and state output is unchanged.
+
+### Claude Code mod
+
+- **Dropped labels no longer hide the diagram.** When mercat drops an edge
+  label it has no room for, the diagram is drawn with a warning line above it,
+  like the clip warning. A dropped edge still keeps the raw block.
+- **Install hint.** When mercat is missing, the mod links to the README's
+  install section instead of naming Homebrew.
+
+### Install
+
+- **Nix.** mercat is packaged in `numtide/llm-agents.nix`; see the README.
+
 ## [0.3.4]
 
 ### Claude Code mod
