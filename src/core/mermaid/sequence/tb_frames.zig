@@ -32,7 +32,7 @@ pub fn stepFrames(arena: Allocator, s: *const seq.Sequence) ![]?seq.FragIx {
     for (s.items) |item| switch (item) {
         .step => |ix| out[ix] = if (stack.items.len > 0) stack.items[stack.items.len - 1] else null,
         .open => |f| try stack.append(arena, f),
-        .divider, .release => {},
+        .divider, .engage, .release => {},
         .close => _ = stack.pop(),
     };
     return out;

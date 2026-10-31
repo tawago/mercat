@@ -10,7 +10,7 @@ const StepIx = seq.StepIx;
 const TextIx = seq.TextIx;
 const FragIx = seq.FragIx;
 
-const Open = struct { part: PartIx, first: ?StepIx, depth: u8, joined: bool = false };
+const Open = struct { part: PartIx, first: ?StepIx, depth: u8, joined: bool = false, engage: u32 };
 
 const FragBuild = struct {
     kind: seq.FragmentKind,
@@ -75,11 +75,9 @@ pub fn normalize(arena: Allocator, diagram: *const model.SequenceDiagram) !seq.S
                 for (open_bars.items) |o| {
                     if (o.part == part) depth +|= 1;
                 }
-                var joined = false;
-                if (last_message) |ix| for (bars.items) |b| {
-                    if (b.part == part and b.depth == depth and b.last == ix) joined = true;
-                };
-                try open_bars.append(arena, .{ .part = part, .first = last_message, .depth = depth, .joined = joined });
+                const joined = reopens(bars.items, items.items, part, depth);
+                try items.append(arena, .engage);
+                try open_bars.append(arena, .{ .part = part, .first = last_message, .depth = depth, .joined = joined, .engage = @intCast(items.items.len - 1) });
             } else if (last_message) |ix| {
                 try closeBar(arena, &bars, &open_bars, &items, part, ix);
             } else {
@@ -155,9 +153,26 @@ fn closeBar(arena: Allocator, bars: *std.ArrayList(seq.Bar), open_bars: *std.Arr
         _ = open_bars.orderedRemove(i);
         const first = o.first orelse last;
         try items.append(arena, .release);
-        try bars.append(arena, .{ .part = part, .first = first, .last = @max(first, last), .depth = o.depth, .joined = o.joined, .release = @intCast(items.items.len - 1) });
+        try bars.append(arena, .{ .part = part, .first = first, .last = @max(first, last), .depth = o.depth, .joined = o.joined, .engage = o.engage, .release = @intCast(items.items.len - 1) });
         return;
     }
+}
+
+/// Whether the item before an activate, past other activates, is the deactivate of a bar of the same participant and depth.
+fn reopens(bars: []const seq.Bar, items: []const seq.Item, part: PartIx, depth: u8) bool {
+    var i = items.len;
+    while (i > 0) {
+        i -= 1;
+        switch (items[i]) {
+            .engage => continue,
+            .release => {
+                for (bars) |b| if (b.release == i and b.part == part and b.depth == depth) return true;
+                return false;
+            },
+            else => return false,
+        }
+    }
+    return false;
 }
 
 fn touch(frags: []FragBuild, stack: []const FragIx, part: PartIx) void {

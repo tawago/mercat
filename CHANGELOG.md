@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Sequence diagrams
+
+- **Activations follow the source order.** A bar now starts on the line of
+  the message before its `activate`, not on that message's label row. After
+  a self-message it starts under the return arrow; before any message, right
+  under the boxes. When a note comes next, the bar starts one row lower so the
+  note opens inside it. An `activate` placed after another `deactivate`
+  starts on that bar's bottom row. When the message line runs past the
+  participant without touching it, the bar starts under the line.
+- **Empty activations still draw.** An `activate` followed straight by its
+  `deactivate` draws a two-row bar instead of an open top.
+- **Nested activations overlap.** A nested bar sits one column right of its
+  parent and covers the parent's right side (`│┌─┐`).
+- **Notes cover activations.** A note over participants is drawn on top of
+  their bars. Its side sits on a busy lifeline, or one column past a bare one,
+  so notes are a little narrower. A note over one busy participant now stays
+  over it instead of moving to its right.
+
 ## [0.3.5]
 
 ### Sequence diagrams

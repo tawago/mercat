@@ -18,8 +18,10 @@ pub const Error = error{ InkConflict, OffCanvas } || Allocator.Error;
 pub fn legal(old: Owner, new: Owner) bool {
     if (old == .none) return true;
     return switch (new) {
-        .stroke, .note => old == .lifeline,
+        .stroke => old == .lifeline,
+        .note => old == .lifeline or old == .bar,
         .frame => old == .lifeline or old == .bar,
+        .bar => old == .bar,
         else => false,
     };
 }
@@ -85,7 +87,6 @@ pub fn rect(ink: *Ink, left: i32, top: i32, right: i32, bottom: i32, style: Box,
         while (y <= bottom) : (y += 1) {
             const edge = y == top or y == bottom or x == left or x == right;
             if (!edge and !fill) continue;
-            if (who == .note and ink.owner(x, y) == .bar) continue;
             const g: u21 = if (y == top)
                 (if (x == left) style.tl else if (x == right) style.tr else style.h)
             else if (y == bottom)

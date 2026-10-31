@@ -74,27 +74,45 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
     for (s.frags, frames) |f, *fr| fr.* = .{ .top = 0, .bottom = 0, .sides = try arena.alloc(u32, f.operands.len) };
 
     const tail_at = try arena.alloc(u32, s.items.len);
+    const top_at = try arena.alloc(u32, s.items.len);
+    var here: Here = .{ .at = box_rows };
     for (s.items, 0..) |item, item_ix| switch (item) {
+        .engage => top_at[item_ix] = switch (here) {
+            .line => |l| if (noteNext(s, item_ix) or passes(s, l.step, item_ix)) try ownRow(arena, &kinds, &here) else l.row,
+            .under => try ownRow(arena, &kinds, &here),
+            .at => |r| r,
+            .next => @intCast(kinds.items.len),
+        },
         .release => {
-            const shared = item_ix > 0 and s.items[item_ix - 1] == .release;
+            const shared = (item_ix > 0 and s.items[item_ix - 1] == .release) or spare(here, kinds.items);
             if (!shared) try kinds.append(arena, .tail);
+            var floor: u32 = 0;
+            for (s.bars) |bar| if (bar.release == item_ix) {
+                floor = @max(floor, top_at[bar.engage] + 1);
+            };
+            while (kinds.items.len - 1 < floor) try kinds.append(arena, .tail);
             tail_at[item_ix] = @intCast(kinds.items.len - 1);
+            here = .{ .at = tail_at[item_ix] };
         },
         .step => |ix| {
             const first: u32 = @intCast(kinds.items.len);
             switch (s.steps[ix]) {
                 .message => |msg| {
-                    var labels = texts.count(msg.label);
-                    if (labels == 0 and opensBar(s, ix)) labels = 1;
+                    const labels = texts.count(msg.label);
                     try kinds.appendNTimes(arena, .label, labels);
                     steps[ix] = .{ .first = first, .labels = labels, .stroke = first + labels };
                     try kinds.append(arena, .stroke);
-                    if (msg.from == msg.to) try kinds.append(arena, .self_return);
+                    here = .{ .line = .{ .row = first + labels, .step = ix } };
+                    if (msg.from == msg.to) {
+                        try kinds.append(arena, .self_return);
+                        here = .under;
+                    }
                 },
                 .note => |note| {
                     const height = @max(texts.count(note.text), 1) + 2;
                     try kinds.appendNTimes(arena, .note, height);
                     steps[ix] = .{ .first = first, .labels = 0, .stroke = first + height - 1 };
+                    here = .next;
                 },
             }
         },
@@ -107,15 +125,18 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
             frames[f].sides[0] = frames[f].top;
             try kinds.append(arena, .frame_top);
             try guardRows(arena, &kinds, texts, s.frags[f].operands[0].guard);
+            here = .next;
         },
         .divider => |d| {
             frames[d.frag].sides[d.operand] = @intCast(kinds.items.len);
             try kinds.append(arena, .divider);
             try guardRows(arena, &kinds, texts, s.frags[d.frag].operands[d.operand].guard);
+            here = .next;
         },
         .close => |f| {
             frames[f].bottom = @intCast(kinds.items.len);
             try kinds.append(arena, .frame_bottom);
+            here = .next;
         },
     };
     try kinds.append(arena, .bare);
@@ -127,9 +148,8 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
     @memset(reach_l, 0);
     @memset(reach_r, 0);
     for (s.bars, bars) |bar, *br| {
-        const r_reach: u8 = @intCast(@min(1 + 3 * (@as(u32, bar.depth) - 1), 255));
-        const first = if (bar.joined) joinedRow(s, bar, tail_at) else steps[bar.first].first;
-        br.* = .{ .first = first, .last = tail_at[bar.release], .part = bar.part, .reach = r_reach };
+        const r_reach: u8 = @intCast(@min(@as(u32, bar.depth), 255));
+        br.* = .{ .first = top_at[bar.engage], .last = tail_at[bar.release], .part = bar.part, .reach = r_reach };
         var r = br.first;
         while (r <= br.last) : (r += 1) {
             reach_l[r * n + bar.part] = 1;
@@ -155,17 +175,35 @@ fn guardRows(arena: Allocator, kinds: *std.ArrayList(Kind), texts: *const Texts,
     if (lines > 1) try kinds.appendNTimes(arena, .guard_more, lines - 1);
 }
 
-/// The last row of the bar a joined bar reopens.
-fn joinedRow(s: *const seq.Sequence, bar: seq.Bar, tail_at: []const u32) u32 {
-    var row: u32 = 0;
-    for (s.bars) |b| {
-        if (b.part == bar.part and b.depth == bar.depth and b.last == bar.first and b.release < bar.release) row = @max(row, tail_at[b.release]);
-    }
-    return row;
+/// Where an activate puts its bar's top: on a message's line row, on a row of its own, on a given
+/// row, or on the next row placed.
+const Here = union(enum) { line: struct { row: u32, step: seq.StepIx }, under, at: u32, next };
+
+/// Whether the last row is a bare row of its own that a bar top took and no step has used yet.
+fn spare(here: Here, kinds: []const Kind) bool {
+    return here == .at and here.at == kinds.len - 1 and kinds[here.at] == .bare;
 }
 
-fn opensBar(s: *const seq.Sequence, ix: seq.StepIx) bool {
-    for (s.bars) |bar| if (bar.first == ix and !bar.joined) return true;
+/// Whether the message line of `step` passes the lifeline of the participant an activate opens, without ending there.
+fn passes(s: *const seq.Sequence, step: seq.StepIx, engage: usize) bool {
+    const msg = s.steps[step].message;
+    for (s.bars) |bar| if (bar.engage == engage) return @min(msg.from, msg.to) < bar.part and bar.part < @max(msg.from, msg.to);
+    return false;
+}
+
+fn ownRow(arena: Allocator, kinds: *std.ArrayList(Kind), here: *Here) !u32 {
+    try kinds.append(arena, .bare);
+    here.* = .{ .at = @intCast(kinds.items.len - 1) };
+    return here.at;
+}
+
+/// Whether the first step after an activate, past other activates and deactivates, is a note.
+fn noteNext(s: *const seq.Sequence, item_ix: usize) bool {
+    for (s.items[item_ix + 1 ..]) |item| switch (item) {
+        .engage, .release => continue,
+        .step => |ix| return s.steps[ix] == .note,
+        else => return false,
+    };
     return false;
 }
 
