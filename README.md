@@ -32,15 +32,6 @@ sudo apt install ./mercat_<version>_amd64.deb   # Debian/Ubuntu
 sudo dnf install ./mercat-<version>.x86_64.rpm  # Fedora/RHEL
 ```
 
-### Nix
-
-[llm-agents.nix](https://github.com/numtide/llm-agents.nix) packages mercat for
-`aarch64-darwin`, `aarch64-linux` and `x86_64-linux`:
-
-```bash
-nix run github:numtide/llm-agents.nix#mercat -- --help
-```
-
 ### Installer Script
 
 ```bash
@@ -61,6 +52,10 @@ Requires Zig 0.17.0+.
 zig build -Doptimize=ReleaseFast
 # Binary at ./zig-out/bin/mercat
 ```
+
+### Community Packages
+
+- Nix: [numtide/llm-agents.nix](https://github.com/numtide/llm-agents.nix)
 
 ### Claude Code Plugin
 
