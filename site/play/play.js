@@ -249,7 +249,7 @@
   src.addEventListener('scroll', syncScroll);
 
   // ---------- source, presets, sharing ----------
-  // #preset= names a sample; #syntax= is the deflated source; #try= (plain base64) links still open
+  // #preset= names a sample; #syntax= is the deflated source
   const b64 = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
   const pipe = (data, stream) => new Response(new Blob([data]).stream().pipeThrough(stream));
@@ -276,7 +276,7 @@
   });
 
   const hash = new URLSearchParams(location.hash.slice(1));
-  const linked = hash.get('syntax') || hash.get('try');
+  const linked = hash.get('syntax');
   const preset = Object.hasOwn(PRESETS, hash.get('preset')) ? hash.get('preset') : 'layers';
   src.value = PRESETS[preset];
   if (!linked) root.querySelector(`[data-preset="${preset}"]`).setAttribute('aria-pressed', 'true');
@@ -286,8 +286,7 @@
   setCols(Number(hash.get('w')) || Math.min(80, fits()), false);
   if (linked || hash.has('preset')) root.scrollIntoView();
   if (linked) {
-    (hash.get('syntax') ? unzip(linked) : Promise.resolve(new TextDecoder().decode(unb64(linked))))
-      .then((text) => { src.value = text; paint(); schedule(0); }, () => {});
+    unzip(linked).then((text) => { src.value = text; paint(); schedule(0); }, () => {});
   }
 
   // the renderers load only when the playground comes near the screen
