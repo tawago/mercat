@@ -29,9 +29,7 @@ Before opening a pull request:
 1. Run `zig build`.
 2. Run `zig build test`.
 3. Update docs if behavior or installation changes.
-4. If users would see a difference (rendered output, flags, TUI, install), add
-   an entry under `## [Unreleased]` in `CHANGELOG.md`.
-5. Keep changes focused and explain the user-visible impact.
+4. Keep changes focused and explain the user-visible impact.
 
 ## Style Notes
 
