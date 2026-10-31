@@ -157,3 +157,18 @@ test "an activate after a self-message starts on a row of its own under the retu
     try testing.expectEqual(row, st.rows.bars[0].first);
     try testing.expectEqual(row + 1, st.rows.steps[1].first);
 }
+
+test "an activate after a message whose line passes its lifeline starts on the row under that line" {
+    var st = try fixture.stages(
+        \\sequenceDiagram
+        \\    participant A
+        \\    participant B
+        \\    participant C
+        \\    C->>A: past B
+        \\    activate B
+        \\    A->>B: next
+        \\    deactivate B
+    , 3);
+    defer st.deinit();
+    try testing.expectEqual(st.rows.steps[0].stroke + 1, st.rows.bars[0].first);
+}

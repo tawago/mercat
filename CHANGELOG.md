@@ -11,7 +11,8 @@ All notable changes to this project will be documented in this file.
   a self-message it starts under the return arrow; before any message, right
   under the boxes. When a note comes next, the bar starts one row lower so the
   note opens inside it. An `activate` placed after another `deactivate`
-  starts on that bar's bottom row.
+  starts on that bar's bottom row. When the message line runs past the
+  participant without touching it, the bar starts under the line.
 - **Empty activations still draw.** An `activate` followed straight by its
   `deactivate` draws a two-row bar instead of an open top.
 - **Nested activations overlap.** A nested bar sits one column right of its

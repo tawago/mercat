@@ -78,13 +78,13 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
     var here: Here = .{ .at = box_rows };
     for (s.items, 0..) |item, item_ix| switch (item) {
         .engage => top_at[item_ix] = switch (here) {
-            .line => |r| if (noteNext(s, item_ix)) try ownRow(arena, &kinds, &here) else r,
+            .line => |l| if (noteNext(s, item_ix) or passes(s, l.step, item_ix)) try ownRow(arena, &kinds, &here) else l.row,
             .under => try ownRow(arena, &kinds, &here),
             .at => |r| r,
             .next => @intCast(kinds.items.len),
         },
         .release => {
-            const shared = item_ix > 0 and s.items[item_ix - 1] == .release;
+            const shared = (item_ix > 0 and s.items[item_ix - 1] == .release) or spare(here, kinds.items);
             if (!shared) try kinds.append(arena, .tail);
             var floor: u32 = 0;
             for (s.bars) |bar| if (bar.release == item_ix) {
@@ -102,7 +102,7 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
                     try kinds.appendNTimes(arena, .label, labels);
                     steps[ix] = .{ .first = first, .labels = labels, .stroke = first + labels };
                     try kinds.append(arena, .stroke);
-                    here = .{ .line = first + labels };
+                    here = .{ .line = .{ .row = first + labels, .step = ix } };
                     if (msg.from == msg.to) {
                         try kinds.append(arena, .self_return);
                         here = .under;
@@ -177,7 +177,19 @@ fn guardRows(arena: Allocator, kinds: *std.ArrayList(Kind), texts: *const Texts,
 
 /// Where an activate puts its bar's top: on a message's line row, on a row of its own, on a given
 /// row, or on the next row placed.
-const Here = union(enum) { line: u32, under, at: u32, next };
+const Here = union(enum) { line: struct { row: u32, step: seq.StepIx }, under, at: u32, next };
+
+/// Whether the last row is a bare row of its own that a bar top took and no step has used yet.
+fn spare(here: Here, kinds: []const Kind) bool {
+    return here == .at and here.at == kinds.len - 1 and kinds[here.at] == .bare;
+}
+
+/// Whether the message line of `step` passes the lifeline of the participant an activate opens, without ending there.
+fn passes(s: *const seq.Sequence, step: seq.StepIx, engage: usize) bool {
+    const msg = s.steps[step].message;
+    for (s.bars) |bar| if (bar.engage == engage) return @min(msg.from, msg.to) < bar.part and bar.part < @max(msg.from, msg.to);
+    return false;
+}
 
 fn ownRow(arena: Allocator, kinds: *std.ArrayList(Kind), here: *Here) !u32 {
     try kinds.append(arena, .bare);
