@@ -78,8 +78,7 @@
         end
     else bad password
         S-->>B: 401
-    end
-    deactivate S`,
+    end`,
   };
 
   // ---------- width ----------
@@ -143,7 +142,7 @@
   }
   root.querySelectorAll('[data-font]').forEach((b) => b.addEventListener('click', () => {
     const i = SIZES.indexOf(size) + Number(b.dataset.font);
-    if (SIZES[i]) setSize(SIZES[i]);
+    if (SIZES[i]) { setSize(SIZES[i]); share(); }
   }));
 
   // ---------- renderers ----------
@@ -250,11 +249,18 @@
   src.addEventListener('scroll', syncScroll);
 
   // ---------- source, presets, sharing ----------
-  const enc = (s) => btoa(String.fromCharCode(...new TextEncoder().encode(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const dec = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
-  function share() {
-    const h = `#try=${enc(src.value)}&w=${cols}`;
-    if (h.length < 6000) history.replaceState(null, '', h);
+  // #preset= names a sample; #syntax= is the deflated source
+  const b64 = (u8) => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const pipe = (data, stream) => new Response(new Blob([data]).stream().pipeThrough(stream));
+  const zip = async (s) => b64(new Uint8Array(await pipe(s, new CompressionStream('deflate-raw')).arrayBuffer()));
+  const unzip = (s) => pipe(unb64(s), new DecompressionStream('deflate-raw')).text();
+  let shared = 0;
+  async function share() {
+    const n = ++shared;
+    const key = Object.keys(PRESETS).find((k) => PRESETS[k] === src.value);
+    const h = `#${key ? `preset=${key}` : `syntax=${await zip(src.value)}`}&w=${cols}&font=${size}`;
+    if (n === shared && h.length < 6000) history.replaceState(null, '', h);
   }
 
   root.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => {
@@ -270,14 +276,18 @@
   });
 
   const hash = new URLSearchParams(location.hash.slice(1));
-  let initial = PRESETS.layers;
-  try { if (hash.get('try')) initial = dec(hash.get('try')); } catch {}
-  src.value = initial;
-  if (initial === PRESETS.layers) root.querySelector('[data-preset="layers"]').setAttribute('aria-pressed', 'true');
+  const linked = hash.get('syntax');
+  const preset = Object.hasOwn(PRESETS, hash.get('preset')) ? hash.get('preset') : 'layers';
+  src.value = PRESETS[preset];
+  if (!linked) root.querySelector(`[data-preset="${preset}"]`).setAttribute('aria-pressed', 'true');
   paint();
-  setSize(SIZES.includes(size) ? size : 10);
+  const font = Number(hash.get('font'));
+  setSize(SIZES.includes(font) ? font : SIZES.includes(size) ? size : 10);
   setCols(Number(hash.get('w')) || Math.min(80, fits()), false);
-  if (hash.get('try')) root.scrollIntoView();
+  if (linked || hash.has('preset')) root.scrollIntoView();
+  if (linked) {
+    unzip(linked).then((text) => { src.value = text; paint(); schedule(0); }, () => {});
+  }
 
   // the renderers load only when the playground comes near the screen
   const wake = (el, names) => {
