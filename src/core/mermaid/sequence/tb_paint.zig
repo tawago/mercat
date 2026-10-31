@@ -88,9 +88,13 @@ fn lifelines(p: *const Painter) Error!void {
 
 fn bars(p: *const Painter) Error!void {
     for (p.s.bars, p.rows.bars) |bar, br| {
-        const c = p.layout.x[bar.part] + 3 * (@as(i32, bar.depth) - 1);
+        const c = p.layout.x[bar.part] + @as(i32, bar.depth) - 1;
         if (!bar.joined) {
             try rect(p.ink, c - 1, @intCast(br.first), c + 1, @intCast(br.last), square, .bar, false);
+            var r: i32 = @intCast(br.first + 1);
+            while (r < br.last) : (r += 1) {
+                if (p.ink.owner(c, r) == .bar) p.ink.at(c, r).?.* = .{};
+            }
             continue;
         }
         const join: i32 = @intCast(br.first);
@@ -163,7 +167,7 @@ fn noteBox(p: *const Painter, note: seq.Note, ix: usize) Error!void {
     try rect(p.ink, box.left, @intCast(sr.first), box.right, @intCast(sr.stroke), square, .note, true);
     const inner = box.right - box.left + 1 - 4;
     for (p.texts.of(note.text), 0..) |line, k| {
-        const col = box.text_at orelse box.left + 2 + @divFloor(inner - @as(i32, @intCast(line.width)), 2);
+        const col = box.left + 2 + @divFloor(inner - @as(i32, @intCast(line.width)), 2);
         const y: i32 = @intCast(sr.first + 1 + k);
         var i: i32 = 0;
         while (i < line.width) : (i += 1) {
