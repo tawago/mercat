@@ -131,7 +131,7 @@ test "a broken guard continues on the rows just below its side, and nested sides
     try testing.expectEqual(st.rows.frames[1].bottom + 1, outer.bottom);
 }
 
-test "an activate before any message starts on the first row under the boxes" {
+test "an activate before any message starts under one bare lifeline row" {
     var st = try fixture.stages(
         \\sequenceDiagram
         \\    activate A
@@ -139,7 +139,56 @@ test "an activate before any message starts on the first row under the boxes" {
         \\    deactivate A
     , 3);
     defer st.deinit();
-    try testing.expectEqual(st.rows.box_rows, st.rows.bars[0].first);
+    try testing.expectEqual(Kind.bare, st.rows.kinds[st.rows.box_rows]);
+    try testing.expectEqual(st.rows.box_rows + 1, st.rows.bars[0].first);
+}
+
+test "a nested bar starts under the message line and its outer bar ends below it" {
+    var st = try fixture.stages(
+        \\sequenceDiagram
+        \\    activate S
+        \\    S->>C: a
+        \\    activate S
+        \\    S->>C: b
+        \\    deactivate S
+        \\    deactivate S
+    , 3);
+    defer st.deinit();
+    const outer = st.rows.bars[0];
+    const inner = st.rows.bars[1];
+    try testing.expectEqual(st.rows.steps[0].stroke + 1, inner.first);
+    try testing.expectEqual(inner.last + 1, outer.last);
+}
+
+test "overlapping bars share their top and bottom rows" {
+    var st = try fixture.stages(
+        \\sequenceDiagram
+        \\    C->>S: request
+        \\    activate S
+        \\    activate S
+        \\    S-->>C: response
+        \\    deactivate S
+        \\    deactivate S
+    , 3);
+    defer st.deinit();
+    try testing.expectEqual(st.rows.bars[0].first, st.rows.bars[1].first);
+    try testing.expectEqual(st.rows.bars[0].last, st.rows.bars[1].last);
+}
+
+test "an activate after a note before a fragment side starts on a row of its own inside the operand" {
+    var st = try fixture.stages(
+        \\sequenceDiagram
+        \\    loop L
+        \\        Note over A: n
+        \\        activate A
+        \\    end
+        \\    A->>B: y
+        \\    deactivate A
+    , 3);
+    defer st.deinit();
+    const bar = st.rows.bars[0];
+    try testing.expectEqual(st.rows.steps[0].stroke + 1, bar.first);
+    try testing.expectEqual(bar.first + 1, st.rows.frames[0].bottom);
 }
 
 test "an activate after a self-message starts on a row of its own under the return row" {

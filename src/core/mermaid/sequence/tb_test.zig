@@ -399,6 +399,45 @@ test "a nested bar sits one column right of its parent and covers the parent's r
     try testing.expect(rowOf(rows, "│└─┘") != null);
 }
 
+test "a nested bar that reopens still covers its parent's right side" {
+    const text = try fixture.drawn(
+        \\sequenceDiagram
+        \\    activate W
+        \\    W->>Q: poll
+        \\    activate W
+        \\    W->>Q: ack first
+        \\    deactivate W
+        \\    activate W
+        \\    W->>Q: ack second
+        \\    deactivate W
+        \\    deactivate W
+    , 80);
+    defer testing.allocator.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "├─┤") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "││││") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "││ │───") != null);
+}
+
+test "a note side on nested bars sits one column further right per nesting level" {
+    const text = try fixture.drawn(
+        \\sequenceDiagram
+        \\    A->>B: save
+        \\    activate B
+        \\    B->>B: validate
+        \\    activate B
+        \\    Note over A,B: one save per request
+        \\    deactivate B
+        \\    deactivate B
+    , 80);
+    defer testing.allocator.free(text);
+    const rows = try fixture.lines(testing.allocator, text);
+    defer testing.allocator.free(rows);
+    const b = colOf(rows[1], "B");
+    const top = rowOf(rows, "│┌─┐").?;
+    try testing.expectEqual(@as(u21, '┐'), at(rows[top + 1], b + 1));
+    try testing.expectEqual(@as(u21, '│'), at(rows[top + 2], b + 2));
+}
+
 test "an empty fragment nested in another takes its parent's participants" {
     const text = try fixture.drawn(
         \\sequenceDiagram

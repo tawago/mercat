@@ -91,10 +91,7 @@ fn bars(p: *const Painter) Error!void {
         const c = p.layout.x[bar.part] + @as(i32, bar.depth) - 1;
         if (!bar.joined) {
             try rect(p.ink, c - 1, @intCast(br.first), c + 1, @intCast(br.last), square, .bar, false);
-            var r: i32 = @intCast(br.first + 1);
-            while (r < br.last) : (r += 1) {
-                if (p.ink.owner(c, r) == .bar) p.ink.at(c, r).?.* = .{};
-            }
+            clearWall(p, c, @intCast(br.first + 1), @intCast(br.last));
             continue;
         }
         const join: i32 = @intCast(br.first);
@@ -107,6 +104,15 @@ fn bars(p: *const Painter) Error!void {
         p.ink.at(c - 1, join + 1).?.glyph = '│';
         p.ink.at(c, join + 1).?.* = .{};
         p.ink.at(c + 1, join + 1).?.glyph = '│';
+        clearWall(p, c, join + 2, last);
+    }
+}
+
+/// Clears the wall of the bar this one nests in, which runs down column `c` inside it.
+fn clearWall(p: *const Painter, c: i32, from: i32, to: i32) void {
+    var r = from;
+    while (r < to) : (r += 1) {
+        if (p.ink.owner(c, r) == .bar) p.ink.at(c, r).?.* = .{};
     }
 }
 

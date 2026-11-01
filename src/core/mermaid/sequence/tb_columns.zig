@@ -253,8 +253,8 @@ fn fixedStep(b: *Builder, step: seq.Step, sr: tb_rows.StepRows, label_gap: *usiz
                 },
                 .over => {
                     const z = note.last;
-                    const hl: i32 = if (a == z) @divFloor(bw, 2) else overhang(b, a, r0, r1);
-                    const hr: i32 = if (a == z) bw - hl - 1 else overhang(b, z, r0, r1);
+                    const hl: i32 = if (a == z) @divFloor(bw, 2) else -side(b, a, r0, r1, .left);
+                    const hr: i32 = if (a == z) bw - hl - 1 else side(b, z, r0, r1, .right);
                     try b.own(a, note.text);
                     try b.own(z + 1, note.text);
                     var g = a + 1;
@@ -299,13 +299,16 @@ fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
 }
 
 /// A note over several participants covers their activations: each side sits on its lifeline
-/// when an activation stands there, else one column past it.
+/// when an activation stands there, one column further right per nesting level, else one column
+/// past it.
 fn overBox(b: *const Builder, x: []const i32, note: seq.Note, r0: u32, r1: u32) NoteBox {
-    return .{ .left = x[note.first] - overhang(b, note.first, r0, r1), .right = x[note.last] + overhang(b, note.last, r0, r1) };
+    return .{ .left = x[note.first] + side(b, note.first, r0, r1, .left), .right = x[note.last] + side(b, note.last, r0, r1, .right) };
 }
 
-fn overhang(b: *const Builder, p: usize, r0: u32, r1: u32) i32 {
-    return if (b.rl(p, r0, r1) > 0) 0 else 1;
+/// Where a note's side stands from lifeline `p`.
+fn side(b: *const Builder, p: usize, r0: u32, r1: u32, which: enum { left, right }) i32 {
+    if (b.rl(p, r0, r1) > 0) return b.rr(p, r0, r1) - 1;
+    return if (which == .left) -1 else 1;
 }
 
 fn lifelines(b: *const Builder, layout: *Layout) void {

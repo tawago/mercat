@@ -75,13 +75,13 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
 
     const tail_at = try arena.alloc(u32, s.items.len);
     const top_at = try arena.alloc(u32, s.items.len);
-    var here: Here = .{ .at = box_rows };
+    var here: Here = .under;
     for (s.items, 0..) |item, item_ix| switch (item) {
         .engage => top_at[item_ix] = switch (here) {
-            .line => |l| if (noteNext(s, item_ix) or passes(s, l.step, item_ix)) try ownRow(arena, &kinds, &here) else l.row,
+            .line => |l| if (noteNext(s, item_ix) or passes(s, l.step, item_ix) or nestsApart(s, item_ix)) try ownRow(arena, &kinds, &here) else l.row,
             .under => try ownRow(arena, &kinds, &here),
             .at => |r| r,
-            .next => @intCast(kinds.items.len),
+            .next => if (sideNext(s, item_ix)) try ownRow(arena, &kinds, &here) else @intCast(kinds.items.len),
         },
         .release => {
             const shared = (item_ix > 0 and s.items[item_ix - 1] == .release) or spare(here, kinds.items);
@@ -89,6 +89,11 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
             var floor: u32 = 0;
             for (s.bars) |bar| if (bar.release == item_ix) {
                 floor = @max(floor, top_at[bar.engage] + 1);
+                for (s.bars) |inner| {
+                    if (inner.part != bar.part or inner.depth != bar.depth + 1) continue;
+                    if (inner.engage < bar.engage or inner.release > item_ix or overlaps(s, inner)) continue;
+                    floor = @max(floor, tail_at[inner.release] + 1);
+                }
             };
             while (kinds.items.len - 1 < floor) try kinds.append(arena, .tail);
             tail_at[item_ix] = @intCast(kinds.items.len - 1);
@@ -195,6 +200,38 @@ fn ownRow(arena: Allocator, kinds: *std.ArrayList(Kind), here: *Here) !u32 {
     try kinds.append(arena, .bare);
     here.* = .{ .at = @intCast(kinds.items.len - 1) };
     return here.at;
+}
+
+/// Whether the activate at `engage` opens a nested bar that does not overlap the bar it nests in.
+fn nestsApart(s: *const seq.Sequence, engage: usize) bool {
+    for (s.bars) |bar| if (bar.engage == engage) return bar.depth > 1 and !overlaps(s, bar);
+    return false;
+}
+
+/// Whether `inner` covers the same steps as the bar it nests in: only activates stand between
+/// their activates, and only deactivates between their deactivates.
+fn overlaps(s: *const seq.Sequence, inner: seq.Bar) bool {
+    for (s.bars) |o| {
+        if (o.part != inner.part or o.depth + 1 != inner.depth) continue;
+        if (o.engage > inner.engage or o.release < inner.release) continue;
+        if (only(s.items[o.engage + 1 .. inner.engage], .engage) and only(s.items[inner.release + 1 .. o.release], .release)) return true;
+    }
+    return false;
+}
+
+fn only(items: []const seq.Item, tag: std.meta.Tag(seq.Item)) bool {
+    for (items) |item| if (item != tag) return false;
+    return true;
+}
+
+/// Whether the next item past other activates is a fragment's bottom side or a divider.
+fn sideNext(s: *const seq.Sequence, item_ix: usize) bool {
+    for (s.items[item_ix + 1 ..]) |item| switch (item) {
+        .engage => continue,
+        .close, .divider => return true,
+        else => return false,
+    };
+    return false;
 }
 
 /// Whether the first step after an activate, past other activates and deactivates, is a note.
