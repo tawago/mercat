@@ -44,7 +44,7 @@ expect() {
   else
     fail=$((fail + 1))
     printf 'FAIL %s\n  args: %s\n  rc: got %s want %s\n  stderr got:\n%s\n  stderr want:\n%s\n' \
-      "$name" "$*" "$rc" "$want_rc" "$err" "$want_err"
+      "$name" "$*" "$rc" "$want_rc" "$err" "$want_err" >&2
   fi
 }
 
@@ -55,7 +55,7 @@ check() {
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
-    printf 'FAIL %s\n' "$name"
+    printf 'FAIL %s\n' "$name" >&2
   fi
 }
 
@@ -305,5 +305,5 @@ check inline-html-br [ "$(printf '%s\n' "$out" | tail -2)" = "  a
   b" ]
 
 
-printf 'cli: %d passed, %d failed\n' "$pass" "$fail"
+printf 'cli: %d passed, %d failed\n' "$pass" "$fail" >&2
 [ "$fail" = 0 ]
