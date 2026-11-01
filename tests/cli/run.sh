@@ -44,7 +44,7 @@ expect() {
   else
     fail=$((fail + 1))
     printf 'FAIL %s\n  args: %s\n  rc: got %s want %s\n  stderr got:\n%s\n  stderr want:\n%s\n' \
-      "$name" "$*" "$rc" "$want_rc" "$err" "$want_err"
+      "$name" "$*" "$rc" "$want_rc" "$err" "$want_err" >&2
   fi
 }
 
@@ -55,7 +55,7 @@ check() {
     pass=$((pass + 1))
   else
     fail=$((fail + 1))
-    printf 'FAIL %s\n' "$name"
+    printf 'FAIL %s\n' "$name" >&2
   fi
 }
 
@@ -97,7 +97,11 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # --- closed stdout (`>&-`): one wording, exit 1 ---
-closed() { m "$@" 2>&1 >&- </dev/null; }
+# Closed after env: a Rust env (uutils, Ubuntu 26.04) reopens closed stdio on /dev/null.
+closed() {
+  env -i PATH="$PATH" HOME="$work/home" XDG_CONFIG_HOME="$work/xdg" TERM=xterm-256color \
+    bash -c 'exec "$@" >&-' _ "$bin" "$@" 2>&1 </dev/null
+}
 for args in "--version" "h.md" "--format plain h.md"; do
   # shellcheck disable=SC2086
   err=$(closed $args)
@@ -305,5 +309,5 @@ check inline-html-br [ "$(printf '%s\n' "$out" | tail -2)" = "  a
   b" ]
 
 
-printf 'cli: %d passed, %d failed\n' "$pass" "$fail"
+printf 'cli: %d passed, %d failed\n' "$pass" "$fail" >&2
 [ "$fail" = 0 ]
