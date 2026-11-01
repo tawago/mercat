@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.7]
+
 ### Install
 
 - **0.3.6 packages.** The 0.3.6 release shipped without the Linux ARM
