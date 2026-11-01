@@ -56,6 +56,7 @@ jobs:
           sed -i "s/^\(  *\"version\": \)\"[^\"]*\"/\1\"$VERSION\"/" mods/mercat/.claude-plugin/plugin.json
           sed -i "s/^export const MOD_VERSION = '[^']*'/export const MOD_VERSION = '$VERSION'/" mods/mercat/hooks/mercat.ts
           bash tools/check_versions.sh "v$VERSION"
+          bash tools/release_notes.sh "$VERSION" > /dev/null
 
       - name: Commit and tag
         env:
@@ -65,13 +66,26 @@ jobs:
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add build.zig build.zig.zon mods/mercat/.claude-plugin/plugin.json mods/mercat/hooks/mercat.ts
+            git add build.zig build.zig.zon mods/mercat/.claude-plugin/plugin.json mods/mercat/hooks/mercat.ts CHANGELOG.md
             git commit -m "Prepare $VERSION release"
             git push origin main
           fi
           if [ "$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
             git tag -f "$TAG"
             git push -f origin "refs/tags/$TAG"
+          fi
+
+      - name: Publish the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          bash tools/release_notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
           fi
 
   build-release:
