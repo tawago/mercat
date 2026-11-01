@@ -16,44 +16,66 @@ permissions:
 
 jobs:
   prepare-release:
-    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      tag: v${{ inputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: Check out repository
+      - name: Resolve the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then v="${INPUT_VERSION#v}"; else v="${GITHUB_REF_NAME#v}"; fi
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo "::error::not a version: $v"; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=v$v" >> "$GITHUB_OUTPUT"
+
+      - name: Check out main
         uses: actions/checkout@v4
         with:
+          ref: main
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update version in build.zig
+      - name: Check the tag sits on main
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          sed -i 's/options.addOption(\[\]const u8, "version", "[^"]*");/options.addOption([]const u8, "version", "${{ inputs.version }}");/' build.zig
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "::error::$TAG already exists"; exit 1; fi
+          elif [ "$(git rev-parse "$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            echo "::error::$TAG is not the tip of main"; exit 1
+          fi
 
-      - name: Update version in build.zig.zon
+      - name: Update every version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          sed -i 's/\.version = "[^"]*",/.version = "${{ inputs.version }}",/' build.zig.zon
-
-      - name: Update version in the Claude Code mod
-        run: |
-          sed -i 's/^\(  *"version": \)"[^"]*"/\1"${{ inputs.version }}"/' mods/mercat/.claude-plugin/plugin.json
-          sed -i "s/^export const MOD_VERSION = '[^']*'/export const MOD_VERSION = '${{ inputs.version }}'/" mods/mercat/hooks/mercat.ts
-
-      - name: Check versions agree
-        run: bash tools/check_versions.sh "v${{ inputs.version }}"
+          sed -i "s/options.addOption(\[\]const u8, \"version\", \"[^\"]*\");/options.addOption([]const u8, \"version\", \"$VERSION\");/" build.zig
+          sed -i "s/\.version = \"[^\"]*\",/.version = \"$VERSION\",/" build.zig.zon
+          sed -i "s/^\(  *\"version\": \)\"[^\"]*\"/\1\"$VERSION\"/" mods/mercat/.claude-plugin/plugin.json
+          sed -i "s/^export const MOD_VERSION = '[^']*'/export const MOD_VERSION = '$VERSION'/" mods/mercat/hooks/mercat.ts
+          bash tools/check_versions.sh "v$VERSION"
 
       - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add build.zig build.zig.zon mods/mercat/.claude-plugin/plugin.json mods/mercat/hooks/mercat.ts
-          git commit -m "Prepare ${{ inputs.version }} release"
-          git tag "v${{ inputs.version }}"
-          git push origin main --tags
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add build.zig build.zig.zon mods/mercat/.claude-plugin/plugin.json mods/mercat/hooks/mercat.ts
+            git commit -m "Prepare $VERSION release"
+            git push origin main
+          fi
+          if [ "$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
+            git tag -f "$TAG"
+            git push -f origin "refs/tags/$TAG"
+          fi
 
   build-release:
     needs: [prepare-release]
-    if: always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     runs-on: ${{ matrix.os }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
