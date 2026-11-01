@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.6]
+
 ### Sequence diagrams
 
 - **Activations follow the source order.** A bar now starts on the line of
