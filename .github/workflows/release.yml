@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   prepare-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -68,12 +68,9 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add build.zig build.zig.zon mods/mercat/.claude-plugin/plugin.json mods/mercat/hooks/mercat.ts CHANGELOG.md
             git commit -m "Prepare $VERSION release"
-            git push origin main
           fi
-          if [ "$(git rev-parse -q --verify "refs/tags/$TAG^{commit}")" != "$(git rev-parse HEAD)" ]; then
-            git tag -f "$TAG"
-            git push -f origin "refs/tags/$TAG"
-          fi
+          git tag -f "$TAG"
+          git push --atomic origin main "+refs/tags/$TAG"
 
       - name: Publish the release notes
         env:
@@ -98,10 +95,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-linux-musl
             artifact: mercat-linux-x86_64.tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: aarch64-linux-musl
             artifact: mercat-linux-aarch64.tar.gz
           # Darwin must build on a macOS runner: the koino dependency runs a
@@ -137,7 +134,7 @@ jobs:
 
       - name: Install QEMU for foreign build helpers
         if: matrix.target == 'aarch64-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+        run: sudo apt-get update && sudo apt-get install -y qemu-user qemu-user-binfmt
 
       - name: Build release binary
         shell: bash
@@ -164,7 +161,7 @@ jobs:
             ${{ matrix.artifact }}.sha256
 
   package-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [prepare-release, build-release]
     if: always() && needs.build-release.result == 'success'
     env:
@@ -221,7 +218,7 @@ jobs:
             *.rpm.sha256
 
   update-homebrew-tap:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [prepare-release, build-release]
     if: always() && needs.build-release.result == 'success'
     env:
