@@ -97,7 +97,11 @@ if [ "$(id -u)" != 0 ]; then
 fi
 
 # --- closed stdout (`>&-`): one wording, exit 1 ---
-closed() { m "$@" 2>&1 >&- </dev/null; }
+# Closed after env: a Rust env (uutils, Ubuntu 26.04) reopens closed stdio on /dev/null.
+closed() {
+  env -i PATH="$PATH" HOME="$work/home" XDG_CONFIG_HOME="$work/xdg" TERM=xterm-256color \
+    bash -c 'exec "$@" >&-' _ "$bin" "$@" 2>&1 </dev/null
+}
 for args in "--version" "h.md" "--format plain h.md"; do
   # shellcheck disable=SC2086
   err=$(closed $args)
