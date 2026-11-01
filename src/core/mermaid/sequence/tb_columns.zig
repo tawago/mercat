@@ -267,8 +267,6 @@ fn fixedStep(b: *Builder, step: seq.Step, sr: tb_rows.StepRows, label_gap: *usiz
     }
 }
 
-/// A note over several participants widens the gaps between its first and last participants
-/// evenly until its text fits. Returns whether any gap grew; the grown widths join `fixed`.
 fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
     lifelines(b, layout);
     var grew = false;
@@ -298,14 +296,10 @@ fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
     return grew;
 }
 
-/// A note over several participants covers their activations: each side sits on its lifeline
-/// when an activation stands there, one column further right per nesting level, else one column
-/// past it.
 fn overBox(b: *const Builder, x: []const i32, note: seq.Note, r0: u32, r1: u32) NoteBox {
     return .{ .left = x[note.first] + side(b, note.first, r0, r1, .left), .right = x[note.last] + side(b, note.last, r0, r1, .right) };
 }
 
-/// Where a note's side stands from lifeline `p`.
 fn side(b: *const Builder, p: usize, r0: u32, r1: u32, which: enum { left, right }) i32 {
     if (b.rl(p, r0, r1) > 0) return b.rr(p, r0, r1) - 1;
     return if (which == .left) -1 else 1;

@@ -180,16 +180,12 @@ fn guardRows(arena: Allocator, kinds: *std.ArrayList(Kind), texts: *const Texts,
     if (lines > 1) try kinds.appendNTimes(arena, .guard_more, lines - 1);
 }
 
-/// Where an activate puts its bar's top: on a message's line row, on a row of its own, on a given
-/// row, or on the next row placed.
 const Here = union(enum) { line: struct { row: u32, step: seq.StepIx }, under, at: u32, next };
 
-/// Whether the last row is a bare row of its own that a bar top took and no step has used yet.
 fn spare(here: Here, kinds: []const Kind) bool {
     return here == .at and here.at == kinds.len - 1 and kinds[here.at] == .bare;
 }
 
-/// Whether the message line of `step` passes the lifeline of the participant an activate opens, without ending there.
 fn passes(s: *const seq.Sequence, step: seq.StepIx, engage: usize) bool {
     const msg = s.steps[step].message;
     for (s.bars) |bar| if (bar.engage == engage) return @min(msg.from, msg.to) < bar.part and bar.part < @max(msg.from, msg.to);
@@ -202,14 +198,11 @@ fn ownRow(arena: Allocator, kinds: *std.ArrayList(Kind), here: *Here) !u32 {
     return here.at;
 }
 
-/// Whether the activate at `engage` opens a nested bar that does not overlap the bar it nests in.
 fn nestsApart(s: *const seq.Sequence, engage: usize) bool {
     for (s.bars) |bar| if (bar.engage == engage) return bar.depth > 1 and !overlaps(s, bar);
     return false;
 }
 
-/// Whether `inner` covers the same steps as the bar it nests in: only activates stand between
-/// their activates, and only deactivates between their deactivates.
 fn overlaps(s: *const seq.Sequence, inner: seq.Bar) bool {
     for (s.bars) |o| {
         if (o.part != inner.part or o.depth + 1 != inner.depth) continue;
@@ -224,7 +217,6 @@ fn only(items: []const seq.Item, tag: std.meta.Tag(seq.Item)) bool {
     return true;
 }
 
-/// Whether the next item past other activates is a fragment's bottom side or a divider.
 fn sideNext(s: *const seq.Sequence, item_ix: usize) bool {
     for (s.items[item_ix + 1 ..]) |item| switch (item) {
         .engage => continue,
@@ -234,7 +226,6 @@ fn sideNext(s: *const seq.Sequence, item_ix: usize) bool {
     return false;
 }
 
-/// Whether the first step after an activate, past other activates and deactivates, is a note.
 fn noteNext(s: *const seq.Sequence, item_ix: usize) bool {
     for (s.items[item_ix + 1 ..]) |item| switch (item) {
         .engage, .release => continue,

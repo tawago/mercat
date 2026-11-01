@@ -108,7 +108,6 @@ fn bars(p: *const Painter) Error!void {
     }
 }
 
-/// Clears the wall of the bar this one nests in, which runs down column `c` inside it.
 fn clearWall(p: *const Painter, c: i32, from: i32, to: i32) void {
     var r = from;
     while (r < to) : (r += 1) {

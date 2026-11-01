@@ -28,10 +28,7 @@ pub const Step = union(enum) {
     }
 };
 
-/// An activation over steps `first` to `last`. `depth` is its rank among the bars open on its
-/// participant, 1 for the outermost. A `joined` bar reopens the bar of its participant and depth
-/// whose deactivate stands just before its activate. `engage` and `release` are the indices of the
-/// items where its activate and deactivate stand.
+/// `depth` is 1 for the outermost bar of its participant; `engage` and `release` are item indices.
 pub const Bar = struct { part: PartIx, first: StepIx, last: StepIx, depth: u8, joined: bool = false, engage: u32 = 0, release: u32 = 0 };
 
 pub const Operand = struct { guard: ?TextIx };
@@ -51,7 +48,6 @@ pub const Item = union(enum) {
     open: FragIx,
     divider: struct { frag: FragIx, operand: u32 },
     close: FragIx,
-    /// An activate: the bars it opens start by the item before it.
     engage,
     /// A deactivate: the bars it closes end on the row placed here.
     release,

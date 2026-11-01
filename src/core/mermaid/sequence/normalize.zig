@@ -158,7 +158,6 @@ fn closeBar(arena: Allocator, bars: *std.ArrayList(seq.Bar), open_bars: *std.Arr
     }
 }
 
-/// Whether the item before an activate, past other activates, is the deactivate of a bar of the same participant and depth.
 fn reopens(bars: []const seq.Bar, items: []const seq.Item, part: PartIx, depth: u8) bool {
     var i = items.len;
     while (i > 0) {
