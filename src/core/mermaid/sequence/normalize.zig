@@ -1,5 +1,3 @@
-//! Parsed elements → the index form: steps, bars bound to steps, the fragment tree and spans.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const model = @import("model.zig");
@@ -142,8 +140,6 @@ fn barBefore(_: void, a: seq.Bar, b: seq.Bar) bool {
     return a.depth < b.depth;
 }
 
-/// Closes the innermost open bar of `part` after step `last`; a bar not yet bound to a step
-/// starts there too. Nothing open: the deactivate is ignored.
 fn closeBar(arena: Allocator, bars: *std.ArrayList(seq.Bar), open_bars: *std.ArrayList(Open), items: *std.ArrayList(seq.Item), part: PartIx, last: StepIx) !void {
     var i = open_bars.items.len;
     while (i > 0) {

@@ -1,6 +1,3 @@
-//! The top-down sequence diagram: the degradation loop over break states, each laid out rows
-//! first, then columns, then measured; only the first state that fits is painted.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -37,8 +34,6 @@ pub fn render(allocator: Allocator, s: *const seq.Sequence, max_width: u32) !lad
     return .{ .too_wide = narrowest };
 }
 
-/// Breaks the widest breakable text of the widest gap (pads included, the leftmost of equals);
-/// a gap whose texts cannot break gives way to the next widest.
 fn breakWidest(arena: Allocator, texts: *Texts, layout: *const tb_columns.Layout) !bool {
     const order = try arena.alloc(usize, layout.gap_width.len);
     for (order, 0..) |*o, i| o.* = i;

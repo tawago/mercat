@@ -1,8 +1,3 @@
-//! Columns of one break state: every gap as wide as its widest demand and no wider, lifelines at
-//! the prefix sums, and the columns of labels, guards, notes and boundaries.
-//!
-//! Gap `g` sits left of lifeline `g`; gap 0 is the left pad and gap `n` the right pad.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -19,20 +14,15 @@ pub const NoteBox = struct { left: i32, right: i32 };
 pub const Layout = struct {
     margin: u32,
     x: []i32,
-    /// Per participant: box columns either side of its lifeline.
     half_l: []i32,
     half_r: []i32,
-    /// Per message step: the gap its label sits in (self: the gap right of its participant).
     label_gap: []usize,
-    /// Per step: a label's first column, or a note box's left column.
     label_col: []i32,
     notes: []NoteBox,
-    /// Per self step: the column of the loop's corner.
     loop_col: []i32,
     guard_col: [][]i32,
     frames: []frames.FrameCols,
     width: u32,
-    /// Per gap (0..n): its drawn width and the texts that set its demands.
     gap_width: []i32,
     owners: []std.ArrayList(seq.TextIx),
 };
@@ -64,7 +54,6 @@ const Builder = struct {
         return @intCast(self.rows.left(p, r0, r1));
     }
 
-    /// Gap `g` (between two lifelines) keeps `empty` empty cells between its inks over rows r0..r1.
     fn room(self: *Builder, g: usize, r0: u32, r1: u32, empty: i32) void {
         self.need(g, self.rr(g - 1, r0, r1) + 1 + empty + self.rl(g, r0, r1));
     }
@@ -180,8 +169,6 @@ pub fn place(arena: Allocator, s: *const seq.Sequence, texts: *const Texts, rows
     return layout;
 }
 
-/// A label whose message line crosses several gaps: it needs `need` empty cells over rows r0..r1
-/// of the gap it takes.
 const Floating = struct { step: usize, msg: seq.Message, r0: u32, r1: u32, need: i32 };
 
 fn settle(b: *Builder, fixed: []const i32, floating: []const Floating, label_gap: []usize) void {
@@ -310,7 +297,6 @@ fn lifelines(b: *const Builder, layout: *Layout) void {
     for (1..b.n) |g| layout.x[g] = layout.x[g - 1] + b.dem[g];
 }
 
-/// Label, loop, note and guard columns from the lifelines, and the ink span of every step.
 fn placeColumns(b: *Builder, layout: *Layout, step_lo: []i32, step_hi: []i32, guard_end: [][]i32) void {
     const s = b.s;
     const x = layout.x;

@@ -74,7 +74,6 @@ pub const FragmentKind = enum {
         };
     }
 
-    /// The keyword that opens a later operand of this kind, if it has one.
     pub fn dividerWord(self: FragmentKind) ?[]const u8 {
         return switch (self) {
             .alt => "else",

@@ -1,7 +1,3 @@
-//! The row schedule of one break state: participant boxes, steps (label rows, then the message
-//! line), activation tails, fragment sides and dividers, and every participant's ink reach at
-//! every row. Rows are fixed before any column exists.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -9,17 +5,13 @@ const Texts = @import("tb_text.zig").Texts;
 
 pub const Kind = enum { box, bare, frame_top, divider, guard_more, frame_bottom, label, stroke, self_return, tail, note };
 
-/// A message step's label rows start at `first`; its message line is `stroke`. A note's box
-/// takes `first..stroke`.
 pub const StepRows = struct { first: u32, labels: u32, stroke: u32 };
 
-/// `reach` is how far the bar's right side stands from its lifeline; its left side stands one left.
 pub const BarRows = struct { first: u32, last: u32, part: usize, reach: u8 };
 
 pub const FrameRows = struct {
     top: u32,
     bottom: u32,
-    /// The row of each operand's side: the top side, then each divider.
     sides: []u32,
 };
 
@@ -37,7 +29,6 @@ pub const Rows = struct {
         return @intCast(self.kinds.len);
     }
 
-    /// The farthest a participant's ink reaches left of its lifeline over rows `r0..r1`.
     pub fn left(self: *const Rows, p: usize, r0: u32, r1: u32) u32 {
         return self.maxOver(.left, p, r0, r1);
     }
@@ -234,7 +225,6 @@ fn noteNext(s: *const seq.Sequence, item_ix: usize) bool {
     };
     return false;
 }
-
 
 test {
     _ = @import("tb_rows_test.zig");

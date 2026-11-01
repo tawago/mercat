@@ -1,7 +1,3 @@
-//! Paints one placed top-down state, layer by layer, onto the owner overlay, then copies it onto
-//! the shared canvas: boxes, lifelines, activations, message lines, labels and notes,
-//! boundaries.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -119,7 +115,6 @@ fn lineGlyph(kind: seq.ArrowKind) u21 {
     return if (kind.isDashed()) glyph.dashed else glyph.solid;
 }
 
-/// The receiver-end cell: an arrowhead, a cross, an open end, or the line itself.
 pub fn decoration(kind: seq.ArrowKind, rightward: bool) u21 {
     return switch (kind) {
         .solid_arrow, .dashed_arrow => if (rightward) glyph.head_right else glyph.head_left,

@@ -1,8 +1,3 @@
-//! Fragment boundaries in columns: each rectangle wide enough for its kind on the left, three
-//! columns past its last enclosed lifeline on the right, clear of all inner ink by one empty
-//! column, one cell outside every nested boundary, and clear of the participants it does not
-//! enclose by one empty column.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -10,22 +5,18 @@ const Rows = @import("tb_rows.zig").Rows;
 
 pub const FrameCols = struct { left: i32, right: i32 };
 
-/// The ink columns each step and guard reaches, as placed: what a boundary must clear.
 pub const Inner = struct {
     step_lo: []const i32,
     step_hi: []const i32,
-    /// Per fragment and operand, the last column of its guard; minInt when it has none.
     guard_end: []const []const i32,
 };
 
-/// A width a gap must grow by so a boundary keeps its clearance; gap 0 is the left pad.
 pub const Widen = struct { gap: usize, by: i32 };
 
 pub fn kindWidth(kind: seq.FragmentKind) i32 {
     return @intCast(kind.word().len);
 }
 
-/// The innermost fragment of every step, by walking the items.
 pub fn stepFrames(arena: Allocator, s: *const seq.Sequence) ![]?seq.FragIx {
     const out = try arena.alloc(?seq.FragIx, s.steps.len);
     var stack: std.ArrayList(seq.FragIx) = .empty;
@@ -38,8 +29,6 @@ pub fn stepFrames(arena: Allocator, s: *const seq.Sequence) ![]?seq.FragIx {
     return out;
 }
 
-/// Places every boundary, children first, and appends to `widen` each gap too narrow for the
-/// clearance between a boundary and the participants outside it.
 pub fn place(
     s: *const seq.Sequence,
     rows: *const Rows,
@@ -96,7 +85,6 @@ pub fn place(
     }
 }
 
-/// One empty column between a boundary and the inner ink `lo..hi`.
 fn grow(fc: *FrameCols, lo: i32, hi: i32) void {
     fc.left = @min(fc.left, lo - 2);
     fc.right = @max(fc.right, hi + 2);
