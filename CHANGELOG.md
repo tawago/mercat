@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Install
+
+- **0.3.6 packages.** The 0.3.6 release shipped without the Linux ARM
+  download, the `.deb`/`.rpm` packages and the Homebrew update. This release
+  ships all of them, with the same changes as 0.3.6.
+
 ## [0.3.6]
 
 ### Sequence diagrams

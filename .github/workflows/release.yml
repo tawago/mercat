@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   prepare-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -95,10 +95,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-linux-musl
             artifact: mercat-linux-x86_64.tar.gz
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: aarch64-linux-musl
             artifact: mercat-linux-aarch64.tar.gz
           # Darwin must build on a macOS runner: the koino dependency runs a
@@ -161,7 +161,7 @@ jobs:
             ${{ matrix.artifact }}.sha256
 
   package-linux:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [prepare-release, build-release]
     if: always() && needs.build-release.result == 'success'
     env:
@@ -218,7 +218,7 @@ jobs:
             *.rpm.sha256
 
   update-homebrew-tap:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [prepare-release, build-release]
     if: always() && needs.build-release.result == 'success'
     env:

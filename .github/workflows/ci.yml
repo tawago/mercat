@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
+          - ubuntu-24.04
           - macos-15
 
     steps:
@@ -44,3 +44,22 @@ jobs:
 
       - name: Build the playground renderer
         run: zig build wasm
+
+  release-cross-build:
+    runs-on: ubuntu-24.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: Install QEMU for foreign build helpers
+        run: sudo apt-get update && sudo apt-get install -y qemu-user qemu-user-binfmt
+
+      - name: Build the Linux ARM release binary
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl -fqemu
