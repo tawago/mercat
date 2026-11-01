@@ -1,7 +1,3 @@
-//! The row schedule of one break state: participant boxes, steps (label rows, then the message
-//! line), activation tails, fragment sides and dividers, and every participant's ink reach at
-//! every row. Rows are fixed before any column exists.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -9,17 +5,13 @@ const Texts = @import("tb_text.zig").Texts;
 
 pub const Kind = enum { box, bare, frame_top, divider, guard_more, frame_bottom, label, stroke, self_return, tail, note };
 
-/// A message step's label rows start at `first`; its message line is `stroke`. A note's box
-/// takes `first..stroke`.
 pub const StepRows = struct { first: u32, labels: u32, stroke: u32 };
 
-/// `reach` is how far the bar's right side stands from its lifeline; its left side stands one left.
 pub const BarRows = struct { first: u32, last: u32, part: usize, reach: u8 };
 
 pub const FrameRows = struct {
     top: u32,
     bottom: u32,
-    /// The row of each operand's side: the top side, then each divider.
     sides: []u32,
 };
 
@@ -37,7 +29,6 @@ pub const Rows = struct {
         return @intCast(self.kinds.len);
     }
 
-    /// The farthest a participant's ink reaches left of its lifeline over rows `r0..r1`.
     pub fn left(self: *const Rows, p: usize, r0: u32, r1: u32) u32 {
         return self.maxOver(.left, p, r0, r1);
     }
@@ -74,27 +65,50 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
     for (s.frags, frames) |f, *fr| fr.* = .{ .top = 0, .bottom = 0, .sides = try arena.alloc(u32, f.operands.len) };
 
     const tail_at = try arena.alloc(u32, s.items.len);
+    const top_at = try arena.alloc(u32, s.items.len);
+    var here: Here = .under;
     for (s.items, 0..) |item, item_ix| switch (item) {
+        .engage => top_at[item_ix] = switch (here) {
+            .line => |l| if (noteNext(s, item_ix) or passes(s, l.step, item_ix) or nestsApart(s, item_ix)) try ownRow(arena, &kinds, &here) else l.row,
+            .under => try ownRow(arena, &kinds, &here),
+            .at => |r| r,
+            .next => if (sideNext(s, item_ix)) try ownRow(arena, &kinds, &here) else @intCast(kinds.items.len),
+        },
         .release => {
-            const shared = item_ix > 0 and s.items[item_ix - 1] == .release;
+            const shared = (item_ix > 0 and s.items[item_ix - 1] == .release) or spare(here, kinds.items);
             if (!shared) try kinds.append(arena, .tail);
+            var floor: u32 = 0;
+            for (s.bars) |bar| if (bar.release == item_ix) {
+                floor = @max(floor, top_at[bar.engage] + 1);
+                for (s.bars) |inner| {
+                    if (inner.part != bar.part or inner.depth != bar.depth + 1) continue;
+                    if (inner.engage < bar.engage or inner.release > item_ix or overlaps(s, inner)) continue;
+                    floor = @max(floor, tail_at[inner.release] + 1);
+                }
+            };
+            while (kinds.items.len - 1 < floor) try kinds.append(arena, .tail);
             tail_at[item_ix] = @intCast(kinds.items.len - 1);
+            here = .{ .at = tail_at[item_ix] };
         },
         .step => |ix| {
             const first: u32 = @intCast(kinds.items.len);
             switch (s.steps[ix]) {
                 .message => |msg| {
-                    var labels = texts.count(msg.label);
-                    if (labels == 0 and opensBar(s, ix)) labels = 1;
+                    const labels = texts.count(msg.label);
                     try kinds.appendNTimes(arena, .label, labels);
                     steps[ix] = .{ .first = first, .labels = labels, .stroke = first + labels };
                     try kinds.append(arena, .stroke);
-                    if (msg.from == msg.to) try kinds.append(arena, .self_return);
+                    here = .{ .line = .{ .row = first + labels, .step = ix } };
+                    if (msg.from == msg.to) {
+                        try kinds.append(arena, .self_return);
+                        here = .under;
+                    }
                 },
                 .note => |note| {
                     const height = @max(texts.count(note.text), 1) + 2;
                     try kinds.appendNTimes(arena, .note, height);
                     steps[ix] = .{ .first = first, .labels = 0, .stroke = first + height - 1 };
+                    here = .next;
                 },
             }
         },
@@ -107,15 +121,18 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
             frames[f].sides[0] = frames[f].top;
             try kinds.append(arena, .frame_top);
             try guardRows(arena, &kinds, texts, s.frags[f].operands[0].guard);
+            here = .next;
         },
         .divider => |d| {
             frames[d.frag].sides[d.operand] = @intCast(kinds.items.len);
             try kinds.append(arena, .divider);
             try guardRows(arena, &kinds, texts, s.frags[d.frag].operands[d.operand].guard);
+            here = .next;
         },
         .close => |f| {
             frames[f].bottom = @intCast(kinds.items.len);
             try kinds.append(arena, .frame_bottom);
+            here = .next;
         },
     };
     try kinds.append(arena, .bare);
@@ -127,9 +144,8 @@ pub fn build(arena: Allocator, s: *const seq.Sequence, texts: *const Texts) !Row
     @memset(reach_l, 0);
     @memset(reach_r, 0);
     for (s.bars, bars) |bar, *br| {
-        const r_reach: u8 = @intCast(@min(1 + 3 * (@as(u32, bar.depth) - 1), 255));
-        const first = if (bar.joined) joinedRow(s, bar, tail_at) else steps[bar.first].first;
-        br.* = .{ .first = first, .last = tail_at[bar.release], .part = bar.part, .reach = r_reach };
+        const r_reach: u8 = @intCast(@min(@as(u32, bar.depth), 255));
+        br.* = .{ .first = top_at[bar.engage], .last = tail_at[bar.release], .part = bar.part, .reach = r_reach };
         var r = br.first;
         while (r <= br.last) : (r += 1) {
             reach_l[r * n + bar.part] = 1;
@@ -155,20 +171,60 @@ fn guardRows(arena: Allocator, kinds: *std.ArrayList(Kind), texts: *const Texts,
     if (lines > 1) try kinds.appendNTimes(arena, .guard_more, lines - 1);
 }
 
-/// The last row of the bar a joined bar reopens.
-fn joinedRow(s: *const seq.Sequence, bar: seq.Bar, tail_at: []const u32) u32 {
-    var row: u32 = 0;
-    for (s.bars) |b| {
-        if (b.part == bar.part and b.depth == bar.depth and b.last == bar.first and b.release < bar.release) row = @max(row, tail_at[b.release]);
-    }
-    return row;
+const Here = union(enum) { line: struct { row: u32, step: seq.StepIx }, under, at: u32, next };
+
+fn spare(here: Here, kinds: []const Kind) bool {
+    return here == .at and here.at == kinds.len - 1 and kinds[here.at] == .bare;
 }
 
-fn opensBar(s: *const seq.Sequence, ix: seq.StepIx) bool {
-    for (s.bars) |bar| if (bar.first == ix and !bar.joined) return true;
+fn passes(s: *const seq.Sequence, step: seq.StepIx, engage: usize) bool {
+    const msg = s.steps[step].message;
+    for (s.bars) |bar| if (bar.engage == engage) return @min(msg.from, msg.to) < bar.part and bar.part < @max(msg.from, msg.to);
     return false;
 }
 
+fn ownRow(arena: Allocator, kinds: *std.ArrayList(Kind), here: *Here) !u32 {
+    try kinds.append(arena, .bare);
+    here.* = .{ .at = @intCast(kinds.items.len - 1) };
+    return here.at;
+}
+
+fn nestsApart(s: *const seq.Sequence, engage: usize) bool {
+    for (s.bars) |bar| if (bar.engage == engage) return bar.depth > 1 and !overlaps(s, bar);
+    return false;
+}
+
+fn overlaps(s: *const seq.Sequence, inner: seq.Bar) bool {
+    for (s.bars) |o| {
+        if (o.part != inner.part or o.depth + 1 != inner.depth) continue;
+        if (o.engage > inner.engage or o.release < inner.release) continue;
+        if (only(s.items[o.engage + 1 .. inner.engage], .engage) and only(s.items[inner.release + 1 .. o.release], .release)) return true;
+    }
+    return false;
+}
+
+fn only(items: []const seq.Item, tag: std.meta.Tag(seq.Item)) bool {
+    for (items) |item| if (item != tag) return false;
+    return true;
+}
+
+fn sideNext(s: *const seq.Sequence, item_ix: usize) bool {
+    for (s.items[item_ix + 1 ..]) |item| switch (item) {
+        .engage => continue,
+        .close, .divider => return true,
+        else => return false,
+    };
+    return false;
+}
+
+fn noteNext(s: *const seq.Sequence, item_ix: usize) bool {
+    for (s.items[item_ix + 1 ..]) |item| switch (item) {
+        .engage, .release => continue,
+        .step => |ix| return s.steps[ix] == .note,
+        else => return false,
+    };
+    return false;
+}
 
 test {
     _ = @import("tb_rows_test.zig");

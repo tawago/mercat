@@ -1,7 +1,3 @@
-//! Paints one placed top-down state, layer by layer, onto the owner overlay, then copies it onto
-//! the shared canvas: boxes, lifelines, activations, message lines, labels and notes,
-//! boundaries.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -88,9 +84,10 @@ fn lifelines(p: *const Painter) Error!void {
 
 fn bars(p: *const Painter) Error!void {
     for (p.s.bars, p.rows.bars) |bar, br| {
-        const c = p.layout.x[bar.part] + 3 * (@as(i32, bar.depth) - 1);
+        const c = p.layout.x[bar.part] + @as(i32, bar.depth) - 1;
         if (!bar.joined) {
             try rect(p.ink, c - 1, @intCast(br.first), c + 1, @intCast(br.last), square, .bar, false);
+            clearWall(p, c, @intCast(br.first + 1), @intCast(br.last));
             continue;
         }
         const join: i32 = @intCast(br.first);
@@ -103,6 +100,14 @@ fn bars(p: *const Painter) Error!void {
         p.ink.at(c - 1, join + 1).?.glyph = '│';
         p.ink.at(c, join + 1).?.* = .{};
         p.ink.at(c + 1, join + 1).?.glyph = '│';
+        clearWall(p, c, join + 2, last);
+    }
+}
+
+fn clearWall(p: *const Painter, c: i32, from: i32, to: i32) void {
+    var r = from;
+    while (r < to) : (r += 1) {
+        if (p.ink.owner(c, r) == .bar) p.ink.at(c, r).?.* = .{};
     }
 }
 
@@ -110,7 +115,6 @@ fn lineGlyph(kind: seq.ArrowKind) u21 {
     return if (kind.isDashed()) glyph.dashed else glyph.solid;
 }
 
-/// The receiver-end cell: an arrowhead, a cross, an open end, or the line itself.
 pub fn decoration(kind: seq.ArrowKind, rightward: bool) u21 {
     return switch (kind) {
         .solid_arrow, .dashed_arrow => if (rightward) glyph.head_right else glyph.head_left,
@@ -163,7 +167,7 @@ fn noteBox(p: *const Painter, note: seq.Note, ix: usize) Error!void {
     try rect(p.ink, box.left, @intCast(sr.first), box.right, @intCast(sr.stroke), square, .note, true);
     const inner = box.right - box.left + 1 - 4;
     for (p.texts.of(note.text), 0..) |line, k| {
-        const col = box.text_at orelse box.left + 2 + @divFloor(inner - @as(i32, @intCast(line.width)), 2);
+        const col = box.left + 2 + @divFloor(inner - @as(i32, @intCast(line.width)), 2);
         const y: i32 = @intCast(sr.first + 1 + k);
         var i: i32 = 0;
         while (i < line.width) : (i += 1) {

@@ -11,8 +11,8 @@ const pinned =
     \\  │ Browser │           │ Server │      │ Database │
     \\  ╰─────────╯           ╰────────╯      ╰──────────╯
     \\       ┆                     ┆                ┆
-    \\       ┆   POST /login      ┌─┐               ┆
-    \\       ┆───────────────────►│ │               ┆
+    \\       ┆   POST /login       ┆                ┆
+    \\       ┆───────────────────►┌─┐               ┆
     \\       ┆                    │ │   find user   ┆
     \\       ┆                    │ │──────────────►┆
     \\       ┆                    │ │   user row    ┆
@@ -21,8 +21,8 @@ const pinned =
     \\┌─ alt ─── [password ok] ─────────────────────────┐
     \\│      ┆   200 + token      │ │               ┆   │
     \\│      ┆◄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│ │               ┆   │
-    \\│     ┌─┐   hehe            │ │               ┆   │
-    \\│     │ │┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄►│ │               ┆   │
+    \\│      ┆   hehe             │ │               ┆   │
+    \\│     ┌─┐┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄►│ │               ┆   │
     \\│     │ │   hahaha          │ │               ┆   │
     \\│     │ │┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄►│ │               ┆   │
     \\│     └─┘                   │ │               ┆   │
@@ -326,7 +326,7 @@ test "no label lands on an activation, lifeline or boundary at any width: the in
     }
 }
 
-test "no note covers an activation: the bar keeps both sides on every row it spans" {
+test "a note over participants covers their activations: a side sits on a busy lifeline, one column past a bare one" {
     const need = (try fixture.fit(notes_on_a_busy_participant, 0)).too_wide;
     var width = need;
     while (width < need + 20) : (width += 1) {
@@ -334,13 +334,17 @@ test "no note covers an activation: the bar keeps both sides on every row it spa
         defer testing.allocator.free(text);
         const rows = try fixture.lines(testing.allocator, text);
         defer testing.allocator.free(rows);
+        const a = colOf(rows[1], "A");
         const b = colOf(rows[1], "B");
-        const cap = rowOf(rows, "┌─┐").?;
-        var r = cap + 1;
-        while (at(rows[r], b) != '─' or at(rows[r], b - 1) != '└') : (r += 1) {
-            try testing.expectEqual(@as(u21, '│'), at(rows[r], b - 1));
-            try testing.expectEqual(@as(u21, '│'), at(rows[r], b + 1));
-        }
+        const c = colOf(rows[1], "C");
+        var both = rowOf(rows, "both").?;
+        while (at(rows[both], a - 1) != '┌') both -= 1;
+        try testing.expectEqual(@as(u21, '┐'), at(rows[both], b));
+        try testing.expectEqual(@as(u21, '│'), at(rows[both + 1], b + 1));
+        var other = rowOf(rows, "other").?;
+        while (at(rows[other], b) != '┌') other -= 1;
+        try testing.expectEqual(@as(u21, '┐'), at(rows[other], c + 1));
+        try testing.expectEqual(@as(u21, '│'), at(rows[other + 1], b - 1));
         for ([_][]const u8{ "busy", "here", "both", "them", "other", "two", "right", "left", "think", "over" }) |word| {
             try testing.expect(std.mem.indexOf(u8, text, word) != null);
         }
@@ -372,6 +376,66 @@ test "a bar reopened right after it closes joins the old one at a shared cap row
     try testing.expect(std.mem.indexOf(u8, text, "├─┤") != null);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "┌─┐"));
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, text, "└─┘"));
+}
+
+test "a nested bar sits one column right of its parent and covers the parent's right side" {
+    const text = try fixture.drawn(
+        \\sequenceDiagram
+        \\    C->>S: request
+        \\    activate S
+        \\    S->>S: validate
+        \\    activate S
+        \\    S-->>S: valid
+        \\    deactivate S
+        \\    S-->>C: response
+        \\    deactivate S
+    , 80);
+    defer testing.allocator.free(text);
+    const rows = try fixture.lines(testing.allocator, text);
+    defer testing.allocator.free(rows);
+    const top = rowOf(rows, "│┌─┐").?;
+    try testing.expect(std.mem.indexOf(u8, rows[top - 1], "│ │◄─┘") != null);
+    try testing.expect(std.mem.indexOf(u8, rows[top + 1], "││ │") != null);
+    try testing.expect(rowOf(rows, "│└─┘") != null);
+}
+
+test "a nested bar that reopens still covers its parent's right side" {
+    const text = try fixture.drawn(
+        \\sequenceDiagram
+        \\    activate W
+        \\    W->>Q: poll
+        \\    activate W
+        \\    W->>Q: ack first
+        \\    deactivate W
+        \\    activate W
+        \\    W->>Q: ack second
+        \\    deactivate W
+        \\    deactivate W
+    , 80);
+    defer testing.allocator.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "├─┤") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "││││") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "││ │───") != null);
+}
+
+test "a note side on nested bars sits one column further right per nesting level" {
+    const text = try fixture.drawn(
+        \\sequenceDiagram
+        \\    A->>B: save
+        \\    activate B
+        \\    B->>B: validate
+        \\    activate B
+        \\    Note over A,B: one save per request
+        \\    deactivate B
+        \\    deactivate B
+    , 80);
+    defer testing.allocator.free(text);
+    const rows = try fixture.lines(testing.allocator, text);
+    defer testing.allocator.free(rows);
+    const b = colOf(rows[1], "B");
+    const top = rowOf(rows, "│┌─┐").?;
+    try testing.expectEqual(@as(u21, '┐'), at(rows[top + 1], b + 1));
+    try testing.expectEqual(@as(u21, '│'), at(rows[top + 2], b + 2));
 }
 
 test "an empty fragment nested in another takes its parent's participants" {

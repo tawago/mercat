@@ -1,6 +1,3 @@
-//! The left-right sequence diagram: participant boxes stacked at the left, lifelines running
-//! right, one column per message, labels one word per row beside their message lines.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -22,8 +19,6 @@ pub const glyph = struct {
     pub const open_up: u21 = '^';
 };
 
-/// One message of the drawing. `col` is its message line's column (a self message: its loop's
-/// right column); `gap` is the gap below participant `gap`.
 const Msg = struct {
     from: usize,
     to: usize,
@@ -49,7 +44,6 @@ const Msg = struct {
         return if (self.isSelf()) self.col - 2 else self.col;
     }
 
-    /// Columns a hemmed label takes left and right of its line; an even word puts the extra column right.
     fn halfL(self: Msg) i32 {
         return @divFloor(self.wide - 1, 2);
     }
@@ -80,7 +74,6 @@ const Plan = struct {
         return self.box_h[p] - 1 - self.above(p);
     }
 
-    /// The rows of message `m`'s line strictly between its lifelines.
     fn lineRows(self: *const Plan, m: Msg) [2]i32 {
         if (m.isSelf()) return .{ self.life[m.from] + 1, self.life[m.from] + 1 };
         const a = self.life[@min(m.from, m.to)];
@@ -147,7 +140,6 @@ fn layout(arena: Allocator, s: *const seq.Sequence) !Plan {
     return plan;
 }
 
-/// Every word of every line, in reading order.
 fn splitWords(arena: Allocator, lines: []const Line) ![]const Line {
     var out: std.ArrayList(Line) = .empty;
     for (lines) |line| {
@@ -157,8 +149,6 @@ fn splitWords(arena: Allocator, lines: []const Line) ![]const Line {
     return out.items;
 }
 
-/// Label rows per gap: downward labels upward from the lower lifeline, upward and self labels
-/// downward from the upper one, in declared order; then every lifeline row.
 fn rows(plan: *Plan, down_used: []i32, up_used: []i32) void {
     @memset(down_used, 0);
     @memset(up_used, 0);
@@ -186,9 +176,6 @@ fn rows(plan: *Plan, down_used: []i32, up_used: []i32) void {
     }
 }
 
-/// Message lines left to right, as close as the rules allow: no empty column between lines
-/// pointing opposite ways, one between lines pointing the same way, wider only where a label
-/// needs the columns.
 fn columns(plan: *Plan) void {
     var reach: i32 = 0;
     for (plan.msgs) |m| reach = @max(reach, m.wide + 2);
@@ -220,7 +207,6 @@ fn columns(plan: *Plan) void {
     }
 }
 
-/// Marks every label a neighbouring message line crosses within its width; true when any new.
 fn hem(plan: *Plan) bool {
     var any = false;
     for (plan.msgs, 0..) |*m, k| {
@@ -262,7 +248,6 @@ fn lineGlyph(kind: seq.ArrowKind) u21 {
     return if (kind.isDashed()) glyph.dashed else glyph.solid;
 }
 
-/// The receiver-end cell: an arrowhead, a cross, an open end, or the line itself.
 pub fn decoration(kind: seq.ArrowKind, downward: bool) u21 {
     return switch (kind) {
         .solid_arrow, .dashed_arrow => if (downward) glyph.head_down else glyph.head_up,

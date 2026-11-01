@@ -1,8 +1,3 @@
-//! Columns of one break state: every gap as wide as its widest demand and no wider, lifelines at
-//! the prefix sums, and the columns of labels, guards, notes and boundaries.
-//!
-//! Gap `g` sits left of lifeline `g`; gap 0 is the left pad and gap `n` the right pad.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const seq = @import("seq.zig");
@@ -14,26 +9,20 @@ const frames = @import("tb_frames.zig");
 pub const box_gap: i32 = 2;
 const max_rounds = 256;
 
-/// `text_at` is the first column of every text line when activations pierce the box; null centers each line.
-pub const NoteBox = struct { left: i32, right: i32, text_at: ?i32 = null };
+pub const NoteBox = struct { left: i32, right: i32 };
 
 pub const Layout = struct {
     margin: u32,
     x: []i32,
-    /// Per participant: box columns either side of its lifeline.
     half_l: []i32,
     half_r: []i32,
-    /// Per message step: the gap its label sits in (self: the gap right of its participant).
     label_gap: []usize,
-    /// Per step: a label's first column, or a note box's left column.
     label_col: []i32,
     notes: []NoteBox,
-    /// Per self step: the column of the loop's corner.
     loop_col: []i32,
     guard_col: [][]i32,
     frames: []frames.FrameCols,
     width: u32,
-    /// Per gap (0..n): its drawn width and the texts that set its demands.
     gap_width: []i32,
     owners: []std.ArrayList(seq.TextIx),
 };
@@ -65,7 +54,6 @@ const Builder = struct {
         return @intCast(self.rows.left(p, r0, r1));
     }
 
-    /// Gap `g` (between two lifelines) keeps `empty` empty cells between its inks over rows r0..r1.
     fn room(self: *Builder, g: usize, r0: u32, r1: u32, empty: i32) void {
         self.need(g, self.rr(g - 1, r0, r1) + 1 + empty + self.rl(g, r0, r1));
     }
@@ -181,8 +169,6 @@ pub fn place(arena: Allocator, s: *const seq.Sequence, texts: *const Texts, rows
     return layout;
 }
 
-/// A label whose message line crosses several gaps: it needs `need` empty cells over rows r0..r1
-/// of the gap it takes.
 const Floating = struct { step: usize, msg: seq.Message, r0: u32, r1: u32, need: i32 };
 
 fn settle(b: *Builder, fixed: []const i32, floating: []const Floating, label_gap: []usize) void {
@@ -243,7 +229,7 @@ fn fixedStep(b: *Builder, step: seq.Step, sr: tb_rows.StepRows, label_gap: *usiz
             const r0 = sr.first;
             const r1 = sr.stroke;
             const a = note.first;
-            switch (notePosition(b, note, r0, r1)) {
+            switch (note.position) {
                 .right_of => {
                     try b.own(a + 1, note.text);
                     if (a + 1 < n) b.room(a + 1, r0, r1, bw + 2);
@@ -254,8 +240,8 @@ fn fixedStep(b: *Builder, step: seq.Step, sr: tb_rows.StepRows, label_gap: *usiz
                 },
                 .over => {
                     const z = note.last;
-                    const hl: i32 = if (a == z) @divFloor(bw, 2) else 2 + b.rl(a, r0, r1);
-                    const hr: i32 = if (a == z) bw - hl - 1 else 2 + b.rr(z, r0, r1);
+                    const hl: i32 = if (a == z) @divFloor(bw, 2) else -side(b, a, r0, r1, .left);
+                    const hr: i32 = if (a == z) bw - hl - 1 else side(b, z, r0, r1, .right);
                     try b.own(a, note.text);
                     try b.own(z + 1, note.text);
                     var g = a + 1;
@@ -268,9 +254,6 @@ fn fixedStep(b: *Builder, step: seq.Step, sr: tb_rows.StepRows, label_gap: *usiz
     }
 }
 
-/// A note over several participants widens the gaps between its first participant and the
-/// first activation inside it (its last participant when none) evenly until its text fits there.
-/// Returns whether any gap grew; the grown widths join `fixed`.
 fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
     lifelines(b, layout);
     var grew = false;
@@ -280,14 +263,14 @@ fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
             .message => continue,
         };
         if (note.first == note.last) continue;
-        const span = noteSpan(b, layout.x, note, sr.first, sr.stroke);
-        const short = b.widest(note.text) - (span.end - span.start + 1);
+        const box = overBox(b, layout.x, note, sr.first, sr.stroke);
+        const short = b.widest(note.text) - (box.right - box.left + 1 - 4);
         if (short <= 0) continue;
         grew = true;
-        const k: i32 = @intCast(span.stop - note.first);
+        const k: i32 = @intCast(note.last - note.first);
         var g = note.first + 1;
         var i: i32 = 0;
-        while (g <= span.stop) : ({
+        while (g <= note.last) : ({
             g += 1;
             i += 1;
         }) {
@@ -300,25 +283,13 @@ fn spanNotes(b: *Builder, layout: *Layout, fixed: []i32) bool {
     return grew;
 }
 
-/// Where a note over several participants writes its text: from `start` to `end`, clear of
-/// every activation; `stop` is the participant whose ink bounds it on the right.
-const NoteSpan = struct { start: i32, end: i32, stop: usize, pierced: bool };
-
-fn noteSpan(b: *const Builder, x: []const i32, note: seq.Note, r0: u32, r1: u32) NoteSpan {
-    const a = note.first;
-    const ra = b.rr(a, r0, r1);
-    const start = if (ra > 0) x[a] + ra + 2 else x[a];
-    var p = a + 1;
-    while (p <= note.last) : (p += 1) {
-        if (b.rl(p, r0, r1) > 0) return .{ .start = start, .end = x[p] - b.rl(p, r0, r1) - 2, .stop = p, .pierced = true };
-    }
-    return .{ .start = start, .end = x[note.last], .stop = note.last, .pierced = ra > 0 };
+fn overBox(b: *const Builder, x: []const i32, note: seq.Note, r0: u32, r1: u32) NoteBox {
+    return .{ .left = x[note.first] + side(b, note.first, r0, r1, .left), .right = x[note.last] + side(b, note.last, r0, r1, .right) };
 }
 
-/// A note over one participant whose activation stands at its rows moves right of the activation.
-fn notePosition(b: *const Builder, note: seq.Note, r0: u32, r1: u32) seq.NotePosition {
-    if (note.position == .over and note.first == note.last and b.rl(note.first, r0, r1) > 0) return .right_of;
-    return note.position;
+fn side(b: *const Builder, p: usize, r0: u32, r1: u32, which: enum { left, right }) i32 {
+    if (b.rl(p, r0, r1) > 0) return b.rr(p, r0, r1) - 1;
+    return if (which == .left) -1 else 1;
 }
 
 fn lifelines(b: *const Builder, layout: *Layout) void {
@@ -326,7 +297,6 @@ fn lifelines(b: *const Builder, layout: *Layout) void {
     for (1..b.n) |g| layout.x[g] = layout.x[g - 1] + b.dem[g];
 }
 
-/// Label, loop, note and guard columns from the lifelines, and the ink span of every step.
 fn placeColumns(b: *Builder, layout: *Layout, step_lo: []i32, step_hi: []i32, guard_end: [][]i32) void {
     const s = b.s;
     const x = layout.x;
@@ -352,7 +322,7 @@ fn placeColumns(b: *Builder, layout: *Layout, step_lo: []i32, step_hi: []i32, gu
             .note => |note| {
                 const bw = b.widest(note.text) + 4;
                 const a = note.first;
-                const box: NoteBox = switch (notePosition(b, note, sr.first, sr.stroke)) {
+                const box: NoteBox = switch (note.position) {
                     .right_of => blk: {
                         const left = x[a] + b.rr(a, sr.first, sr.stroke) + 2;
                         break :blk .{ .left = left, .right = left + bw - 1 };
@@ -366,10 +336,7 @@ fn placeColumns(b: *Builder, layout: *Layout, step_lo: []i32, step_hi: []i32, gu
                             const left = x[a] - @divFloor(bw, 2);
                             break :blk .{ .left = left, .right = left + bw - 1 };
                         }
-                        const span = noteSpan(b, x, note, sr.first, sr.stroke);
-                        const left = x[a] - b.rl(a, sr.first, sr.stroke) - 2;
-                        const right = x[note.last] + b.rr(note.last, sr.first, sr.stroke) + 2;
-                        break :blk .{ .left = left, .right = right, .text_at = if (span.pierced) span.start else null };
+                        break :blk overBox(b, x, note, sr.first, sr.stroke);
                     },
                 };
                 layout.notes[ix] = box;

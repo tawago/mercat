@@ -1,6 +1,3 @@
-//! The break state of every text in a top-down drawing: its lines, and the one degradation that
-//! may change them, a break at the space nearest the middle of the widest line.
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const unicode = @import("unicode");
@@ -40,7 +37,6 @@ pub const Texts = struct {
         return @intCast(self.lines[t].items.len);
     }
 
-    /// The display width of the widest line.
     pub fn widest(self: *const Texts, t: seq.TextIx) u32 {
         var w: u32 = 0;
         for (self.lines[t].items) |line| w = @max(w, line.width);
@@ -52,8 +48,6 @@ pub const Texts = struct {
         return breakPoint(self.lines[t].items[ix].bytes) != null;
     }
 
-    /// Breaks the widest line (the first of equals) at the space nearest its middle in display
-    /// columns, the left one on a tie. False when that line has no space to break at.
     pub fn breakOnce(self: *Texts, t: seq.TextIx) !bool {
         const ix = self.widestIndex(t) orelse return false;
         const line = self.lines[t].items[ix].bytes;
@@ -78,7 +72,6 @@ pub fn width(text: []const u8) u32 {
     return @intCast(unicode.displayWidth(text));
 }
 
-/// The byte index of the space nearest the middle of `line` that leaves text on both sides.
 fn breakPoint(line: []const u8) ?usize {
     const total = width(line);
     var best: ?usize = null;

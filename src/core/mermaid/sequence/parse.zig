@@ -13,8 +13,6 @@ pub fn parse(allocator: Allocator, source: []const u8) !SequenceDiagram {
     return parseSequenceDiagram(&s);
 }
 
-/// An open block: a fragment, or a block the diagram does not draw whose `end` must not close
-/// the fragment around it.
 const Block = union(enum) { fragment: model.FragmentKind, ignored };
 
 const max_depth = 64;
@@ -59,8 +57,6 @@ const fragment_words = [_]struct { []const u8, model.FragmentKind }{
     .{ "break", .break_ },
 };
 
-/// Fragment openers, dividers, `end`, and the ignored `rect` and `box` blocks; false when the
-/// line starts with none of them.
 fn parseBlockLine(s: *Scanner, diagram: *SequenceDiagram, blocks: *Blocks) !bool {
     for (fragment_words) |entry| {
         if (!s.consumeKeyword(entry[0])) continue;

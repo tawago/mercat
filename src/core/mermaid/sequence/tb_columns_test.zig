@@ -25,7 +25,8 @@ test "a label starts one comfort margin right of its gap's left participant ink"
     defer st.deinit();
     try testing.expectEqual(st.layout.x[0] + 4, st.layout.label_col[0]);
     try testing.expectEqual(st.layout.x[1] + 1 + 1 + 3, st.layout.label_col[1]);
-    try testing.expectEqual(st.layout.x[0] + 1 + 1 + 3, st.layout.label_col[4]);
+    try testing.expectEqual(st.layout.x[0] + 4, st.layout.label_col[4]);
+    try testing.expectEqual(st.layout.x[0] + 1 + 1 + 3, st.layout.label_col[5]);
 }
 
 test "a label crossing several gaps takes the one with the most room, a tie going to the gap nearest the sender" {
