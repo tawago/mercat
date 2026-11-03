@@ -457,3 +457,20 @@ test "a fan-out whose rail only a reversed member bars gets one port per stroke 
         for (chosen.cand.sketch.edges) |e| try std.testing.expect(e.routed());
     }
 }
+
+test "back-edge tracks: two back edges from one layer split over and under, and the forward fan keeps one rail beside a reversed member" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const chosen = try chooseAt(a, "flowchart LR\n  U --> R\n  R --> S1\n  R --> S2\n  R --> S3\n  S3 -.-> R\n  S1 --> R\n  R --> U\n", 120);
+    try std.testing.expectEqual(@as(u64, 0), @import("score_geom.zig").countCrossings(chosen.cand.sketch));
+    try std.testing.expectEqual(@as(usize, 1), chosen.cand.sketch.sharing.realized.selected_bundles.len);
+    var top: i32 = std.math.maxInt(i32);
+    for (chosen.cand.sketch.nodes) |p| top = @min(top, p.rect.y);
+    var over = false;
+    for (chosen.cand.sketch.edges) |e| {
+        try std.testing.expect(e.routed());
+        for (e.polyline) |pt| over = over or pt.y < top;
+    }
+    try std.testing.expect(over);
+}

@@ -11,6 +11,19 @@ All notable changes to this project will be documented in this file.
   one beside solid ones) and sits on a loop used to lose some of its
   outgoing edges with "could not be routed" warnings. Each of those edges
   now leaves the node from its own point and is drawn.
+- **Back edges can loop over the top.** An edge that points against the
+  flow used to always loop underneath (or to the right, top to bottom), so
+  two of them from one column had to cross. They can now take the other
+  side, and the boxes in that column are ordered to match.
+- **A back edge no longer stops its neighbours sharing a line.** A node's
+  forward edges share one line out of it even when the node also has an
+  edge pointing back; that node stays small instead of growing one exit
+  per edge.
+- **Tighter left-to-right columns.** Boxes stacked in one column of an LR
+  or RL chart sit with no blank row between them when nothing has to pass
+  there, and keep one row where an edge leaves through that side.
+- **Crossings weigh more when choosing a layout**, so a picture that
+  avoids one is preferred over a slightly smaller one that has it.
 
 ## [0.3.7]
 

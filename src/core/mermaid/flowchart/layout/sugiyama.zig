@@ -25,6 +25,8 @@ pub const LayeredGraph = struct {
 
     reversed_edges: []sg.EdgeId,
 
+    upper_back_edges: []const sg.EdgeId = &.{},
+
     real_index: std.AutoHashMapUnmanaged(sg.NodeId, u32),
 
     arena: ?*std.heap.ArenaAllocator,

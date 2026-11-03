@@ -265,12 +265,13 @@ pub fn buildEdgesWithPlan(
             const dst_p = findPlacement(placements, orig.to);
             const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
             const guarded = try route_clearance.withDecoratedTerminalBoxes(a, orig.id, placements, allocated_ports.edges, bundles);
+            const upper = back_edges.isUpper(lg, orig.id);
             const poly = if (bundles.memberships.len == 0)
-                try back_edges.backEdgePolyline(a, graph.direction, src_p, dst_p, rail, guarded)
+                try back_edges.backEdgePolyline(a, graph.direction, src_p, dst_p, rail, guarded, upper)
             else
-                try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, guarded);
-            const port_from = if (bundles.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
-            const port_to = if (bundles.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
+                try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, guarded, upper);
+            const port_from = if (bundles.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p, upper) else ep.source;
+            const port_to = if (bundles.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p, upper) else ep.target;
             _ = rp.ensureBaseStub(poly, placements, orig.from, orig.to);
             try out.append(a, .{
                 .id = orig.id,

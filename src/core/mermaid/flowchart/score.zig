@@ -54,7 +54,7 @@ pub fn displacesNatural(challenger: Score, natural: Score) bool {
 const W_DEAD_SPACE: u64 = 1;
 const W_EDGE_STRETCH: u64 = 2;
 const W_BENDS: u64 = 2;
-const W_CROSSINGS: u64 = 1;
+const W_CROSSINGS: u64 = 64;
 const W_LABEL_WRAPS: u64 = 2;
 
 pub const Omission = struct {

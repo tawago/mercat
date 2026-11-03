@@ -155,7 +155,7 @@ test "V-D-PORT-12: a TD self-loop derives two typed terminals (east exit, north 
     const nodes = [_]sg.Node{mkNode(0, "X")};
     const edges = [_]sg.Edge{mkEdge(0, 0, 0)};
     const graph = mkGraph(.TD, &nodes, &edges);
-    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{});
+    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 2), derived.len);
     const exit = derived[0];
     const entry = derived[1];
@@ -168,7 +168,7 @@ test "V-D-PORT-12: a TD self-loop derives two typed terminals (east exit, north 
         try std.testing.expectEqualStrings("X", item.attachment.key.opposite);
         try std.testing.expectEqual(@as(?pb.EdgeId, 0), item.attachment.edge);
     }
-    const lr = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .LR, &.{});
+    const lr = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .LR, &.{}, &.{});
     try std.testing.expectEqual(sk.Dir4.south, lr[0].side);
     try std.testing.expectEqual(sk.Dir4.south, lr[1].side);
     try std.testing.expectEqual(@as(u32, 2), ports.sideDemand(lr, 0).south);
@@ -181,7 +181,7 @@ test "V-D-PORT-09: reversed exit and entry both derive to east in TD and get dis
     const nodes = [_]sg.Node{ mkNode(0, "M"), mkNode(1, "X"), mkNode(2, "Y") };
     const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 2, 0) };
     const graph = mkGraph(.TD, &nodes, &edges);
-    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{ 0, 1 });
+    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{ 0, 1 }, &.{});
     const demand = ports.sideDemand(derived, 0);
     try std.testing.expectEqual(@as(u32, 2), demand.east);
     try std.testing.expectEqual(@as(u32, 5), ports.demandDims(demand).h_min);
@@ -217,7 +217,7 @@ test "derivation: a committed group consumes one rail pivot attachment keyed by 
             .{ .edge = 1, .source = .{ .selected = 0 }, .target = null },
         },
     };
-    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{});
+    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{}, &.{});
     const south = try ports.forSide(a, derived, 0, .south);
     try std.testing.expectEqual(@as(usize, 1), south.len);
     try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, south[0].class);
@@ -261,7 +261,7 @@ test "a fused union's leaf node exits through one shared attachment" {
         },
         .fused = &.{&.{ 0, 1, 2, 3 }},
     };
-    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{});
+    const derived = try ports.derive(a, graph, plan, bundles, .TD, &.{}, &.{});
     for ([2]u32{ 0, 1 }) |src| {
         const south = try ports.forSide(a, derived, src, .south);
         try std.testing.expectEqual(@as(usize, 1), south.len);
@@ -272,7 +272,7 @@ test "a fused union's leaf node exits through one shared attachment" {
     try std.testing.expectEqual(@as(u32, 1), ports.sideDemand(derived, 2).north);
     var lapsed = bundles;
     lapsed.fused = &.{};
-    const per_edge = try ports.derive(a, graph, plan, lapsed, .TD, &.{});
+    const per_edge = try ports.derive(a, graph, plan, lapsed, .TD, &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 2), (try ports.forSide(a, per_edge, 0, .south)).len);
 }
 
@@ -283,7 +283,7 @@ test "a plain forward arrival co-located with a self-loop terminal joins the sid
     const nodes = [_]sg.Node{ mkNode(0, "D"), mkNode(1, "Z") };
     const edges = [_]sg.Edge{ mkEdge(0, 0, 1), mkEdge(1, 1, 1) };
     const graph: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{});
+    const derived = try ports.derive(a, graph, .{ .policy = .joined }, .{}, .TD, &.{}, &.{});
     try std.testing.expectEqual(@as(u32, 2), ports.sideDemand(derived, 1).north);
     const north = try ports.forSide(a, derived, 1, .north);
     var saw_arrival = false;
@@ -298,7 +298,7 @@ test "a plain forward arrival co-located with a self-loop terminal joins the sid
     try std.testing.expectEqual(@as(u32, 0), ports.sideDemand(derived, 0).south);
     const plain_edges = [_]sg.Edge{mkEdge(0, 0, 1)};
     const plain: sg.SemGraph = .{ .direction = .TD, .nodes = &nodes, .edges = &plain_edges, .clusters = &.{}, .classes = &.{}, .arena = null };
-    const plain_derived = try ports.derive(a, plain, .{ .policy = .joined }, .{}, .TD, &.{});
+    const plain_derived = try ports.derive(a, plain, .{ .policy = .joined }, .{}, .TD, &.{}, &.{});
     try std.testing.expectEqual(@as(usize, 0), plain_derived.len);
 }
 
@@ -321,7 +321,7 @@ test "V-D-PORT-06: realized Km1 fan-IN derives one north pivot attachment and ke
         .selected_bundles = &.{.{ .id = 0, .candidate_bundle = 0, .members = &.{ 0, 1 } }},
         .memberships = &memberships,
     };
-    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});
+    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{}, &.{});
     const target = try ports.forSide(a, derived, 2, .north);
     try std.testing.expectEqual(@as(usize, 1), target.len);
     try std.testing.expectEqual(ports.AttachmentClass.rail_pivot, target[0].class);

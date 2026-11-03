@@ -120,6 +120,7 @@ pub fn enumerateAll(
     try list.appendSlice(aa, try ladder.enumerate(aa, graph, bundle_permits, max_width));
     try list.appendSlice(aa, try packedCandidates(aa, graph, bundle_permits, max_width));
     try appendBridgeVariants(aa, &list, graph, bundle_permits, max_width);
+    try appendBackEdgeVariants(aa, &list, graph, bundle_permits, max_width);
     return list.toOwnedSlice(aa);
 }
 
@@ -138,6 +139,25 @@ fn appendBridgeVariants(
         for ([2]ladder.Transform{ .bridge_dodged, .bridge_railed }) |transform| {
             const variant = try ladder.run(aa, graph, bundle_permits, max_width, rung, transform);
             if (sameEdgeGeometry(base, variant.sketch)) continue;
+            try list.append(aa, variant);
+        }
+    }
+}
+
+fn appendBackEdgeVariants(
+    aa: std.mem.Allocator,
+    list: *std.ArrayListUnmanaged(Candidate),
+    graph: sem_graph.SemGraph,
+    bundle_permits: *const ledger.BundlePermits,
+    max_width: u32,
+) !void {
+    const fit = ladder.firstFit(list.items).rung;
+    const rungs: []const ladder.Rung = if (fit == .natural) &.{.natural} else &.{ .natural, fit };
+    for (rungs) |rung| {
+        for ([3]ladder.Transform{ .back_edge_split, .tight_column, .back_edge_split_tight_column }) |transform| {
+            if (!transform.appliesTo(graph.direction)) continue;
+            const variant = try ladder.run(aa, graph, bundle_permits, max_width, rung, transform);
+            if (sameEdgeGeometry(rawAt(list.items, rung), variant.sketch)) continue;
             try list.append(aa, variant);
         }
     }

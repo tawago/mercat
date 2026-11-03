@@ -226,22 +226,18 @@ fn sourceOf(bundles: anytype, edge: u32) ?@TypeOf(bundles.memberships[0].source)
     return null;
 }
 
-test "a reversed member bars an out-rail and leaves the ends to the strokes" {
+test "an out-rail forms without its reversed members" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
     const graph = try parse(a, "flowchart TD\n  Z --> A\n  Z --> B\n  Z --> C\n");
     const plan = (try permits.build(a, graph, .joined)).plan;
-
-    const free = try bundle_commit.realize(a, graph, &plan, &.{}, &.{});
-    try std.testing.expectEqual(@as(usize, 1), free.selected_bundles.len);
-
     const reversed = [_]u32{edgeIdOf(graph, "Z", "C")};
-    const barred = try bundle_commit.realize(a, graph, &plan, &reversed, &.{});
-    try std.testing.expectEqual(@as(usize, 0), barred.selected_bundles.len);
-    for ([_][]const u8{ "A", "B", "C" }) |leaf| {
-        try std.testing.expect(sourceOf(barred, edgeIdOf(graph, "Z", leaf)).? == null);
-    }
+    const bundles = try bundle_commit.realize(a, graph, &plan, &reversed, &.{});
+
+    try std.testing.expectEqual(@as(usize, 1), bundles.selected_bundles.len);
+    try std.testing.expectEqualSlices(u32, &.{ edgeIdOf(graph, "Z", "A"), edgeIdOf(graph, "Z", "B") }, bundles.selected_bundles[0].members);
+    try std.testing.expect(sourceOf(bundles, edgeIdOf(graph, "Z", "C")).?.? == .independent);
 }
 
 test "an in-rail forms without its reversed members" {

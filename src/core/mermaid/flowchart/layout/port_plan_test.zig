@@ -64,7 +64,7 @@ test "V-D-PORT-01: port_plan gives an unrealized mixed-kind 1x3 fan three pitch-
         .{ .edge = 0, .source_group = 0, .target_group = null }, .{ .edge = 1, .source_group = 0, .target_group = null }, .{ .edge = 2, .source_group = 0, .target_group = null },
     };
     const permit: pb.BundlePermits = .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships };
-    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{});
+    const derived = try ports.derive(a, graph, permit, bundles, .TD, &.{}, &.{});
     const placements = [_]sk.NodePlacement{
         .{ .id = 0, .rect = .{ .x = 10, .y = 0, .w = 7, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
         .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
@@ -120,7 +120,7 @@ test "a discharged edge claims no attachment" {
     const with_ink: pb.RealizedBundles = .{ .memberships = &memberships };
     const discharged: pb.RealizedBundles = .{ .memberships = &memberships, .discharged = &.{2} };
 
-    const all = try ports.derive(a, graph, permit, with_ink, .TD, &.{});
+    const all = try ports.derive(a, graph, permit, with_ink, .TD, &.{}, &.{});
     const kept = try ports.withoutDischarged(a, all, discharged);
     try std.testing.expect(kept.len < all.len);
     for (kept) |item| try std.testing.expect((item.attachment.edge orelse 99) != 2);
@@ -149,7 +149,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
             .{ .edge = 4, .source_group = 0, .target_group = 1 },
             .{ .edge = 9, .source_group = 0, .target_group = 1 },
         };
-        const derived = try ports.derive(a, g, .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships }, bundles, .TD, &.{});
+        const derived = try ports.derive(a, g, .{ .policy = .joined, .groups = &groups, .memberships = &permit_memberships }, bundles, .TD, &.{}, &.{});
         const placements = [_]sk.NodePlacement{
             .{ .id = 0, .rect = .{ .x = 0, .y = 0, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },
             .{ .id = 1, .rect = .{ .x = 0, .y = 7, .w = 5, .h = 3 }, .shape = .rect, .lines = &.{}, .cluster_id = null },

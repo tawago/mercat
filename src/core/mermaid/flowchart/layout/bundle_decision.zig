@@ -50,10 +50,10 @@ fn attachmentsFor(
     private_peers: bool,
 ) []const ports.DerivedAttachment {
     if (plan) |p| if (port_active) {
-        const all = ports.derive(a, graph, p.*, bundles, graph.direction, lg.reversed_edges) catch &.{};
+        const all = ports.derive(a, graph, p.*, bundles, graph.direction, lg.reversed_edges, lg.upper_back_edges) catch &.{};
         return ports.withoutDischarged(a, all, bundles) catch all;
     };
-    if (private_peers) return ports.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, fans) catch &.{};
+    if (private_peers) return ports.deriveFanAttachments(a, graph, graph.direction, lg.reversed_edges, lg.upper_back_edges, fans) catch &.{};
     return &.{};
 }
 

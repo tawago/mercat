@@ -5,6 +5,7 @@ const sketch = @import("sketch.zig");
 const sketch_ports = @import("sketch_ports.zig");
 const sugiyama = @import("layout/sugiyama.zig");
 const crossing = @import("layout/crossing.zig");
+const back_edges = @import("layout/back_edges.zig");
 const routing = @import("layout/routing.zig");
 const node_geom = @import("layout/node_geom.zig");
 const bounds = @import("layout/bbox.zig");
@@ -49,6 +50,7 @@ pub fn layout(
     };
     defer lg.deinit(allocator);
 
+    if (opts.back_edge_tracks == .split) lg.upper_back_edges = try back_edges.splitTracks(lg.arena.?.allocator(), layout_graph, lg);
     try crossing.reduceCrossings(allocator, &lg);
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -102,7 +104,7 @@ fn buildSketch(
 
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
-    try x_assign.spread(a, graph, geom, lg, opts.h_spacing, compact_x);
+    try x_assign.spread(a, graph, geom, lg, opts.column_gap orelse opts.h_spacing, compact_x);
 
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles);
