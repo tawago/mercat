@@ -2,7 +2,7 @@ const std = @import("std");
 const prim = @import("prim");
 const sketch = @import("../sketch.zig");
 const sg = @import("../sem_graph.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 const scene = @import("bridge_scene.zig");
 const corridors = @import("corridors.zig");
 const requests = @import("bridge_requests.zig");
@@ -102,7 +102,7 @@ fn disciplineFaces(
     }
 }
 
-fn slideOffArrowheads(pends: []Pending, obstacles: tracks.Obstacles) void {
+fn slideOffArrowheads(pends: []Pending, obstacles: clearance.Obstacles) void {
     for (pends, 0..) |*p, pi| {
         const shared_start = p.start;
         if (!slideOffHeads(&p.start, p.sides.exit, p.gf, p.from_rect, obstacles, pends, pi)) continue;
@@ -122,7 +122,7 @@ fn buildPaths(
     pends_src: []const Pending,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
     enable_dodge: bool,
 ) error{OutOfMemory}![]sketch.EdgePath {
     const pends = try arena.dupe(Pending, pends_src);
@@ -132,7 +132,7 @@ fn buildPaths(
     try dyn_runs.appendSlice(arena, obstacles.runs);
     var out: std.ArrayListUnmanaged(sketch.EdgePath) = .empty;
     for (pends, 0..) |*p, pi| {
-        const dyn = tracks.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
+        const dyn = clearance.Obstacles{ .heads = dyn_heads.items, .runs = dyn_runs.items };
         const reroute = scene.rerouted(p.*, placements);
         if (enable_dodge) {
             if (requests.leaderJog(pends[0..pi], p.*)) |j| {
@@ -172,7 +172,7 @@ fn dodgeJog(
     pends: []const Pending,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
-    dyn: tracks.Obstacles,
+    dyn: clearance.Obstacles,
 ) error{OutOfMemory}!?i32 {
     const j = p.jog orelse return null;
     const vertical = p.vertical();
@@ -187,15 +187,15 @@ fn dodgeJog(
         if (requests.sharesPort(q, p)) continue;
         try scene.tentInk(arena, &heads, &runs, q);
     }
-    const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
+    const aug = clearance.Obstacles{ .heads = heads.items, .runs = runs.items };
 
     const cur = scene.jogScore(p.start, p.end, jc, vertical, placements, p.gf, p.gt, clusters, aug);
     if (cur == 0) return j;
-    const sign = tracks.outwardSign(p.sides.entry);
+    const sign = clearance.outwardSign(p.sides.entry);
     var best: ?i32 = null;
     var best_score = cur;
-    var track: tracks.Outward = .{ .from = jc, .sign = sign, .reach = bound_hi - bound_lo };
-    while (track.next()) |c| {
+    var outward: clearance.Outward = .{ .from = jc, .sign = sign, .reach = bound_hi - bound_lo };
+    while (outward.next()) |c| {
         if (c <= bound_lo or c >= bound_hi) continue;
         const s = scene.jogScore(p.start, p.end, c, vertical, placements, p.gf, p.gt, clusters, aug);
         if (s == 0) return c;
@@ -232,7 +232,7 @@ fn slideOffHeads(
     side: sketch.Dir4,
     node: sketch.NodeId,
     rect: sketch.Rect,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
     pends: []const Pending,
     self: usize,
 ) bool {
@@ -240,8 +240,8 @@ fn slideOffHeads(
     const c0 = faceCoord(port.*, side);
     if (!cellIn(obstacles.heads, outwardCell(rect, side, c0))) return false;
     const rng = corridors.faceRange(rect, side);
-    var track: tracks.Outward = .{ .from = c0, .reach = rng.hi - rng.lo };
-    while (track.next()) |c| {
+    var outward: clearance.Outward = .{ .from = c0, .reach = rng.hi - rng.lo };
+    while (outward.next()) |c| {
         if (c < rng.lo or c > rng.hi) continue;
         if (obstacles.covers(outwardCell(rect, side, c))) continue;
         if (faceTaken(pends, self, node, side, c)) continue;

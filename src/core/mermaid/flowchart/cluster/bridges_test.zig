@@ -2,7 +2,7 @@ const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
 const bridges = @import("bridges.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 
 const Crossing = bridges.Crossing;
 
@@ -75,7 +75,7 @@ test "jog landing on a drawn frame border row is displaced outside it" {
     try std.testing.expectEqual(poly[2].x, poly[3].x);
 }
 
-test "two same-side bridges with overlapping spans get distinct tracks" {
+test "two same-side bridges with overlapping spans get distinct lines" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -103,7 +103,7 @@ test "two same-side bridges with overlapping spans get distinct tracks" {
     try std.testing.expectEqual(@as(i32, 1), @max(jog0, jog1) - @min(jog0, jog1));
 }
 
-test "bridges sharing one target port share a single rail track" {
+test "bridges sharing one target port share a single rail" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -159,15 +159,15 @@ test "a bridge sharing a start with one peer and an end with another keys its re
     try std.testing.expect(edges[0].polyline[1].y != edges[1].polyline[1].y);
 }
 
-test "tracks.onFrameBorder ignores synthetic frames and disjoint spans" {
+test "clearance.onFrameBorder ignores synthetic frames and disjoint spans" {
     const clusters = [_]sketch.ClusterFrame{
         .{ .id = 1, .rect = .{ .x = 10, .y = 5, .w = 10, .h = 6 }, .parent_id = null, .label = "R", .depth = 0 },
         .{ .id = 2, .rect = .{ .x = 40, .y = 5, .w = 10, .h = 6 }, .parent_id = null, .label = "", .depth = 0, .synthetic = true },
     };
-    try std.testing.expect(tracks.onFrameBorder(true, 5, 0, 15, &clusters));
-    try std.testing.expect(!tracks.onFrameBorder(true, 5, 0, 9, &clusters));
-    try std.testing.expect(!tracks.onFrameBorder(true, 5, 40, 49, &clusters));
-    try std.testing.expect(tracks.onFrameBorder(true, 10, 12, 18, &clusters));
+    try std.testing.expect(clearance.onFrameBorder(true, 5, 0, 15, &clusters));
+    try std.testing.expect(!clearance.onFrameBorder(true, 5, 0, 9, &clusters));
+    try std.testing.expect(!clearance.onFrameBorder(true, 5, 40, 49, &clusters));
+    try std.testing.expect(clearance.onFrameBorder(true, 10, 12, 18, &clusters));
 }
 
 test "assignJogs: shared-request merge across different cluster depths picks the closest-to-target preference" {
@@ -241,11 +241,11 @@ test "a vertical corridor's descent column never lands on a drawn frame border" 
     try std.testing.expectEqual(@as(usize, 6), poly.len);
 
     const naive = sketch_clearance.clearLine(false, poly[5].x, poly[1].y, poly[3].y, &placements, 0, 1, .{ .margin = true });
-    try std.testing.expect(tracks.onFrameBorder(false, naive, poly[1].y, poly[3].y, &frames));
+    try std.testing.expect(clearance.onFrameBorder(false, naive, poly[1].y, poly[3].y, &frames));
 
     const run_col = poly[2].x;
     try std.testing.expectEqual(poly[3].x, run_col);
-    try std.testing.expect(!tracks.onFrameBorder(false, run_col, poly[2].y, poly[3].y, &frames));
+    try std.testing.expect(!clearance.onFrameBorder(false, run_col, poly[2].y, poly[3].y, &frames));
     try std.testing.expect(!sketch_clearance.columnTouchesAny(run_col, poly[2].y, poly[3].y, &placements, 0, 1));
 }
 
@@ -375,6 +375,6 @@ test "clearOfBorders surrenders the coordinate after its search bound" {
         const y: i32 = 10 - @as(i32, @intCast(i));
         r.* = .{ .{ .x = 0, .y = y }, .{ .x = 20, .y = y } };
     }
-    try std.testing.expectEqual(@as(i32, 10 - 4096), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs }));
-    try std.testing.expectEqual(@as(i32, 9), tracks.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }));
+    try std.testing.expectEqual(@as(i32, 10 - 4096), clearance.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs }));
+    try std.testing.expectEqual(@as(i32, 9), clearance.clearOfBorders(.north, 10, 0, 20, &.{}, .{ .runs = runs[0..1] }));
 }

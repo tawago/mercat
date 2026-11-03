@@ -71,7 +71,7 @@ pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanage
             k += 1;
         }
         if (lo == hi and g.reqs.items.len == 1 and !g.reqs.items[0].bundled) continue;
-        var tracks: u32 = 1;
+        var rows: u32 = 1;
         if (g.pin == -2) {
             var demands: std.ArrayListUnmanaged(lanes.LaneClaim) = .empty;
             for (g.reqs.items) |r| {
@@ -82,11 +82,11 @@ pub fn jogClaims(a: std.mem.Allocator, c: Census, claims: *std.ArrayListUnmanage
             }
             if (demands.items.len > 1) {
                 var asg = try lanes.assign(a, demands.items, 1);
-                tracks = @intCast(@max(asg.lane_pos.len, 1));
+                rows = @intCast(@max(asg.lane_pos.len, 1));
                 asg.deinit(a);
             }
         }
-        try claims.append(a, .{ .gap = g.gap, .lo = lo, .hi = hi, .height = tracks, .kind = .bridge_jog, .end = .exit, .edges = edges, .stems = stems, .taps = taps, .pin = g.pin });
+        try claims.append(a, .{ .gap = g.gap, .lo = lo, .hi = hi, .height = rows, .kind = .bridge_jog, .end = .exit, .edges = edges, .stems = stems, .taps = taps, .pin = g.pin });
     }
 }
 

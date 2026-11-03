@@ -5,7 +5,7 @@ const bridge_fans = @import("bridge_fans.zig");
 const types = @import("bridge_types.zig");
 const requests = @import("bridge_requests.zig");
 const scene = @import("bridge_scene.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 
 const Pt = sketch.Point;
 
@@ -14,7 +14,7 @@ pub fn overrideJogs(
     pends: []types.Pending,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
 ) error{OutOfMemory}!void {
     const crossings = try arena.alloc(types.Crossing, pends.len);
     for (pends, crossings) |p, *c| c.* = p.cross;
@@ -58,7 +58,7 @@ fn chooseJog(
     members: []const usize,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
     end: rail_star.Endpoint,
 ) error{OutOfMemory}!?i32 {
     const p0 = pends[members[0]];
@@ -83,14 +83,14 @@ fn chooseJog(
         if (requests.samePt(requests.railPort(q, railEnd(end)), port)) continue;
         try scene.tentInk(arena, &heads, &runs, q);
     }
-    const aug = tracks.Obstacles{ .heads = heads.items, .runs = runs.items };
+    const aug = clearance.Obstacles{ .heads = heads.items, .runs = runs.items };
 
     const cur = groupScore(pends, members, jc, vertical, placements, clusters, aug);
     if (cur == 0) return null;
     var best: ?i32 = null;
     var best_score = cur;
-    var track: tracks.Outward = .{ .from = jc, .reach = hi - lo };
-    while (track.next()) |c| {
+    var outward: clearance.Outward = .{ .from = jc, .reach = hi - lo };
+    while (outward.next()) |c| {
         if (c <= lo or c >= hi) continue;
         const s = groupScore(pends, members, c, vertical, placements, clusters, aug);
         if (s < best_score) {
@@ -109,7 +109,7 @@ fn groupScore(
     vertical: bool,
     placements: []const sketch.NodePlacement,
     clusters: []const sketch.ClusterFrame,
-    aug: tracks.Obstacles,
+    aug: clearance.Obstacles,
 ) u64 {
     var sum: u64 = 0;
     for (members) |mi| {
@@ -126,9 +126,9 @@ fn groupScore(
 
 pub fn withStaticRuns(
     arena: std.mem.Allocator,
-    base: tracks.Obstacles,
+    base: clearance.Obstacles,
     edge_paths: []const sketch.EdgePath,
-) error{OutOfMemory}!tracks.Obstacles {
+) error{OutOfMemory}!clearance.Obstacles {
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
     try runs.appendSlice(arena, base.runs);
     for (edge_paths) |e| try scene.appendRuns(arena, &runs, e.polyline);
