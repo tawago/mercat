@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Flowcharts
+
+- **Fan-out edges are no longer dropped beside a mixed fan-in.** A node
+  that sends several edges out, takes edges of different kinds in (a dotted
+  one beside solid ones) and sits on a loop used to lose some of its
+  outgoing edges with "could not be routed" warnings. Each of those edges
+  now leaves the node from its own point and is drawn.
+
 ## [0.3.7]
 
 ### Install

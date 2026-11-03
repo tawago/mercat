@@ -110,7 +110,7 @@ pub fn derive(
         }
         const membership = membershipOf(bundles, edge.id);
         const reversed = pb.containsEdge(reversed_edges, edge.id);
-        if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
+        if (!reversed and !grouped(plan, edge.id) and (membership == null or (membership.?.source == null and membership.?.target == null))) {
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = forwardSide(direction, es);
@@ -330,6 +330,11 @@ fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side:
 fn groupIndexById(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?usize {
     for (groups, 0..) |group, i| if (group.id == id) return i;
     return null;
+}
+
+fn grouped(plan: pb.BundlePermits, edge: pb.EdgeId) bool {
+    for (plan.memberships) |m| if (m.edge == edge) return m.source_group != null or m.target_group != null;
+    return false;
 }
 
 fn membershipOf(bundles: pb.RealizedBundles, edge: pb.EdgeId) ?pb.RealizedEdgeMembership {

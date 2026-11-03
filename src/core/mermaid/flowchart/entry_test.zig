@@ -446,3 +446,14 @@ test "crossing label room: a back edge into the subgraph leaves a labelled forwa
         try std.testing.expectEqual(@as(u21, '▼'), g.at(run, p.y + 2));
     }
 }
+
+test "a fan-out whose rail only a reversed member bars gets one port per stroke once a mixed-kind fan-in turns the plan on" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_]u32{ 60, 120 }) |width| {
+        const chosen = try chooseAt(a, "flowchart LR\n  U --> R\n  R --> S1\n  R --> S2\n  R --> S3\n  S3 -.-> R\n  S1 --> R\n  R --> U\n", width);
+        try std.testing.expectEqual(sem_graph.Direction.LR, chosen.cand.sketch.direction);
+        for (chosen.cand.sketch.edges) |e| try std.testing.expect(e.routed());
+    }
+}
