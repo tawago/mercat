@@ -474,3 +474,32 @@ test "back-edge tracks: two back edges from one layer split over and under, and 
     }
     try std.testing.expect(over);
 }
+
+test "tight LR columns stop at the LR piece: a TB subgraph's side-by-side boxes keep their gap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = (try entry.render(arena.allocator(),
+        \\flowchart LR
+        \\  X --> S
+        \\  subgraph S
+        \\    direction TB
+        \\    A --> B
+        \\    A --> C
+        \\    A --> D
+        \\  end
+        \\  S --> Y
+        \\
+    , .{ .max_width = 120 })).output;
+    try std.testing.expect(std.mem.indexOf(u8, out, "┘└") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "││") == null);
+}
+
+test "back-edge tracks follow span, not the order the edges are written" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const head = "flowchart LR\n  A --> B --> C --> D --> E --> F\n";
+    const one = (try entry.render(a, head ++ "  F --> E\n  F --> B\n  F --> D\n  F --> C\n", .{ .max_width = 120 })).output;
+    const two = (try entry.render(a, head ++ "  F --> C\n  F --> D\n  F --> B\n  F --> E\n", .{ .max_width = 120 })).output;
+    try std.testing.expectEqualStrings(one, two);
+}

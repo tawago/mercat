@@ -24,6 +24,6 @@ pub const LayoutOptions = struct {
     column_gap: ?u32 = null,
 };
 
-pub const BackEdgeTracks = enum { lower, split };
+pub const BackEdgeTracks = enum { lower, split, zigzag };
 
 pub const Justify = enum { center, flush_left };

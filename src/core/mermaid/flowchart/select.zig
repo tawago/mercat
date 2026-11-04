@@ -66,6 +66,7 @@ fn countsOf(aa: std.mem.Allocator, report: raster.RasterReport) !score_mod.Raste
         .arrowhead_transit = report.crossings.arrowhead_transit_violation,
         .arrow_base = report.arrow_base.violations,
         .arm_into_head = report.arrow_base.lateral_arms,
+        .crossed_base = report.arrow_base.crossed_base,
         .label_cells = try labelCells(aa, report.lattice),
     };
 }
@@ -154,7 +155,7 @@ fn appendBackEdgeVariants(
     const fit = ladder.firstFit(list.items).rung;
     const rungs: []const ladder.Rung = if (fit == .natural) &.{.natural} else &.{ .natural, fit };
     for (rungs) |rung| {
-        for ([3]ladder.Transform{ .back_edge_split, .tight_column, .back_edge_split_tight_column }) |transform| {
+        for ([5]ladder.Transform{ .back_edge_split, .tight_column, .back_edge_split_tight_column, .back_edge_zigzag, .back_edge_zigzag_tight_column }) |transform| {
             if (!transform.appliesTo(graph.direction)) continue;
             const variant = try ladder.run(aa, graph, bundle_permits, max_width, rung, transform);
             if (sameEdgeGeometry(rawAt(list.items, rung), variant.sketch)) continue;

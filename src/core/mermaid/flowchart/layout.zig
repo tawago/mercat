@@ -50,7 +50,7 @@ pub fn layout(
     };
     defer lg.deinit(allocator);
 
-    if (opts.back_edge_tracks == .split) lg.upper_back_edges = try back_edges.splitTracks(lg.arena.?.allocator(), layout_graph, lg);
+    if (opts.back_edge_tracks != .lower) lg.upper_back_edges = try back_edges.splitTracks(lg.arena.?.allocator(), layout_graph, lg, opts.back_edge_tracks == .zigzag);
     try crossing.reduceCrossings(allocator, &lg);
 
     const arena = try allocator.create(std.heap.ArenaAllocator);
@@ -99,12 +99,14 @@ fn buildSketch(
     const fans = try ownFans(a, decision.fans);
     try sizing.sizeNodes(a, graph, lg, geom, opts.node_padding, opts.fixed_sizes, opts.max_label_width, node_lines);
     sizing.applyPortDemand(graph, lg, geom, decision.attachments);
+    try back_edges.applyEndDemand(a, graph, lg, geom);
     const layer_h = try heights(a, lg, geom);
     const v_sp_per_gap = try gaps(a, graph.direction, lg, opts.v_spacing);
 
     const compact_x = (graph.direction == .TD) and !opts.is_direction_rotated;
 
-    try x_assign.spread(a, graph, geom, lg, opts.column_gap orelse opts.h_spacing, compact_x);
+    const column_gap = if (graph.direction == .LR or graph.direction == .RL) opts.column_gap orelse opts.h_spacing else opts.h_spacing;
+    try x_assign.spread(a, graph, geom, lg, column_gap, compact_x);
 
     if (fans.len > 0) fan_mod.gateFanInSharedLabels(NodeGeom, fans, geom);
     if (fans.len > 0) try fan_lanes.assignLanes(NodeGeom, a, graph, lg, geom, fans, decision.bundles);

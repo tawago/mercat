@@ -29,11 +29,13 @@ pub const Transform = enum {
     back_edge_split,
     tight_column,
     back_edge_split_tight_column,
+    back_edge_zigzag,
+    back_edge_zigzag_tight_column,
 
     pub fn appliesTo(t: Transform, d: sem_graph.Direction) bool {
         return switch (t) {
-            .raw, .bridge_dodged, .bridge_railed, .back_edge_split => true,
-            .tight_column, .back_edge_split_tight_column => d == .LR or d == .RL,
+            .raw, .bridge_dodged, .bridge_railed, .back_edge_split, .back_edge_zigzag => true,
+            .tight_column, .back_edge_split_tight_column, .back_edge_zigzag_tight_column => d == .LR or d == .RL,
             .motif_pack => d == .TD or d == .BT,
         };
     }
@@ -42,13 +44,13 @@ pub const Transform = enum {
         return switch (t) {
             .raw => std.enums.values(Rung),
             .motif_pack => &.{ .natural, .tight, .truncate },
-            .bridge_dodged, .bridge_railed, .back_edge_split, .tight_column, .back_edge_split_tight_column => &.{},
+            .bridge_dodged, .bridge_railed, .back_edge_split, .tight_column, .back_edge_split_tight_column, .back_edge_zigzag, .back_edge_zigzag_tight_column => &.{},
         };
     }
 
     pub fn bridgeBuild(t: Transform) prim.BridgeBuild {
         return switch (t) {
-            .raw, .motif_pack, .back_edge_split, .tight_column, .back_edge_split_tight_column => .plain,
+            .raw, .motif_pack, .back_edge_split, .tight_column, .back_edge_split_tight_column, .back_edge_zigzag, .back_edge_zigzag_tight_column => .plain,
             .bridge_dodged => .dodged,
             .bridge_railed => .railed,
         };
@@ -94,8 +96,9 @@ pub fn run(
     opts.bundle_permits = bundle_permits;
     opts.bridge_build = transform.bridgeBuild();
     if (transform == .back_edge_split or transform == .back_edge_split_tight_column) opts.back_edge_tracks = .split;
+    if (transform == .back_edge_zigzag or transform == .back_edge_zigzag_tight_column) opts.back_edge_tracks = .zigzag;
     const g = rotateForRung(graph, rung);
-    if ((transform == .tight_column or transform == .back_edge_split_tight_column) and (g.direction == .LR or g.direction == .RL)) opts.column_gap = 0;
+    if ((transform == .tight_column or transform == .back_edge_split_tight_column or transform == .back_edge_zigzag_tight_column) and (g.direction == .LR or g.direction == .RL)) opts.column_gap = 0;
     var s = try recurse.layoutPieces(arena, g, opts);
     if (hasWidthOverflow(s.diagnostics) and recurse.hasLabelledCrossing(g)) {
         opts.crossing_room = false;

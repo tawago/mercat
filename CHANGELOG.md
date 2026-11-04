@@ -24,6 +24,23 @@ All notable changes to this project will be documented in this file.
   there, and keep one row where an edge leaves through that side.
 - **Crossings weigh more when choosing a layout**, so a picture that
   avoids one is preferred over a slightly smaller one that has it.
+- **Back edges from one box share one line.** Several edges that point back
+  from the same box, in the same line style, now run up one shared line and
+  branch off at each target, instead of splitting apart right at the box.
+- **A back edge into a box and one out of it stay apart.** They used to
+  leave and enter through the same point and read as one joined line; each
+  now gets its own point on that side, and the box grows a row when it
+  needs one.
+- **Self-loops move away from back edges.** A box's loop to itself goes on
+  the side its back edges leave free, so the two no longer run together.
+- **No line crosses right behind an arrowhead.** A layout where another
+  line passes through the cell feeding an arrowhead is avoided, so it stays
+  clear which line the arrow belongs to.
+- **Which side a back edge takes no longer depends on line order.**
+  Writing the same edges in a different order draws the same picture.
+- **Top-to-bottom subgraphs inside a left-to-right chart keep their
+  spacing.** The tighter LR columns no longer squeeze the boxes of a
+  `direction TB` subgraph against each other.
 
 ## [0.3.7]
 
