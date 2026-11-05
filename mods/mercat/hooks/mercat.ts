@@ -26,7 +26,6 @@ export function diagramOf(run: ProcessRunResult): string | undefined {
   const isDrawn =
     run.exitCode === 0 &&
     out.trim() !== '' &&
-    !run.stderr.split('\n').some(l => /warning:/.test(l) && !/diagram clipped|label ".*" on edge .* is not drawn/.test(l)) &&
     !out.includes('<PARSE ERROR') &&
     !/^[ \t]*`{3,}mermaid/im.test(out)
   return isDrawn ? out : undefined
@@ -44,13 +43,23 @@ export function isOlder(have: string, want: string): boolean {
 export const upgradeHint = (have: string) =>
   `mercat ${have} is older than this mod (${MOD_VERSION}) — brew upgrade tawago/tap/mercat`
 
+function noteOfWarning(warning: string): string {
+  const clip = /diagram clipped: true width (\d+) > budget (\d+)/.exec(warning)
+  if (clip !== null) return `diagram clipped, needs ${clip[1]} columns, has ${clip[2]}. Widen the terminal to see it whole.`
+  const label = /label "(.*)" on edge \d+ \((.+) -> (.+)\) .* is not drawn/.exec(warning)
+  if (label !== null) return `label "${printable(label[1]!)}" on ${printable(label[2]!)} → ${printable(label[3]!)} dropped, no room to place it.`
+  const edge = /edge \d+ \((.+) -> (.+)\) .* is not drawn/.exec(warning)
+  if (edge !== null) return `line ${printable(edge[1]!)} → ${printable(edge[2]!)} is missing, no way to draw it.`
+  const skipped = /skipped (\d+) unparseable/.exec(warning)
+  if (skipped !== null) return `${skipped[1]} source line(s) skipped, could not read them.`
+  return printable(warning)
+}
+
 export function noteOf(stderr: string): string | undefined {
-  const notes: string[] = []
-  const clip = /diagram clipped: true width (\d+) > budget (\d+)/.exec(stderr)
-  if (clip !== null)
-    notes.push(`⚠ mercat: diagram clipped, needs ${clip[1]} columns, has ${clip[2]}. Widen the terminal to see it whole.`)
-  for (const m of stderr.matchAll(/label "(.*)" on edge \d+ \((.+) -> (.+)\) .* is not drawn/g))
-    notes.push(`⚠ mercat: label "${printable(m[1]!)}" on ${printable(m[2]!)} → ${printable(m[3]!)} dropped, no room to place it.`)
+  const notes = stderr.split('\n').flatMap(line => {
+    const warning = /^mercat: warning: (mermaid\b.*)$/.exec(line)?.[1]
+    return warning === undefined ? [] : [`⚠ mercat: ${noteOfWarning(warning)}`]
+  })
   return notes.length === 0 ? undefined : notes.join('\n')
 }
 
