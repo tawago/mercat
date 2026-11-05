@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.3.8]
+
 ### Flowcharts
 
 - Fan-out edges no longer go missing next to a mixed fan-in.
