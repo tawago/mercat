@@ -116,7 +116,6 @@ describe('mercat helpers', () => {
     expect(diagramOf(run('┌─┐\n└─┘\n'))).toBe('┌─┐\n└─┘')
     expect(diagramOf(run('  ```mermaid\n   pie title *Key*\n  ```\n'))).toBeUndefined()
     expect(diagramOf(run('  <PARSE ERROR: x>'))).toBeUndefined()
-    expect(diagramOf(run('art', { stderr: 'warning: mermaid parse failed' }))).toBeUndefined()
     expect(diagramOf(run('art»', { stderr: 'mercat: warning: mermaid: diagram clipped: true width 121 > budget 70\n' }))).toBe('art»')
     expect(diagramOf(run('art', { exitCode: 1 }))).toBeUndefined()
     expect(noteOf('mercat: warning: mermaid: diagram clipped: true width 121 > budget 93\n')).toBe(
@@ -129,7 +128,21 @@ describe('mercat helpers', () => {
     expect(noteOf(dropped)).toBe('⚠ mercat: label "After device verification" on M → V dropped, no room to place it.')
     expect(noteOf(`mercat: warning: mermaid: diagram clipped: true width 121 > budget 93\n${dropped}`)!.split('\n')).toHaveLength(2)
     const unrouted = 'mercat: warning: mermaid: edge 2 (A -> B) could not be routed without illegal ink and is not drawn\n'
-    expect(diagramOf(run('art', { stderr: unrouted }))).toBeUndefined()
+    expect(diagramOf(run('art', { stderr: unrouted }))).toBe('art')
+    expect(noteOf(unrouted)).toBe('⚠ mercat: line A → B is missing, no way to draw it.')
+    const skipped = "mercat: warning: mermaid parse: skipped 2 unparseable non-edge line(s); rendering the rest\n"
+    expect(diagramOf(run('art', { stderr: skipped }))).toBe('art')
+    expect(noteOf(skipped)).toBe('⚠ mercat: 2 source line(s) skipped, could not read them.')
+    expect(noteOf('mercat: warning: mermaid: something new\n')).toBe('⚠ mercat: mermaid: something new')
+    const config =
+      "mercat: warning: /home/me/.config/mercat/config.toml:1: unknown section [nope]; its keys are ignored\n" +
+      "mercat: warning: /home/me/.config/mercat/config.toml:2: unknown key 'bogus' in [mermaid]\n"
+    expect(diagramOf(run('art', { stderr: config }))).toBe('art')
+    expect(noteOf(config)).toBeUndefined()
+    const notDrawn = 'mercat: warning: mermaid: sequence diagram not drawn: width 33 > budget 18\n'
+    expect(diagramOf(run('  ```mermaid\n   sequenceDiagram\n  ```\n', { stderr: notDrawn }))).toBeUndefined()
+    const failed = 'mercat: warning: mermaid/entry: ladder failed: EmptyGraph\n'
+    expect(diagramOf(run('  <PARSE ERROR: v2 ladder error>\n  ```mermaid\n   flowchart LR\n  ```\n', { stderr: failed }))).toBeUndefined()
     expect(versionOf('mercat 0.3.2\n')).toBe('0.3.2')
     expect(isOlder('0.3.1', '0.3.2')).toBe(true)
     expect(isOlder('0.10.0', '0.9.9')).toBe(false)

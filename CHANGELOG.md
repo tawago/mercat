@@ -16,6 +16,13 @@ All notable changes to this project will be documented in this file.
 - Self-loops keep away from back edges.
 - No line crosses right behind an arrowhead.
 
+### Claude Code mod
+
+- A warning no longer hides a drawn diagram. The raw block stays only when
+  mercat fails to draw it.
+- A warning about the diagram shows above it, including a line mercat could not
+  draw. A problem in your config no longer turns diagrams back into code.
+
 ## [0.3.7]
 
 ### Install
