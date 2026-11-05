@@ -6,41 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Flowcharts
 
-- **Fan-out edges are no longer dropped beside a mixed fan-in.** A node
-  that sends several edges out, takes edges of different kinds in (a dotted
-  one beside solid ones) and sits on a loop used to lose some of its
-  outgoing edges with "could not be routed" warnings. Each of those edges
-  now leaves the node from its own point and is drawn.
-- **Back edges can loop over the top.** An edge that points against the
-  flow used to always loop underneath (or to the right, top to bottom), so
-  two of them from one column had to cross. They can now take the other
-  side, and the boxes in that column are ordered to match.
-- **A back edge no longer stops its neighbours sharing a line.** A node's
-  forward edges share one line out of it even when the node also has an
-  edge pointing back; that node stays small instead of growing one exit
-  per edge.
-- **Tighter left-to-right columns.** Boxes stacked in one column of an LR
-  or RL chart sit with no blank row between them when nothing has to pass
-  there, and keep one row where an edge leaves through that side.
-- **Crossings weigh more when choosing a layout**, so a picture that
-  avoids one is preferred over a slightly smaller one that has it.
-- **Back edges from one box share one line.** Several edges that point back
-  from the same box, in the same line style, now run up one shared line and
-  branch off at each target, instead of splitting apart right at the box.
-- **A back edge into a box and one out of it stay apart.** They used to
-  leave and enter through the same point and read as one joined line; each
-  now gets its own point on that side, and the box grows a row when it
-  needs one.
-- **Self-loops move away from back edges.** A box's loop to itself goes on
-  the side its back edges leave free, so the two no longer run together.
-- **No line crosses right behind an arrowhead.** A layout where another
-  line passes through the cell feeding an arrowhead is avoided, so it stays
-  clear which line the arrow belongs to.
-- **Which side a back edge takes no longer depends on line order.**
-  Writing the same edges in a different order draws the same picture.
-- **Top-to-bottom subgraphs inside a left-to-right chart keep their
-  spacing.** The tighter LR columns no longer squeeze the boxes of a
-  `direction TB` subgraph against each other.
+- Fan-out edges no longer go missing next to a mixed fan-in.
+- Back edges can now loop over the top, so fewer of them cross.
+- A back edge no longer stops forward edges sharing a line.
+- LR and RL columns are tighter.
+- Layouts with fewer crossings win more often.
+- Back edges from one box share one line.
+- A back edge in and a back edge out of one box stay apart.
+- Self-loops keep away from back edges.
+- No line crosses right behind an arrowhead.
 
 ## [0.3.7]
 
