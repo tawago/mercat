@@ -14,7 +14,7 @@ const widths = [_]u32{ 120, 48 };
 // Seeds whose render at some width in `widths` does not read back as
 // declared today. Each list below may only shrink: a seed that starts to
 // hold must leave its list, and no seed may join one.
-const known_lying = [_]u64{ 1, 4, 9, 14, 17, 19, 21, 23, 24, 30, 33, 36, 47, 50, 52, 54, 55, 56, 62, 64, 69, 75, 80, 86, 87, 89, 90, 93, 94, 95, 98, 99, 108, 109, 110, 111, 112, 113, 117 };
+const known_lying = [_]u64{ 1, 4, 9, 14, 17, 19, 21, 23, 24, 30, 33, 47, 50, 52, 54, 55, 56, 62, 64, 75, 80, 86, 87, 89, 90, 93, 94, 95, 98, 99, 108, 109, 110, 111, 112, 113, 117 };
 
 // Seeds whose labelled drawing changes when only node ids change.
 const known_renaming = [_]u64{ 0, 17, 18, 19, 38, 46 };
@@ -99,4 +99,63 @@ fn renames(arena: std.mem.Allocator, seed: u64) !bool {
 
 test "renaming node ids does not change a labelled drawing, apart from the known cases" {
     try ratchet("renaming", &known_renaming, seeds / 2, renames);
+}
+
+fn readsBack(arena: std.mem.Allocator, source: []const u8, width: u32) !check.Verdict {
+    const want = (try parsed(arena, source)).?;
+    return (try check.judge(arena, want, try render(arena, source, width))).verdict;
+}
+
+test "back edges into and out of one node keep apart; same-source back edges share one trunk" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const in_and_out =
+        \\flowchart LR
+        \\  Submit[SubmitOrder] --> Validate[ValidatePayment]
+        \\  Validate --> Charge[ChargeCard]
+        \\  Charge --> Ship[ScheduleShipment]
+        \\  Ship --> Done[OrderComplete]
+        \\  Charge -->|declined| Validate
+        \\  Ship -->|no stock| Submit
+        \\  Done -->|refund| Charge
+        \\
+    ;
+    const one_source =
+        \\flowchart TD
+        \\  Start --> Build --> Test --> Lint --> Package --> Deploy
+        \\  Deploy -->|rollback| Package
+        \\  Deploy -->|retest| Test
+        \\  Deploy -->|rebuild| Build
+        \\  Deploy -->|restart| Start
+        \\
+    ;
+    for ([_]u32{ 60, 90, 120 }) |w| {
+        try std.testing.expectEqual(check.Verdict.faithful, try readsBack(a, in_and_out, w));
+        try std.testing.expectEqual(check.Verdict.faithful, try readsBack(a, one_source, w));
+    }
+    const out = try render(a, one_source, 120);
+    try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, out, "┤"));
+}
+
+test "a self-loop takes the side its node's back edges leave free" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const source =
+        \\flowchart LR
+        \\  Poll[PollQueue] --> Poll
+        \\  Poll --> Work[ProcessJob]
+        \\  Work --> Work
+        \\  Work --> Ack[AckMessage]
+        \\  Ack --> Poll
+        \\  Work -->|fail| Poll
+        \\  Ack -->|nack| Work
+        \\
+    ;
+    for ([_]u32{ 60, 120 }) |w| try std.testing.expectEqual(check.Verdict.faithful, try readsBack(a, source, w));
+    const out = try render(a, source, 120);
+    var rows = std.mem.splitScalar(u8, out, '\n');
+    const top = rows.next().?;
+    try std.testing.expect(std.mem.indexOf(u8, top, "┌") != null);
 }

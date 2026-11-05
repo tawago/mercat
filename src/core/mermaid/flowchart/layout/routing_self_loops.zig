@@ -28,6 +28,33 @@ pub fn selfLoop(
     }
 }
 
+pub fn mirrored(a: std.mem.Allocator, dir: sg.Direction, node_p: sketch.NodePlacement, sl: SelfLoop) error{OutOfMemory}!SelfLoop {
+    const r = node_p.rect;
+    const poly = try a.dupe(sketch.Point, sl.polyline);
+    for (poly) |*pt| switch (dir) {
+        .TD, .BT => pt.x = 2 * r.x + @as(i32, @intCast(r.w)) - 1 - pt.x,
+        .LR, .RL => pt.y = 2 * r.y + @as(i32, @intCast(r.h)) - 1 - pt.y,
+    };
+    return .{ .polyline = poly, .port_from = mirrorPort(dir, sl.port_from), .port_to = mirrorPort(dir, sl.port_to) };
+}
+
+fn mirrorPort(dir: sg.Direction, port: sketch.Port) sketch.Port {
+    var out = port;
+    out.side = switch (dir) {
+        .TD, .BT => switch (port.side) {
+            .east => .west,
+            .west => .east,
+            else => port.side,
+        },
+        .LR, .RL => switch (port.side) {
+            .south => .north,
+            .north => .south,
+            else => port.side,
+        },
+    };
+    return out;
+}
+
 const LIFT_REACH: i32 = 4;
 const OVERSHOOT_REACH: i32 = OFF_H + 2;
 

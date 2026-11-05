@@ -20,6 +20,10 @@ pub const LayoutOptions = struct {
     bridge_build: prim.BridgeBuild = .plain,
     label_room: bool = true,
     crossing_room: bool = true,
+    back_edge_tracks: BackEdgeTracks = .lower,
+    column_gap: ?u32 = null,
 };
+
+pub const BackEdgeTracks = enum { lower, split, zigzag };
 
 pub const Justify = enum { center, flush_left };

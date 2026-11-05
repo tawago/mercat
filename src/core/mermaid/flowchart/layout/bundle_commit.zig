@@ -79,11 +79,10 @@ pub fn realize(
     return realized(c, slots);
 }
 
-/// A reversed member bars an out-rail; an in-rail is formed without its reversed members.
 fn starLicence(c: Ctx, group: pb.CandidateBundle) error{OutOfMemory}!Slot {
-    const pool = if (group.direction == .in) try without(c.a, group.members, c.reversed) else group.members;
+    const pool = try without(c.a, group.members, c.reversed);
     const members = try permit_mod.prepareRailMembers(c.a, c.graph, group.direction, group.pivot, pool);
-    if (members.len < 2 or anyIn(members, c.reversed)) return .none;
+    if (members.len < 2) return .none;
     return closureLicence(c, group, members);
 }
 

@@ -1,7 +1,7 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const types = @import("bridge_types.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 
 const Pt = sketch.Point;
 const Pending = types.Pending;
@@ -44,7 +44,7 @@ pub fn assignJogs(
     arena: std.mem.Allocator,
     pends: []Pending,
     clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
 ) error{OutOfMemory}!void {
     const done = try arena.alloc(bool, pends.len);
     @memset(done, false);
@@ -53,7 +53,7 @@ pub fn assignJogs(
         if (done[i] or pends[i].pref == null) continue;
         const p0 = pends[i];
         const row_jog = (p0.sides.entry == .north or p0.sides.entry == .south);
-        const sign = tracks.outwardSign(p0.sides.entry);
+        const sign = clearance.outwardSign(p0.sides.entry);
 
         var members: std.ArrayListUnmanaged(usize) = .empty;
         for (i..pends.len) |j| {
@@ -69,7 +69,7 @@ pub fn assignJogs(
         }
 
         var keys: std.ArrayListUnmanaged(Key) = .empty;
-        var reqs: std.ArrayListUnmanaged(tracks.Req) = .empty;
+        var reqs: std.ArrayListUnmanaged(clearance.Req) = .empty;
         const req_of = try arena.alloc(usize, members.items.len);
         for (members.items, req_of) |mi, *ri| {
             const m = pends[mi];
@@ -89,7 +89,7 @@ pub fn assignJogs(
             }
         }
 
-        const coords = try tracks.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles);
+        const coords = try clearance.resolve(arena, reqs.items, p0.sides.entry, clusters, obstacles);
         for (members.items, req_of) |mi, ri| pends[mi].jog = coords[ri];
     }
 }

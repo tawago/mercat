@@ -16,10 +16,10 @@ pub fn forwardSide(direction: sg.Direction, endpoint_side: pb.EndpointSide) sk.D
     };
 }
 
-pub fn reversedSide(direction: sg.Direction) sk.Dir4 {
+pub fn reversedSide(direction: sg.Direction, upper: bool) sk.Dir4 {
     return switch (direction) {
-        .TD, .BT => .east,
-        .LR, .RL => .south,
+        .TD, .BT => if (upper) .west else .east,
+        .LR, .RL => if (upper) .north else .south,
     };
 }
 
@@ -94,6 +94,7 @@ pub fn derive(
     bundles: pb.RealizedBundles,
     direction: sg.Direction,
     reversed_edges: []const pb.EdgeId,
+    upper_back_edges: []const pb.EdgeId,
 ) DeriveError![]const DerivedAttachment {
     var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
     var fused_leaves: std.ArrayListUnmanaged(FusedLeaf) = .empty;
@@ -110,7 +111,7 @@ pub fn derive(
         }
         const membership = membershipOf(bundles, edge.id);
         const reversed = pb.containsEdge(reversed_edges, edge.id);
-        if (!reversed and (membership == null or (membership.?.source == null and membership.?.target == null))) {
+        if (!reversed and !grouped(plan, edge.id) and (membership == null or (membership.?.source == null and membership.?.target == null))) {
             inline for ([2]pb.EndpointSide{ .source_exit, .target_entry }) |es| {
                 const n = if (es == .source_exit) edge.from else edge.to;
                 const sd = forwardSide(direction, es);
@@ -123,7 +124,7 @@ pub fn derive(
             const disp = if (membership) |m| (if (es == .source_exit) m.source else m.target) else null;
             if (!isSelected(disp)) {
                 const n = if (es == .source_exit) edge.from else edge.to;
-                const sd = if (reversed) reversedSide(direction) else forwardSide(direction, es);
+                const sd = if (reversed) reversedSide(direction, pb.containsEdge(upper_back_edges, edge.id)) else forwardSide(direction, es);
                 const poolable = !reversed and edge.labelText() == null;
                 const fused_u = if (poolable) fusedUnionIndex(bundles.fused, edge.id) else null;
                 if (fused_u) |ui| {
@@ -179,7 +180,7 @@ fn fusedUnionIndex(fused: []const []const pb.EdgeId, edge: pb.EdgeId) ?usize {
     return null;
 }
 
-pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, fans: []const fan_types.Fan) DeriveError![]const DerivedAttachment {
+pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction: sg.Direction, reversed_edges: []const pb.EdgeId, upper_back_edges: []const pb.EdgeId, fans: []const fan_types.Fan) DeriveError![]const DerivedAttachment {
     var out: std.ArrayListUnmanaged(DerivedAttachment) = .empty;
     for (graph.edges) |edge| {
         if (edge.kind == .invisible) continue;
@@ -188,7 +189,7 @@ pub fn deriveFanAttachments(a: std.mem.Allocator, graph: sg.SemGraph, direction:
             const side = if (edge.from == edge.to)
                 selfLoopSide(direction, endpoint)
             else if (pb.containsEdge(reversed_edges, edge.id))
-                reversedSide(direction)
+                reversedSide(direction, pb.containsEdge(upper_back_edges, edge.id))
             else
                 forwardSide(direction, endpoint);
             if (sharedFan(fans, edge.id, endpoint)) |fan| {
@@ -330,6 +331,11 @@ fn hasSelfLoopSide(graph: sg.SemGraph, dir: sg.Direction, node: pb.NodeId, side:
 fn groupIndexById(groups: []const pb.CandidateBundle, id: pb.CandidateBundleId) ?usize {
     for (groups, 0..) |group, i| if (group.id == id) return i;
     return null;
+}
+
+fn grouped(plan: pb.BundlePermits, edge: pb.EdgeId) bool {
+    for (plan.memberships) |m| if (m.edge == edge) return m.source_group != null or m.target_group != null;
+    return false;
 }
 
 fn membershipOf(bundles: pb.RealizedBundles, edge: pb.EdgeId) ?pb.RealizedEdgeMembership {

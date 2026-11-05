@@ -14,12 +14,48 @@ pub fn spread(
     h_spacing: u32,
     compact: bool,
 ) error{OutOfMemory}!void {
-    assignInitialX(geom, lg.layers, h_spacing);
-    try centerByBarycenter(a, graph, geom, lg, h_spacing, .down, compact);
-    try centerByBarycenter(a, graph, geom, lg, h_spacing, .up, compact);
+    const gaps: Gaps = .{ .base = h_spacing, .room = if (h_spacing == 0) try faceRoom(a, graph, lg) else &.{} };
+    for (lg.layers) |row| {
+        var cursor: i32 = 0;
+        for (row, 0..) |idx, k| {
+            geom[idx].x = cursor;
+            cursor += @as(i32, @intCast(geom[idx].w)) + gaps.after(row, k);
+        }
+    }
+    try sweep(a, graph, geom, lg, gaps, .down, compact);
+    try sweep(a, graph, geom, lg, gaps, .up, compact);
     normalizeX(geom);
-    try centerByBarycenter(a, graph, geom, lg, h_spacing, .down, compact);
+    try sweep(a, graph, geom, lg, gaps, .down, compact);
     normalizeX(geom);
+}
+
+const room_before: u2 = 1;
+const room_after: u2 = 2;
+
+const Gaps = struct {
+    base: u32,
+    room: []const u2 = &.{},
+
+    fn after(g: Gaps, row: []const u32, k: usize) i32 {
+        var gap: i32 = @intCast(g.base);
+        if (g.room.len != 0 and k + 1 < row.len and (g.room[row[k]] & room_after != 0 or g.room[row[k + 1]] & room_before != 0)) gap += 1;
+        return gap;
+    }
+};
+
+fn faceRoom(a: std.mem.Allocator, graph: sg.SemGraph, lg: sugiyama.LayeredGraph) error{OutOfMemory}![]const u2 {
+    const room = try a.alloc(u2, lg.nodes.len);
+    @memset(room, 0);
+    for (lg.edges) |e| {
+        if (!e.reversed) continue;
+        const bit: u2 = if (std.mem.indexOfScalar(sg.EdgeId, lg.upper_back_edges, e.edge) != null) room_before else room_after;
+        room[e.from] |= bit;
+        room[e.to] |= bit;
+    }
+    for (graph.edges) |e| if (e.from == e.to) {
+        if (lg.real_index.get(e.from)) |v| room[v] |= room_after;
+    };
+    return room;
 }
 
 pub fn assignInitialX(geom: []NodeGeom, layers: [][]u32, h_spacing: u32) void {
@@ -40,6 +76,18 @@ pub fn centerByBarycenter(
     geom: []NodeGeom,
     lg: sugiyama.LayeredGraph,
     h_spacing: u32,
+    dir: SweepDir,
+    compact: bool,
+) error{OutOfMemory}!void {
+    return sweep(a, graph, geom, lg, .{ .base = h_spacing }, dir, compact);
+}
+
+fn sweep(
+    a: std.mem.Allocator,
+    graph: sg.SemGraph,
+    geom: []NodeGeom,
+    lg: sugiyama.LayeredGraph,
+    h_spacing: Gaps,
     dir: SweepDir,
     compact: bool,
 ) error{OutOfMemory}!void {
@@ -64,7 +112,7 @@ fn centerLayer(
     geom: []NodeGeom,
     lg: sugiyama.LayeredGraph,
     row: []const u32,
-    h_spacing: u32,
+    h_spacing: Gaps,
     dir: SweepDir,
     compact: bool,
 ) error{OutOfMemory}!void {
@@ -106,7 +154,7 @@ fn centerLayer(
         const want_left = desired[k] - @divTrunc(w_i, 2);
         const left = if (want_left > cursor) want_left else cursor;
         geom[idx].x = left;
-        cursor = left + w_i + @as(i32, @intCast(h_spacing));
+        cursor = left + w_i + h_spacing.after(row, k);
     }
 
     if (!compact) return;

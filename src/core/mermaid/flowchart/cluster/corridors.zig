@@ -1,7 +1,7 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 
 pub const Endpoint = struct {
     node: sketch.NodeId,
@@ -145,7 +145,7 @@ pub fn descentColumn(
     const first = sketch_clearance.clearLine(false, want, lo, hi, placements, from_id, to_id, .{ .margin = true });
     if (!frameBlocked(first, lo, hi, placements, from_id, to_id, clusters)) return first;
 
-    var column: tracks.Outward = .{ .from = first, .sign = if (want < first) -1 else 1, .reach = DESCENT_REACH };
+    var column: clearance.Outward = .{ .from = first, .sign = if (want < first) -1 else 1, .reach = DESCENT_REACH };
     while (column.next()) |c| {
         if (c < 0) continue;
         if (frameBlocked(c, lo, hi, placements, from_id, to_id, clusters)) continue;
@@ -164,7 +164,7 @@ fn frameBlocked(
     to_id: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
 ) bool {
-    if (tracks.onFrameBorder(false, col, lo, hi, clusters)) return true;
+    if (clearance.onFrameBorder(false, col, lo, hi, clusters)) return true;
     for (clusters) |c| {
         if (c.synthetic or c.rect.w == 0 or c.rect.h == 0) continue;
         if (col <= c.rect.x or col >= c.rect.right() - 1) continue;
@@ -265,7 +265,7 @@ fn findGroup(groups: []const Grp, r: Req) ?i32 {
 
 fn search(rect: sketch.Rect, r: Req, claims: []const Claim, placements: []const sketch.NodePlacement) ?i32 {
     if (r.hi < r.lo) return null;
-    var column: tracks.Outward = .{ .from = r.want, .reach = @max(r.want - r.lo, r.hi - r.want) };
+    var column: clearance.Outward = .{ .from = r.want, .reach = @max(r.want - r.lo, r.hi - r.want) };
     while (column.next()) |c| {
         if (c < r.lo or c > r.hi) continue;
         if (legal(rect, r, c, claims) and runClear(r, c, placements)) return c;

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Flowcharts
+
+- Fan-out edges no longer go missing next to a mixed fan-in.
+- Back edges can now loop over the top, so fewer of them cross.
+- A back edge no longer stops forward edges sharing a line.
+- LR and RL columns are tighter.
+- Layouts with fewer crossings win more often.
+- Back edges from one box share one line.
+- A back edge in and a back edge out of one box stay apart.
+- Self-loops keep away from back edges.
+- No line crosses right behind an arrowhead.
+
 ## [0.3.7]
 
 ### Install

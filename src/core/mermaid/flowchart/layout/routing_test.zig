@@ -151,12 +151,12 @@ test "a back edge's stub hop keeps off a foreign decorated arrival cell" {
     };
     const from: sketch.Port = .{ .node = 0, .side = .east, .offset = 1 };
     const to: sketch.Port = .{ .node = 1, .side = .east, .offset = 1 };
-    const bare = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, &placements);
+    const bare = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, &placements, false);
     try testing.expectEqual(@as(i32, 8), bare[2].y);
 
     const ports = [_]port_plan.EdgePorts{.{ .edge = 9, .source = .{ .node = 1, .side = .south, .offset = 3 }, .target = .{ .node = 2, .side = .north, .offset = 1 }, .source_ordinal = 0, .target_ordinal = 0, .target_decorated = true }};
     const guarded = try route_clearance.withDecoratedTerminalBoxes(a, 3, &placements, &ports, .{});
-    const kept_off = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, guarded);
+    const kept_off = try back_edges.backEdgePolylineAt(a, .TD, placements[0], placements[1], from, to, 14, guarded, false);
     try testing.expect(kept_off[2].y != 8);
     try testing.expectEqual(@as(i32, 14), kept_off[2].y);
 }

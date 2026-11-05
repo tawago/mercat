@@ -184,7 +184,7 @@ test "bridge variants: the real-raster score decides, and flips when the counts 
     var polys_clean: [2][2]sketch_mod.Point = undefined;
     var nodes_clean: [2]sketch_mod.NodePlacement = undefined;
     var edges_clean: [2]sketch_mod.EdgePath = undefined;
-    const clean = bridgePinSketch(6, &polys_clean, &nodes_clean, &edges_clean);
+    const clean = bridgePinSketch(5, &polys_clean, &nodes_clean, &edges_clean);
     var polys_bad: [2][2]sketch_mod.Point = undefined;
     var nodes_bad: [2]sketch_mod.NodePlacement = undefined;
     var edges_bad: [2]sketch_mod.EdgePath = undefined;
@@ -328,4 +328,25 @@ test "the natural margin never keeps natural over a candidate with fewer omissio
     try std.testing.expect(score_mod.displacesNatural(close, natural));
     close.t12_composite = natural.t12_composite - 1;
     try std.testing.expect(score_mod.displacesNatural(close, natural));
+}
+
+test "a crossing on the cell behind an arrowhead is priced; one cell further back is not" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var polys_far: [2][2]sketch_mod.Point = undefined;
+    var nodes_far: [2]sketch_mod.NodePlacement = undefined;
+    var edges_far: [2]sketch_mod.EdgePath = undefined;
+    const far = bridgePinSketch(5, &polys_far, &nodes_far, &edges_far);
+    var polys_base: [2][2]sketch_mod.Point = undefined;
+    var nodes_base: [2]sketch_mod.NodePlacement = undefined;
+    var edges_base: [2]sketch_mod.EdgePath = undefined;
+    const base = bridgePinSketch(6, &polys_base, &nodes_base, &edges_base);
+    try std.testing.expectEqual(@as(u32, 0), (try select.audit(a, far, .bridge)).crossed_base);
+    try std.testing.expectEqual(@as(u32, 1), (try select.audit(a, base, .bridge)).crossed_base);
+    const cands = [_]ladder.Candidate{
+        .{ .rung = .natural, .sketch = base, .transform = .raw },
+        .{ .rung = .natural, .sketch = far, .transform = .bridge_dodged },
+    };
+    try std.testing.expectEqual(@as(usize, 1), try select.argmin(a, &cands, .TD, .bridge));
 }

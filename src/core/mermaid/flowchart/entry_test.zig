@@ -446,3 +446,60 @@ test "crossing label room: a back edge into the subgraph leaves a labelled forwa
         try std.testing.expectEqual(@as(u21, '▼'), g.at(run, p.y + 2));
     }
 }
+
+test "a fan-out whose rail only a reversed member bars gets one port per stroke once a mixed-kind fan-in turns the plan on" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    for ([_]u32{ 60, 120 }) |width| {
+        const chosen = try chooseAt(a, "flowchart LR\n  U --> R\n  R --> S1\n  R --> S2\n  R --> S3\n  S3 -.-> R\n  S1 --> R\n  R --> U\n", width);
+        try std.testing.expectEqual(sem_graph.Direction.LR, chosen.cand.sketch.direction);
+        for (chosen.cand.sketch.edges) |e| try std.testing.expect(e.routed());
+    }
+}
+
+test "back-edge tracks: two back edges from one layer split over and under, and the forward fan keeps one rail beside a reversed member" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const chosen = try chooseAt(a, "flowchart LR\n  U --> R\n  R --> S1\n  R --> S2\n  R --> S3\n  S3 -.-> R\n  S1 --> R\n  R --> U\n", 120);
+    try std.testing.expectEqual(@as(u64, 0), @import("score_geom.zig").countCrossings(chosen.cand.sketch));
+    try std.testing.expectEqual(@as(usize, 1), chosen.cand.sketch.sharing.realized.selected_bundles.len);
+    var top: i32 = std.math.maxInt(i32);
+    for (chosen.cand.sketch.nodes) |p| top = @min(top, p.rect.y);
+    var over = false;
+    for (chosen.cand.sketch.edges) |e| {
+        try std.testing.expect(e.routed());
+        for (e.polyline) |pt| over = over or pt.y < top;
+    }
+    try std.testing.expect(over);
+}
+
+test "tight LR columns stop at the LR piece: a TB subgraph's side-by-side boxes keep their gap" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const out = (try entry.render(arena.allocator(),
+        \\flowchart LR
+        \\  X --> S
+        \\  subgraph S
+        \\    direction TB
+        \\    A --> B
+        \\    A --> C
+        \\    A --> D
+        \\  end
+        \\  S --> Y
+        \\
+    , .{ .max_width = 120 })).output;
+    try std.testing.expect(std.mem.indexOf(u8, out, "┘└") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "││") == null);
+}
+
+test "back-edge tracks follow span, not the order the edges are written" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const head = "flowchart LR\n  A --> B --> C --> D --> E --> F\n";
+    const one = (try entry.render(a, head ++ "  F --> E\n  F --> B\n  F --> D\n  F --> C\n", .{ .max_width = 120 })).output;
+    const two = (try entry.render(a, head ++ "  F --> C\n  F --> D\n  F --> B\n  F --> E\n", .{ .max_width = 120 })).output;
+    try std.testing.expectEqualStrings(one, two);
+}

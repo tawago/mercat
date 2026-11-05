@@ -1,7 +1,7 @@
 const std = @import("std");
 const sketch = @import("../sketch.zig");
 const sketch_clearance = @import("../sketch_clearance.zig");
-const tracks = @import("tracks.zig");
+const clearance = @import("bridge_clearance.zig");
 const corridors = @import("corridors.zig");
 const types = @import("bridge_types.zig");
 
@@ -11,7 +11,7 @@ pub fn sceneObstacles(
     arena: std.mem.Allocator,
     rails: []const sketch.Rail,
     edge_paths: []const sketch.EdgePath,
-) error{OutOfMemory}!tracks.Obstacles {
+) error{OutOfMemory}!clearance.Obstacles {
     var heads: std.ArrayListUnmanaged(Pt) = .empty;
     var runs: std.ArrayListUnmanaged([2]Pt) = .empty;
     for (edge_paths) |e| try appendHeads(arena, &heads, e.polyline, e.arrow_from != .none, e.arrow_to != .none);
@@ -92,11 +92,11 @@ pub fn jogScore(
     gf: sketch.NodeId,
     gt: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
-    aug: tracks.Obstacles,
+    aug: clearance.Obstacles,
 ) u32 {
     const lo = if (vertical) @min(start.x, end.x) else @min(start.y, end.y);
     const hi = if (vertical) @max(start.x, end.x) else @max(start.y, end.y);
-    if (tracks.onFrameBorder(vertical, c, lo, hi, clusters)) return 1000;
+    if (clearance.onFrameBorder(vertical, c, lo, hi, clusters)) return 1000;
     for (placements) |p| {
         if (p.id == gf or p.id == gt) continue;
         const r = p.rect;
@@ -159,12 +159,12 @@ pub fn boxScore(
                 @min(hi, r.bottom() - 1) - @max(lo, r.y);
             if (in_band and o >= 0) score += 2 * @as(u64, @intCast(o + 1));
         }
-        if (tracks.onFrameBorder(horizontal, c, lo, hi, clusters)) score += 2 * @as(u64, @intCast(hi - lo + 1));
+        if (clearance.onFrameBorder(horizontal, c, lo, hi, clusters)) score += 2 * @as(u64, @intCast(hi - lo + 1));
     }
     return score;
 }
 
-pub fn polyScore(poly: []const Pt, dyn: tracks.Obstacles) u64 {
+pub fn polyScore(poly: []const Pt, dyn: clearance.Obstacles) u64 {
     var score: u64 = 0;
     if (poly.len < 2) return 0;
     var i: usize = 0;
@@ -226,12 +226,12 @@ pub fn verticalCorridor(
     from_id: sketch.NodeId,
     to_id: sketch.NodeId,
     clusters: []const sketch.ClusterFrame,
-    obstacles: tracks.Obstacles,
+    obstacles: clearance.Obstacles,
 ) error{OutOfMemory}![]sketch.Point {
     const descending = (exit == .south);
     const src_jog_y = if (descending) start.y + 1 else start.y - 1;
     const entry: sketch.Dir4 = if (descending) .north else .south;
-    const tgt_want = tracks.clearOfBorders(
+    const tgt_want = clearance.clearOfBorders(
         entry,
         if (descending) @min(to_box.y - 1, end.y - 2) else @max(to_box.bottom(), end.y + 2),
         @min(start.x, end.x),

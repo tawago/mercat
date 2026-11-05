@@ -28,6 +28,7 @@ pub const RasterCounts = struct {
     foreign_junction: u32 = 0,
     arrowhead_transit: u32 = 0,
     arrow_base: u32 = 0,
+    crossed_base: u32 = 0,
     arm_into_head: u32 = 0,
     label_cells: []const sketch.Point = &.{},
 };
@@ -54,7 +55,7 @@ pub fn displacesNatural(challenger: Score, natural: Score) bool {
 const W_DEAD_SPACE: u64 = 1;
 const W_EDGE_STRETCH: u64 = 2;
 const W_BENDS: u64 = 2;
-const W_CROSSINGS: u64 = 1;
+const W_CROSSINGS: u64 = 64;
 const W_LABEL_WRAPS: u64 = 2;
 
 pub const Omission = struct {
@@ -123,6 +124,7 @@ pub fn eval(
             W_FOREIGN_JUNCTION * @as(u64, raster.foreign_junction) +
             W_ARROWHEAD_TRANSIT * @as(u64, raster.arrowhead_transit) +
             W_ARROW_BASE * @as(u64, raster.arrow_base) +
+            W_ARROWHEAD_TRANSIT * @as(u64, raster.crossed_base) +
             W_ARM_INTO_HEAD * @as(u64, raster.arm_into_head),
     };
 }

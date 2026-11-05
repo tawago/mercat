@@ -160,6 +160,7 @@ pub fn buildEdgesWithPlan(
     const rail_alloc = try back_edges.allocateBackEdgeRails(a, graph, lg, geom, placements);
     defer a.free(rail_alloc);
 
+    const back_ports = try back_edges.spreadPorts(a, graph.direction, graph, lg, placements, rail_alloc);
     const reserved = try a.alloc(i32, rail_alloc.len);
     for (rail_alloc, reserved) |r, *x| x.* = r.rail_pos;
     const drawn = try rail_loop.run(a, graph, lg, geom, placements, fans, bundles, allocated_ports, rows, reserved);
@@ -235,10 +236,11 @@ pub fn buildEdgesWithPlan(
         }
         if (orig.from == orig.to) {
             const node_p = findPlacement(placements, orig.from);
-            const sl: self_loops.SelfLoop = if (bundles.memberships.len == 0)
+            const loop: self_loops.SelfLoop = if (bundles.memberships.len == 0)
                 try self_loops.selfLoop(a, graph.direction, node_p, placements)
             else
                 try selfLoop(a, graph.direction, orig, node_p, allocated_ports.forEdge(orig.id) orelse unreachable, out.items, bar_views, placements, allocated_ports.edges, bundles);
+            const sl = if (loop.polyline.len > 0 and back_edges.selfLoopFlips(graph, lg, orig.from)) try self_loops.mirrored(a, graph.direction, node_p, loop) else loop;
             try out.append(a, .{
                 .id = orig.id,
                 .from = orig.from,
@@ -265,12 +267,11 @@ pub fn buildEdgesWithPlan(
             const dst_p = findPlacement(placements, orig.to);
             const ep = allocated_ports.forEdge(orig.id) orelse unreachable;
             const guarded = try route_clearance.withDecoratedTerminalBoxes(a, orig.id, placements, allocated_ports.edges, bundles);
-            const poly = if (bundles.memberships.len == 0)
-                try back_edges.backEdgePolyline(a, graph.direction, src_p, dst_p, rail, guarded)
-            else
-                try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, ep.source, ep.target, rail, guarded);
-            const port_from = if (bundles.memberships.len == 0) back_edges.backEdgePortFrom(graph.direction, src_p) else ep.source;
-            const port_to = if (bundles.memberships.len == 0) back_edges.backEdgePortTo(graph.direction, dst_p) else ep.target;
+            const upper = back_edges.isUpper(lg, orig.id);
+            const spread = back_edges.endPortsOf(back_ports, orig.id).?;
+            const port_from = if (bundles.memberships.len == 0) spread.from else ep.source;
+            const port_to = if (bundles.memberships.len == 0) spread.to else ep.target;
+            const poly = try back_edges.backEdgePolylineAt(a, graph.direction, src_p, dst_p, port_from, port_to, rail, guarded, upper);
             _ = rp.ensureBaseStub(poly, placements, orig.from, orig.to);
             try out.append(a, .{
                 .id = orig.id,

@@ -5,6 +5,7 @@ const geo = @import("geometry.zig");
 pub const ArrowBaseCounts = struct {
     violations: u32 = 0,
     lateral_arms: u32 = 0,
+    crossed_base: u32 = 0,
 };
 
 fn baseCoord(x: u32, y: u32, tip: lattice.Dir4, w: u32, h: u32) ?struct { x: u32, y: u32 } {
@@ -26,6 +27,13 @@ pub fn baseFeedsArrow(cell: *const lattice.Cell, tip: lattice.Dir4) bool {
     }
 }
 
+fn isCrossing(cell: *const lattice.Cell) bool {
+    return switch (cell.occupant) {
+        .edge_segment => |s| s.cohabit == .crossed,
+        else => false,
+    };
+}
+
 pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
     var counts: ArrowBaseCounts = .{};
     if (lat.width == 0 or lat.height == 0) return counts;
@@ -44,7 +52,9 @@ pub fn validate(lat: *const lattice.Lattice) ArrowBaseCounts {
                 counts.violations += 1;
                 continue;
             };
-            if (!baseFeedsArrow(lat.atConst(bc.x, bc.y), tip)) counts.violations += 1;
+            const base = lat.atConst(bc.x, bc.y);
+            if (!baseFeedsArrow(base, tip)) counts.violations += 1;
+            if (isCrossing(base)) counts.crossed_base += 1;
         }
     }
     return counts;

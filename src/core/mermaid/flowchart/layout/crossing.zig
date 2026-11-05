@@ -49,20 +49,27 @@ pub const Key = struct {
     sum: u64,
     count: u64,
     back: bool,
+    upper: bool = false,
     prev: u32,
 
     pub fn less(_: void, a: Key, b: Key) bool {
         const left = a.sum * b.count;
         const right = b.sum * a.count;
         if (left != right) return left < right;
-        if (a.back != b.back) return !a.back;
+        if (rank(a) != rank(b)) return rank(a) < rank(b);
         return a.prev < b.prev;
     }
 };
 
+fn rank(k: Key) u2 {
+    if (!k.back) return 1;
+    return if (k.upper) 0 else 2;
+}
+
 pub const Order = struct {
     edges: []const sugiyama.LayerEdge,
     back: []bool,
+    upper: []bool,
     forward_leaf: []bool,
     layer: []u32,
     pos: []u32,
@@ -74,12 +81,14 @@ pub const Order = struct {
         const order: Order = .{
             .edges = lg.edges,
             .back = try a.alloc(bool, lg.nodes.len),
+            .upper = try a.alloc(bool, lg.nodes.len),
             .forward_leaf = try a.alloc(bool, lg.nodes.len),
             .layer = try a.alloc(u32, lg.nodes.len),
             .pos = try a.alloc(u32, lg.nodes.len),
             .keys = try a.alloc(Key, widest),
         };
         @memset(order.back, false);
+        @memset(order.upper, false);
         @memset(order.forward_leaf, true);
         for (lg.layers, 0..) |row, li| for (row) |v| {
             order.layer[v] = @intCast(li);
@@ -89,6 +98,16 @@ pub const Order = struct {
                 order.back[e.from] = true;
                 order.back[e.to] = true;
             } else order.forward_leaf[e.from] = false;
+        }
+        for (lg.edges) |e| {
+            if (!e.reversed or std.mem.indexOfScalar(u32, lg.upper_back_edges, e.edge) == null) continue;
+            order.upper[e.from] = true;
+            order.upper[e.to] = true;
+        }
+        for (lg.edges) |e| {
+            if (!e.reversed or std.mem.indexOfScalar(u32, lg.upper_back_edges, e.edge) != null) continue;
+            order.upper[e.from] = false;
+            order.upper[e.to] = false;
         }
         return order;
     }
@@ -115,7 +134,7 @@ pub const Order = struct {
         for (layers) |row| {
             if (row.len <= 1) continue;
             for (row, 0..) |v, p| {
-                if (order.back[v] and order.forward_leaf[v]) total += row.len - 1 - p;
+                if (order.back[v] and order.forward_leaf[v]) total += if (order.upper[v]) p else row.len - 1 - p;
             }
         }
         return total;
@@ -128,7 +147,7 @@ pub const Order = struct {
 
         const keys = order.keys[0..row.len];
         for (row, keys, 0..) |v, *key, p| {
-            key.* = .{ .v = v, .sum = 0, .count = 0, .back = order.back[v], .prev = @intCast(p) };
+            key.* = .{ .v = v, .sum = 0, .count = 0, .back = order.back[v], .upper = order.upper[v], .prev = @intCast(p) };
             for (order.edges) |e| {
                 const other = if (from < li) (if (e.to == v) e.from else continue) else (if (e.from == v) e.to else continue);
                 if (order.layer[other] != from) continue;
