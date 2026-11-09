@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Colour follows `--color` and `NO_COLOR`. `--format plain` output is the same.
 - A `.mmd` file or piped diagram draws in the body text colour. Diagrams in
   markdown keep the code colour.
+- An edge written twice (`A --> B` twice) draws as two straight parallel
+  lines. Before, both copies looped round the side and crossed (#143).
 
 ## [0.3.8]
 

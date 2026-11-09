@@ -152,11 +152,9 @@ pub fn buildPiece(
     var claims: std.ArrayListUnmanaged(Claim) = .empty;
     var posts: std.ArrayListUnmanaged(Post) = .empty;
     var per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void) = .empty;
-    var detours: std.ArrayListUnmanaged(fans_mod.Detour) = .empty;
     var proxies: std.ArrayListUnmanaged(sg.EdgeId) = .empty;
     for (graph.edges) |e| if (c.isPlacement(e)) try proxies.append(a, e.id);
-    try fans_mod.fanClaims(a, c, fans, eligible, bundles, &claims, &per_peer, &detours);
-    try fans_mod.detourClaims(a, c, detours.items, &claims);
+    try fans_mod.fanClaims(a, c, fans, eligible, bundles, &claims, &per_peer);
     try fans_mod.strokeClaims(a, c, fans, eligible, bundles, &claims);
     try edgeClaims(a, c, fans, eligible, bundles, per_peer, label_room, &claims, &posts);
     try returnClaims(a, c, &claims);

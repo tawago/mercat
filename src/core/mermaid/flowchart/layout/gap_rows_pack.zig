@@ -11,15 +11,13 @@ pub const Kind = enum {
     corridor_exit,
     stroke_entry,
     stroke_exit,
-    detour_target,
-    detour_source,
     bridge_jog,
     bridge_return,
     grid_comb,
     grid_dodge,
 
     pub fn topAnchored(self: Kind) bool {
-        return self == .detour_source or self == .bridge_return;
+        return self == .bridge_return;
     }
 };
 pub const End = enum { entry, exit };

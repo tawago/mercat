@@ -26,39 +26,6 @@ const Group = struct {
     label_widths: std.ArrayListUnmanaged(u32) = .empty,
 };
 
-pub const Detour = struct {
-    gap: u32,
-    hi: i32,
-    depth: u32,
-    edges: std.ArrayListUnmanaged(sg.EdgeId) = .empty,
-};
-
-fn noteDetour(a: std.mem.Allocator, detours: *std.ArrayListUnmanaged(Detour), gap: u32, hi: i32, depth: u32, edge: sg.EdgeId) error{OutOfMemory}!void {
-    const d: *Detour = for (detours.items) |*existing| {
-        if (existing.gap == gap) break existing;
-    } else blk: {
-        try detours.append(a, .{ .gap = gap, .hi = hi, .depth = depth });
-        break :blk &detours.items[detours.items.len - 1];
-    };
-    d.hi = @max(d.hi, hi);
-    d.depth = @max(d.depth, depth);
-    try d.edges.append(a, edge);
-}
-
-pub fn detourClaims(a: std.mem.Allocator, c: Census, detours: []Detour, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
-    var min_x: i32 = std.math.maxInt(i32);
-    for (c.lg.nodes, 0..) |ln, i| if (ln == .real) {
-        min_x = @min(min_x, c.geom[i].x);
-    };
-    for (detours) |*d| {
-        const edges = try d.edges.toOwnedSlice(a);
-        const depth: i32 = @intCast(d.depth);
-        const lo = min_x - depth;
-        try claims.append(a, .{ .gap = d.gap, .lo = lo, .hi = d.hi, .height = d.depth - 1, .kind = .detour_target, .end = .exit, .edges = edges, .pin = -1 });
-        try claims.append(a, .{ .gap = d.gap, .lo = lo, .hi = d.hi, .height = d.depth, .kind = .detour_source, .end = .entry, .edges = edges });
-    }
-}
-
 pub fn drawnByEligible(fans: []const fan_mod.Fan, eligible: []const bool, edge: sg.EdgeId, direction: fan_mod.Direction, discharged: []const pb.EdgeId) bool {
     for (fans, eligible) |f, ok| {
         if (!ok or f.direction != direction) continue;
@@ -75,7 +42,6 @@ pub fn fanClaims(
     bundles: pb.RealizedBundles,
     claims: *std.ArrayListUnmanaged(Claim),
     per_peer: *std.AutoHashMapUnmanaged(sg.EdgeId, void),
-    detours: *std.ArrayListUnmanaged(Detour),
 ) error{OutOfMemory}!void {
     for (fans, eligible, 0..) |f, ok, fi| {
         if (f.source_layer >= c.ngaps) continue;
@@ -100,10 +66,6 @@ pub fn fanClaims(
             const pivot_end: pb.EndpointSide = if (f.direction == .out) .source_exit else .target_entry;
             const stem = c.portCol(e, pivot_end);
             const tap = tap_col;
-            if (!by_rail and e.label == null) if (c.plan.forEdge(e.id)) |ep| if (ep.source_duplicate or ep.target_duplicate) {
-                try noteDetour(a, detours, f.source_layer, @max(stem, tap), @max(ep.source_ordinal, ep.target_ordinal) + 2, e.id);
-                continue;
-            };
             const far_end = if (f.direction == .out) p.peer_idx else f.pivot_idx;
             const gap = if (by_rail) f.source_layer else c.gapAbove(far_end) orelse continue;
             var run_lo = stem;

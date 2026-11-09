@@ -167,7 +167,7 @@ test "duplicate private claims receive stable distinct source and target slots" 
     try std.testing.expectEqual(offsets[0], offsets[1]);
 }
 
-test "two and three identical arrows get private ports and face growth" {
+test "two and three identical arrows get private ports, face growth and straight parallel strokes" {
     inline for (.{ 2, 3 }) |n| {
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
@@ -182,6 +182,7 @@ test "two and three identical arrows get private ports and face growth" {
         for (&ids, 0..) |*id, i| id.* = @intCast(i);
         try expectPrivatePorts(s, &ids);
         for (s.nodes) |placed| try std.testing.expect(placed.rect.w >= 2 * n + 1);
+        for (s.edges) |path| for (path.polyline) |p| try std.testing.expectEqual(path.polyline[0].x, p.x);
     }
 }
 
