@@ -481,7 +481,7 @@ pub fn rasterizeEdges(
 
     for (s.edges) |edge| {
         const ends = railEnds(s, edge);
-        const colour = colour_mod.ofOrigin(lat, s, edge.origin);
+        const colour = colour_mod.ofOrigin(lat, edge.origin);
         const r = walkPolyline(lat, edge, ends, &cells_lost, ctx, colour);
         if (!writeHead(lat, edge, edge.arrow_to, r.target_head, &cells_lost, ctx, colour) and edge.arrow_to != .none and !ends.target) heads_lost += 1;
         if (!writeHead(lat, edge, edge.arrow_from, r.source_head, &cells_lost, ctx, colour) and edge.arrow_from != .none and !ends.source) heads_lost += 1;

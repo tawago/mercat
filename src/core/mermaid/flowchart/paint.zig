@@ -31,7 +31,6 @@ pub fn paintColoured(allocator: std.mem.Allocator, lat: lattice.Lattice, max_wid
 
     if (lat.width == 0 or lat.height == 0) return .{ .text = try out.toOwnedSlice(allocator), .runs = try runs.toOwnedSlice(allocator) };
 
-    const coloured = lat.palette.len != 0;
     var row: std.ArrayList(u8) = .empty;
     defer row.deinit(allocator);
     var starts: std.ArrayList(CellBytes) = .empty;
@@ -57,7 +56,7 @@ pub fn paintColoured(allocator: std.mem.Allocator, lat: lattice.Lattice, max_wid
             }
             if (row.items.len != before) last_glyph_start = before;
             col += w;
-            if (coloured and cell.colour != 0 and paintsInk(cell)) try starts.append(allocator, .{ .start = before, .end = row.items.len, .colour = cell.colour });
+            if (cell.colour != 0 and paintsInk(cell)) try starts.append(allocator, .{ .start = before, .end = row.items.len, .colour = cell.colour });
         }
 
         var glyph_end = row.items.len;
@@ -71,7 +70,7 @@ pub fn paintColoured(allocator: std.mem.Allocator, lat: lattice.Lattice, max_wid
         const base = out.items.len;
         try out.appendSlice(allocator, trimmed);
         try out.append(allocator, '\n');
-        if (coloured) try appendRuns(allocator, &runs, lat, starts.items, @min(glyph_end, trimmed.len), base);
+        try appendRuns(allocator, &runs, lat, starts.items, @min(glyph_end, trimmed.len), base);
     }
 
     return .{ .text = try out.toOwnedSlice(allocator), .runs = try runs.toOwnedSlice(allocator) };

@@ -176,8 +176,7 @@ fn appendRun(
     span: render_model.Span,
     options: Options,
 ) Error!void {
-    var style = theme.token(options.palette, span.style);
-    if (span.fg) |c| style.fg = .{ .rgb = c };
+    const style = theme.spanToken(options.palette, span);
 
     const foreground: Color = switch (options.color_mode) {
         .theme => srgbOf(style.fg) orelse black,

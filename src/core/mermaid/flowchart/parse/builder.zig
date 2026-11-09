@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const sg = @import("../sem_graph.zig");
+const style = @import("style.zig");
 const token = @import("token.zig");
 
 const NodeId = sg.NodeId;
@@ -25,7 +26,7 @@ const ClusterRec = struct {
 
 const Undo = struct { node: NodeId, side: u1, old: u32 };
 
-pub const Mark = struct { nodes: usize, edges: usize };
+pub const Mark = struct { nodes: usize, edges: usize, attached: usize };
 
 pub const Built = struct {
     nodes: []sg.Node,
@@ -46,6 +47,7 @@ pub const Builder = struct {
     /// The innermost open subgraph.
     open: ?ClusterId = null,
     undo: std.ArrayList(Undo) = .empty,
+    styles: style.Styles = .{},
 
     pub fn init(a: std.mem.Allocator) Builder {
         return .{ .a = a };
@@ -175,10 +177,10 @@ pub const Builder = struct {
     /// Starts a line that may be undone.
     pub fn begin(b: *Builder) Mark {
         b.undo.clearRetainingCapacity();
-        return .{ .nodes = b.nodes.items.len, .edges = b.edges.items.len };
+        return .{ .nodes = b.nodes.items.len, .edges = b.edges.items.len, .attached = b.styles.attached.items.len };
     }
 
-    /// Drops the nodes and edges added since `begin`. A node that existed before keeps the shape
+    /// Drops the nodes, edges and class attachments added since `begin`. A node that existed before keeps the shape
     /// and label the line gave it.
     pub fn rollback(b: *Builder, mark: Mark) void {
         while (b.undo.pop()) |u| b.links.items[u.node][u.side] = u.old;
@@ -189,6 +191,7 @@ pub const Builder = struct {
             if (n.cluster) |c| _ = b.clusters.items[c].members.pop();
         }
         b.edges.shrinkRetainingCapacity(mark.edges);
+        b.styles.attached.shrinkRetainingCapacity(mark.attached);
     }
 
     /// The finished graph: subgraphs that hold no node, directly or below, are dropped and the

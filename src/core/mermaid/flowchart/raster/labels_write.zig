@@ -15,9 +15,7 @@ pub fn writeGlyph(
 }
 
 pub fn writeCont(lat: *lattice.Lattice, x: u32, y: u32) void {
-    const cell = lat.at(x, y);
-    const colour = nodeColour(cell.*);
-    cell.* = .{ .occupant = .label_cont, .neighbours = .{}, .colour = colour };
+    lat.at(x, y).* = .{ .occupant = .label_cont, .neighbours = .{} };
 }
 
 /// A node label wears its node's outline; every other label wears none.

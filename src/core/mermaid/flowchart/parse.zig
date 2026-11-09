@@ -35,14 +35,14 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) ParseError!sg.Sem
     try p.header();
     try p.body();
     const built = try p.b.finish();
-    p.styles.resolveNodes(built.nodes);
+    p.b.styles.resolveNodes(built.nodes);
     return .{
         .direction = p.direction,
         .nodes = built.nodes,
         .edges = built.edges,
         .clusters = built.clusters,
         .classes = &.{},
-        .edge_colours = try p.styles.resolveEdges(p.b.a, built.edges.len),
+        .edge_colours = try p.b.styles.resolveEdges(p.b.a, built.edges.len),
         .skipped_lines = p.skipped,
         .arena = arena,
     };
@@ -56,7 +56,6 @@ const Parser = struct {
     sources: std.ArrayList(NodeId) = .empty,
     targets: std.ArrayList(NodeId) = .empty,
     names: std.ArrayList([]const u8) = .empty,
-    styles: style.Styles = .{},
 
     fn peek(p: *Parser) Token {
         return token.peek(p.sc);
@@ -158,7 +157,7 @@ const Parser = struct {
         const start = p.sc.pos;
         p.sc.skipRest();
         const stroke = style.strokeOf(styleText(p.sc.src[start..p.sc.pos]));
-        for (p.names.items) |name| try p.styles.defineClass(p.b.a, name, stroke);
+        for (p.names.items) |name| try p.b.styles.defineClass(p.b.a, name, stroke);
     }
 
     /// `class A,B name` declares the listed nodes when a class name follows them.
@@ -168,7 +167,7 @@ const Parser = struct {
         if (class.kind == .id) {
             for (p.names.items) |name| {
                 _ = try p.b.node(name);
-                try p.styles.attach(p.b.a, name, class.text);
+                try p.b.styles.attach(p.b.a, name, class.text);
             }
         }
         p.skipLine();
@@ -178,7 +177,7 @@ const Parser = struct {
     fn styleDirective(p: *Parser) ParseError!void {
         try p.takeNames();
         const stroke = style.strokeOf(p.restOfLine());
-        for (p.names.items) |name| try p.styles.styleNode(p.b.a, name, stroke);
+        for (p.names.items) |name| try p.b.styles.styleNode(p.b.a, name, stroke);
     }
 
     /// `linkStyle 0,2 [interpolate curve] props` or `linkStyle default props`.
@@ -190,7 +189,7 @@ const Parser = struct {
                 .default
             else
                 .{ .index = std.fmt.parseInt(u32, name, 10) catch continue };
-            try p.styles.styleLink(p.b.a, target, stroke);
+            try p.b.styles.styleLink(p.b.a, target, stroke);
         }
     }
 
@@ -223,11 +222,9 @@ const Parser = struct {
         if (t.kind == .id and isIgnoredDirective(t.text)) return p.skipLine();
         const start = p.sc;
         const mark = p.b.begin();
-        const attached = p.styles.attachMark();
         p.statement() catch |err| {
             if (err == error.OutOfMemory or lineHasLink(start)) return err;
             p.b.rollback(mark);
-            p.styles.dropAttachments(attached);
             p.sc = start;
             p.skipLine();
             p.skipped += 1;
@@ -298,7 +295,7 @@ const Parser = struct {
         const class = p.peek();
         if (class.kind != .id) return;
         _ = p.take();
-        try p.styles.attach(p.b.a, raw_id, class.text);
+        try p.b.styles.attach(p.b.a, raw_id, class.text);
     }
 };
 

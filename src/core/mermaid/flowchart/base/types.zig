@@ -7,7 +7,36 @@ pub const EdgeId = u32;
 
 pub const ClusterId = u32;
 
-pub const Rgb = struct { r: u8, g: u8, b: u8 };
+pub const Rgb = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+
+    /// `rgb` or `rrggbb` hex digits, without the `#`.
+    pub fn fromHex(digits: []const u8) ?Rgb {
+        var v: [6]u8 = undefined;
+        switch (digits.len) {
+            3 => for (digits, 0..) |c, i| {
+                v[2 * i] = nibble(c) orelse return null;
+                v[2 * i + 1] = v[2 * i];
+            },
+            6 => for (digits, 0..) |c, i| {
+                v[i] = nibble(c) orelse return null;
+            },
+            else => return null,
+        }
+        return .{ .r = v[0] * 16 + v[1], .g = v[2] * 16 + v[3], .b = v[4] * 16 + v[5] };
+    }
+
+    fn nibble(c: u8) ?u8 {
+        return switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'f' => c - 'a' + 10,
+            'A'...'F' => c - 'A' + 10,
+            else => null,
+        };
+    }
+};
 
 /// A painted byte range `[start, start + len)` and the colour it wears.
 pub const ColourRun = struct { start: u32, len: u32, rgb: Rgb };

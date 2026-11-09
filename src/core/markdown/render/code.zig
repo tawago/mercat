@@ -140,7 +140,7 @@ fn appendColouredLine(builder: *Builder, line: []const u8, line_start: usize, ru
         const from = run.start - line_start;
         const to = @min(line.len, from + run.len);
         try builder.appendSpan(ink, line[at..from]);
-        try builder.appendSpanFg(ink, line[from..to], .{ .r = run.rgb.r, .g = run.rgb.g, .b = run.rgb.b });
+        try builder.appendSpanFg(ink, line[from..to], run.rgb);
         at = to;
     }
     try builder.appendSpan(ink, line[at..]);

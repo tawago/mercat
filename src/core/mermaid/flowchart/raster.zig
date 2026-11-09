@@ -47,11 +47,13 @@ pub fn rasterize(
     };
     for (cells) |*c| c.* = lattice.Cell.empty;
 
+    const pal = try colour_r.palette(allocator, s);
     var lat: lattice.Lattice = .{
         .width = w,
         .height = h,
         .cells = cells,
-        .palette = try colour_r.palette(allocator, s),
+        .palette = pal,
+        .edge_colours = try colour_r.edgeColours(allocator, pal, s),
     };
 
     _ = try clusters_r.rasterizeClusters(allocator, &lat, s);

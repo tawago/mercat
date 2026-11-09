@@ -102,6 +102,13 @@ fn bakeSlots(base_slots: spec.SlotMap) StyleMap {
     return overlaySlots(p, base_slots);
 }
 
+/// A span's token: its style's, wearing the foreground the span asked for.
+pub fn spanToken(style_map: StyleMap, span: render_model.Span) StyleToken {
+    var t = token(style_map, span.style);
+    if (span.fg) |c| t.fg = .{ .rgb = c };
+    return t;
+}
+
 pub fn token(style_map: StyleMap, style: render_model.SpanStyle) StyleToken {
     inline for (@typeInfo(render_model.SpanStyle).@"enum".field_names) |f_name| {
         if (style == @field(render_model.SpanStyle, f_name)) return @field(style_map, f_name);

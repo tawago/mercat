@@ -7,7 +7,7 @@ const colour_mod = @import("colour.zig");
 /// Cells the rails could not draw.
 pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch) u32 {
     var lost: u32 = 0;
-    for (s.rails) |rail| drawRail(lat, s, rail, &lost);
+    for (s.rails) |rail| drawRail(lat, rail, &lost);
     return lost;
 }
 
@@ -15,7 +15,6 @@ const RailDraw = struct {
     lat: *lattice.Lattice,
     rail: sketch.Rail,
     lost: *u32,
-    s: sketch.Sketch,
     fan_in: bool,
     edge: u32,
     colour: u8,
@@ -40,7 +39,7 @@ const RailDraw = struct {
         const y = self.rail.crossbar[0].y;
         var x = x0;
         while (x <= x1) : (x += 1) {
-            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 }, colour_mod.ofCrossbarCell(self.lat, self.s, self.rail, x));
+            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 }, colour_mod.ofCrossbarCell(self.lat, self.rail, x));
         }
     }
 
@@ -72,7 +71,7 @@ const RailDraw = struct {
 
     fn tap(self: RailDraw, t: sketch.Tap) void {
         const head = if (t.continues) null else tapHead(t, self.fan_in);
-        const colour = colour_mod.ofOrigin(self.lat, self.s, t.origin);
+        const colour = colour_mod.ofOrigin(self.lat, t.origin);
         const end: edges.PortEnd = .{ .head = head, .role = self.dropper_role, .colour = colour };
         if (!t.continues) {
             if (self.fan_in) {
@@ -84,7 +83,7 @@ const RailDraw = struct {
             }
         }
         const dir = geo.segmentDir(t.at, t.landing) orelse return;
-        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir), colour_mod.ofCrossbarCell(self.lat, self.s, self.rail, t.at.x));
+        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir), colour_mod.ofCrossbarCell(self.lat, self.rail, t.at.x));
         var cursor = geo.step(t.at, dir);
         while (!geo.samePoint(cursor, t.landing)) : (cursor = geo.step(cursor, dir)) {
             self.claim(cursor, t.edge, self.dropper_role, geo.straightMask(dir), colour);
@@ -93,16 +92,15 @@ const RailDraw = struct {
     }
 };
 
-fn drawRail(lat: *lattice.Lattice, s: sketch.Sketch, rail: sketch.Rail, lost: *u32) void {
+fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
     const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
     const draw: RailDraw = .{
         .lat = lat,
         .rail = rail,
         .lost = lost,
-        .s = s,
         .fan_in = fan_in,
         .edge = rail.taps[0].edge,
-        .colour = colour_mod.ofRail(lat, s, rail),
+        .colour = colour_mod.ofRail(lat, rail),
         .crossbar_role = if (fan_in) .fan_in_rail else .fan_out_rail,
         .dropper_role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
     };

@@ -116,6 +116,8 @@ pub const Lattice = struct {
     cells: []Cell,
     glyphs: []const Glyph = &.{},
     palette: []const prim.Rgb = &.{},
+    /// Per declared edge, its colour as a `Cell.colour`.
+    edge_colours: []const u8 = &.{},
 
     pub fn at(self: Lattice, x: u32, y: u32) *Cell {
         std.debug.assert(x < self.width);

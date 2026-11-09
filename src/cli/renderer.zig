@@ -52,8 +52,7 @@ pub fn serializeWith(
         try flushRun(allocator, &buffer, &run_token, &run_open);
         if (line_index != 0) try buffer.append(allocator, '\n');
         for (line.spans) |span| {
-            var token = theme.token(palette, span.style);
-            if (span.fg) |c| token.fg = .{ .rgb = c };
+            var token = theme.spanToken(palette, span);
             if (canvas) |c| {
                 if (token.bg == null) token.bg = c.bg;
             }

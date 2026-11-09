@@ -1,7 +1,7 @@
 const std = @import("std");
 const host = @import("../../platform/host.zig");
 
-pub const Rgb = struct { r: u8, g: u8, b: u8 };
+pub const Rgb = @import("prim").Rgb;
 pub const Srgb = struct { r: u8, g: u8, b: u8 };
 
 pub const Ansi16 = enum(u4) {
@@ -85,33 +85,7 @@ pub fn parseColor(text: []const u8) ParseError!Color {
 }
 
 fn parseHex(hex: []const u8) ParseError!Color {
-    switch (hex.len) {
-        6 => return .{ .rgb = .{
-            .r = try hexByte(hex[0..2]),
-            .g = try hexByte(hex[2..4]),
-            .b = try hexByte(hex[4..6]),
-        } },
-        3 => {
-            const r = try hexNibble(hex[0]);
-            const g = try hexNibble(hex[1]);
-            const b = try hexNibble(hex[2]);
-            return .{ .rgb = .{ .r = r * 17, .g = g * 17, .b = b * 17 } };
-        },
-        else => return error.InvalidColor,
-    }
-}
-
-fn hexByte(pair: []const u8) ParseError!u8 {
-    return (try hexNibble(pair[0])) * 16 + (try hexNibble(pair[1]));
-}
-
-fn hexNibble(c: u8) ParseError!u8 {
-    return switch (c) {
-        '0'...'9' => c - '0',
-        'a'...'f' => c - 'a' + 10,
-        'A'...'F' => c - 'A' + 10,
-        else => error.InvalidColor,
-    };
+    return .{ .rgb = Rgb.fromHex(hex) orelse return error.InvalidColor };
 }
 
 var truecolor_flag: bool = false;

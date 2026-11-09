@@ -28,20 +28,7 @@ fn withoutImportant(value: []const u8) []const u8 {
 
 fn hex(value: []const u8) ?Rgb {
     if (value.len < 1 or value[0] != '#') return null;
-    const digits = value[1..];
-    var v: [6]u8 = undefined;
-    switch (digits.len) {
-        3 => for (digits, 0..) |c, i| {
-            v[2 * i] = c;
-            v[2 * i + 1] = c;
-        },
-        6 => @memcpy(&v, digits),
-        else => return null,
-    }
-    const r = std.fmt.parseInt(u8, v[0..2], 16) catch return null;
-    const g = std.fmt.parseInt(u8, v[2..4], 16) catch return null;
-    const b = std.fmt.parseInt(u8, v[4..6], 16) catch return null;
-    return .{ .r = r, .g = g, .b = b };
+    return Rgb.fromHex(value[1..]);
 }
 
 /// A `linkStyle` text without its leading `interpolate <curve>`.
@@ -69,8 +56,7 @@ pub const Styles = struct {
     links: std.ArrayList(LinkStroke) = .empty,
 
     pub fn defineClass(s: *Styles, a: std.mem.Allocator, name: []const u8, stroke: ?Rgb) error{OutOfMemory}!void {
-        const kept = if (s.classes.get(name)) |old| old else null;
-        try s.classes.put(a, name, stroke orelse kept);
+        try s.classes.put(a, name, stroke orelse s.strokeOfClass(name));
     }
 
     pub fn attach(s: *Styles, a: std.mem.Allocator, node: []const u8, class: []const u8) error{OutOfMemory}!void {
@@ -104,15 +90,6 @@ pub const Styles = struct {
 
     fn strokeOfClass(s: *const Styles, name: []const u8) ?Rgb {
         return s.classes.get(name) orelse null;
-    }
-
-    /// A point `dropAttachments` returns to when the parser skips a line.
-    pub fn attachMark(s: *const Styles) usize {
-        return s.attached.items.len;
-    }
-
-    pub fn dropAttachments(s: *Styles, mark: usize) void {
-        s.attached.shrinkRetainingCapacity(mark);
     }
 
     /// One colour per declared edge: its last `linkStyle` stroke, else `linkStyle default`. Empty
