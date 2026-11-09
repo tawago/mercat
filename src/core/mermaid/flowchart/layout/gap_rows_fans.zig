@@ -20,6 +20,7 @@ const Group = struct {
     hi: i32,
     labeled: bool = false,
     decorated_source: bool = false,
+    two_headed: bool = false,
     edges: std.ArrayListUnmanaged(sg.EdgeId) = .empty,
     stems: std.ArrayListUnmanaged(i32) = .empty,
     taps: std.ArrayListUnmanaged(i32) = .empty,
@@ -96,6 +97,7 @@ pub fn fanClaims(
             g.hi = @max(g.hi, @max(run_lo, tap));
             if (p.label_width != 0) g.labeled = true;
             if (e.arrow_from != .none) g.decorated_source = true;
+            if (e.arrow_from != .none and e.arrow_to != .none) g.two_headed = true;
             if (!p.long) try g.edges.append(a, e.id);
             try g.stems.append(a, run_lo);
             try g.taps.append(a, tap);
@@ -113,7 +115,14 @@ pub fn fanClaims(
             .taps = try d.taps.toOwnedSlice(a),
         });
         for (groups.items) |*g| {
-            if (g.lo == g.hi and !g.labeled) continue;
+            if (g.lo == g.hi and !g.labeled) {
+                if (g.two_headed) {
+                    var shaft = try edgeClaim(a, g.gap, g.lo, g.hi, .run, .exit, false, false, g.edges.items[0]);
+                    shaft.height = 1;
+                    try claims.append(a, shaft);
+                }
+                continue;
+            }
             const keys = try a.alloc(FanKey, 1);
             keys[0] = .{ .pivot_idx = f.pivot_idx, .direction = f.direction };
             const base: u32 = if (!g.labeled or g.comb) 1 else if (f.direction == .in) 1 + fan_mod.LABEL_RUN_EXTRA_ROWS else fan_mod.LABEL_RUN_EXTRA_ROWS + @intFromBool(labelsCollide(g.taps.items, g.label_widths.items));

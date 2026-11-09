@@ -330,6 +330,35 @@ test "a labelled edge claims the rows its label needs on its own run: run, label
     }
 }
 
+test "a straight unlabelled edge with a head at each end claims one shaft row between its heads" {
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{1};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .reversed = false, .edge = 0 }};
+    var reversed = [_]sg.EdgeId{};
+    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const aligned = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 0, .w = 10 } };
+    const cases = [_]struct { from: sg.ArrowEnd, to: sg.ArrowEnd, gap: u32 }{
+        .{ .from = .none, .to = .filled, .gap = 2 },
+        .{ .from = .filled, .to = .filled, .gap = 3 },
+        .{ .from = .circle, .to = .circle, .gap = 3 },
+    };
+    for (cases) |c| {
+        const graph = try flt.mkGraph(aa, &edges);
+        const e = &@constCast(graph.edges)[0];
+        e.arrow_from = c.from;
+        e.arrow_to = c.to;
+        const bases = [_]u32{2};
+        const ledger = try flt.buildPiece(aa, graph, lg, &aligned, &.{}, .{}, .{}, &bases, &.{}, &.{});
+        try testing.expectEqual(c.gap, 2 + ledger.extraRows(0));
+    }
+}
+
 test "a labeled fan claims its rail row and one label band however many members carry labels; an unlabeled fan claims one row" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);

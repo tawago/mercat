@@ -24,6 +24,12 @@ const edgeClaim = pack_mod.edgeClaim;
 const Census = census_mod.Census;
 const drawnByEligible = fans_mod.drawnByEligible;
 
+fn shaftClaim(a: std.mem.Allocator, gap: u32, col: i32, edge: sg.EdgeId) error{OutOfMemory}!Claim {
+    var claim = try edgeClaim(a, gap, col, col, .run, .exit, false, false, edge);
+    claim.height = 1;
+    return claim;
+}
+
 fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligible: []const bool, bundles: pb.RealizedBundles, per_peer: std.AutoHashMapUnmanaged(sg.EdgeId, void), label_room: bool, claims: *std.ArrayListUnmanaged(Claim), posts: *std.ArrayListUnmanaged(Post)) error{OutOfMemory}!void {
     for (c.graph.edges) |e| {
         if (e.kind == .invisible or e.from == e.to or c.isReversed(e.id) or c.isPlacement(e)) continue;
@@ -51,7 +57,10 @@ fn edgeClaims(a: std.mem.Allocator, c: Census, fans: []const fan_mod.Fan, eligib
                 var claim = try edgeClaim(a, exit_gap, from_col, tcol, if (from_col == scol) .run else .corridor_exit, .exit, e.arrow_to == .none and e.arrow_from == .none and from_col == scol, e.arrow_from != .none and from_col == scol, e.id);
                 if (roomed) claim.base_ok = false;
                 try claims.append(a, claim);
-            } else if (e.arrow_to != .none or roomed) try posts.append(a, .{ .gap = exit_gap, .x = tcol });
+            } else {
+                if (e.arrow_to != .none or roomed) try posts.append(a, .{ .gap = exit_gap, .x = tcol });
+                if (!roomed and e.arrow_to != .none and e.arrow_from != .none) try claims.append(a, try shaftClaim(a, exit_gap, tcol, e.id));
+            }
             if (roomed) if (labelRoom(c, e, exit_gap, tcol, from_col == tcol)) |room| try claims.append(a, room);
             continue;
         }
