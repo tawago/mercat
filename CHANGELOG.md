@@ -6,18 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Flowcharts
 
-- Flowcharts now show stroke colours. A node takes the `stroke` of its class
-  (`classDef`, `A:::name`, `class A,B name`, with `classDef default` under every
-  node's own classes) or of `style A stroke:#hex`, on its
-  box, label and the points where edges meet it. An edge takes the `stroke` of
-  `linkStyle N` or `linkStyle default`, arrowhead included. A line shared by
-  edges of different colours stays uncoloured. Other style properties are
-  ignored, and so are colours on subgraphs.
-- Colour follows `--color` and `NO_COLOR`. `--format plain` output does not
-  change.
-- A diagram given on its own (a `.mmd` file or piped mermaid) now draws in the
-  body text colour, so set colours stand out. Diagrams inside markdown keep
-  the code colour.
+- Flowcharts show stroke colours now. Nodes take them from `classDef`,
+  `A:::name`, `class A,B name` and `style A stroke:#hex`. Edges take them from
+  `linkStyle N` and `linkStyle default`.
+- `classDef default` colours every node unless the node's own class sets a
+  stroke.
+- A line that edges of different colours share stays uncoloured.
+- mercat reads only `stroke`, as `#rgb` or `#rrggbb`. It ignores fills, text
+  colour and subgraph colours.
+- Colour follows `--color` and `NO_COLOR`. `--format plain` output is the same.
+- A `.mmd` file or piped diagram draws in the body text colour. Diagrams in
+  markdown keep the code colour.
 
 ## [0.3.8]
 
