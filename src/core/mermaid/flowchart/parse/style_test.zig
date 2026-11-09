@@ -20,6 +20,11 @@ test "blanks and upper-case hex are read" {
     try t.expectEqual(@as(?Rgb, .{ .r = 0xff, .g = 0, .b = 0xab }), style.strokeOf("  stroke : #FF00AB ; "));
 }
 
+test "an !important flag is read past" {
+    try t.expectEqual(@as(?Rgb, .{ .r = 0xff, .g = 0, .b = 0 }), style.strokeOf("stroke:#f00 !important,fill:#fff"));
+    try t.expectEqual(@as(?Rgb, .{ .r = 0xff, .g = 0, .b = 0 }), style.strokeOf("stroke:#f00!important"));
+}
+
 test "a malformed or named colour gives none" {
     for ([_][]const u8{ "stroke:#12", "stroke:#ggg", "stroke:red", "stroke:", "stroke:#1234567" }) |text| {
         try t.expectEqual(@as(?Rgb, null), style.strokeOf(text));

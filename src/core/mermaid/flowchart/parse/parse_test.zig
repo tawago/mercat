@@ -261,12 +261,26 @@ test "style beats a class, and the last attached class with a stroke wins" {
     try t.expectEqual(rgb(0x22, 0, 0), outline(g, "C"));
 }
 
-test "classDef default colours only the nodes with no class" {
-    var g = try parse(t.allocator, "flowchart TD\nA --> B:::x --> C\nclassDef default stroke:#111\nclassDef x fill:#fff\n");
+test "classDef default lies under every node's classes" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B:::x --> C:::y\nclassDef default stroke:#111\nclassDef x fill:#fff\nclassDef y stroke:#222\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(rgb(0x11, 0x11, 0x11), outline(g, "A"));
+    try t.expectEqual(rgb(0x11, 0x11, 0x11), outline(g, "B"));
+    try t.expectEqual(rgb(0x22, 0x22, 0x22), outline(g, "C"));
+}
+
+test "classDef node lies over classDef default and under a node's classes" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B:::y\nclassDef node stroke:#333\nclassDef default stroke:#111\nclassDef y stroke:#222\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0x33, 0x33, 0x33), outline(g, "A"));
+    try t.expectEqual(rgb(0x22, 0x22, 0x22), outline(g, "B"));
+}
+
+test "a skipped line attaches no class" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B\nB:::red C:::red\nclassDef red stroke:#f00\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(u32, 1), g.skipped_lines);
     try t.expectEqual(@as(?Rgb, null), outline(g, "B"));
-    try t.expectEqual(rgb(0x11, 0x11, 0x11), outline(g, "C"));
 }
 
 test "one classDef line defines every class it lists" {

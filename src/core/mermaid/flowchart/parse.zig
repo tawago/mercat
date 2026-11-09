@@ -223,9 +223,11 @@ const Parser = struct {
         if (t.kind == .id and isIgnoredDirective(t.text)) return p.skipLine();
         const start = p.sc;
         const mark = p.b.begin();
+        const attached = p.styles.attachMark();
         p.statement() catch |err| {
             if (err == error.OutOfMemory or lineHasLink(start)) return err;
             p.b.rollback(mark);
+            p.styles.dropAttachments(attached);
             p.sc = start;
             p.skipLine();
             p.skipped += 1;

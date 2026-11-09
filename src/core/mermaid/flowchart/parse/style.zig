@@ -15,9 +15,15 @@ pub fn strokeOf(text: []const u8) ?Rgb {
         const colon = std.mem.indexOfScalar(u8, prop, ':') orelse continue;
         const key = std.mem.trim(u8, prop[0..colon], " \t\r");
         if (!std.mem.eql(u8, key, "stroke")) continue;
-        found = hex(std.mem.trim(u8, prop[colon + 1 ..], " \t\r;"));
+        found = hex(withoutImportant(std.mem.trim(u8, prop[colon + 1 ..], " \t\r;")));
     }
     return found;
+}
+
+fn withoutImportant(value: []const u8) []const u8 {
+    const flag = "!important";
+    if (!std.mem.endsWith(u8, value, flag)) return value;
+    return std.mem.trimEnd(u8, value[0 .. value.len - flag.len], " \t");
 }
 
 fn hex(value: []const u8) ?Rgb {
@@ -79,26 +85,34 @@ pub const Styles = struct {
         if (stroke) |rgb| try s.links.append(a, .{ .target = target, .rgb = rgb });
     }
 
-    /// Sets each node's outline: its last `style` stroke, else the last attached class with a
-    /// stroke, else `classDef default` when the node has no class.
+    /// Sets each node's outline as mermaid layers it: `classDef default`, then `classDef node`,
+    /// then each attached class in order, then the node's own `style`; the last stroke wins.
     pub fn resolveNodes(s: *const Styles, nodes: []sg.Node) void {
-        const fallback = s.classes.get("default") orelse null;
+        const base = s.strokeOfClass("node") orelse s.strokeOfClass("default");
         for (nodes) |*n| {
-            var outline: ?Rgb = null;
-            var classed = false;
+            var outline: ?Rgb = base;
             for (s.attached.items) |at| {
                 if (!std.mem.eql(u8, at.node, n.raw_id)) continue;
-                classed = true;
-                if (s.classes.get(at.class)) |stroke| {
-                    if (stroke) |rgb| outline = rgb;
-                }
+                if (s.strokeOfClass(at.class)) |rgb| outline = rgb;
             }
-            if (!classed) outline = fallback;
             for (s.node_strokes.items) |ns| {
                 if (std.mem.eql(u8, ns.node, n.raw_id)) outline = ns.rgb;
             }
             n.outline = outline;
         }
+    }
+
+    fn strokeOfClass(s: *const Styles, name: []const u8) ?Rgb {
+        return s.classes.get(name) orelse null;
+    }
+
+    /// A point `dropAttachments` returns to when the parser skips a line.
+    pub fn attachMark(s: *const Styles) usize {
+        return s.attached.items.len;
+    }
+
+    pub fn dropAttachments(s: *Styles, mark: usize) void {
+        s.attached.shrinkRetainingCapacity(mark);
     }
 
     /// One colour per declared edge: its last `linkStyle` stroke, else `linkStyle default`. Empty
