@@ -1,5 +1,6 @@
 const std = @import("std");
 const unicode = @import("unicode");
+const color = @import("../../theme/color.zig");
 
 pub const SpanStyle = enum {
     heading1,
@@ -48,6 +49,8 @@ pub const Span = struct {
     text: []const u8,
     style: SpanStyle,
     url: ?[]const u8 = null,
+    /// A foreground the source asked for, worn over the style's own.
+    fg: ?color.Rgb = null,
 };
 
 pub const Line = struct {
@@ -119,7 +122,7 @@ pub const Line = struct {
                 errdefer allocator.free(text);
                 const url = if (span.url) |value| try allocator.dupe(u8, value) else null;
                 errdefer if (url) |value| allocator.free(value);
-                try mapped.append(allocator, .{ .text = text, .style = span.style, .url = url });
+                try mapped.append(allocator, .{ .text = text, .style = span.style, .url = url, .fg = span.fg });
             }
             source_start = source_end;
         }

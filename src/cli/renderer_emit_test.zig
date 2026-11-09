@@ -115,3 +115,22 @@ test "color on with a canvas: short lines are padded to the canvas width" {
     try std.testing.expectEqualStrings("ab    \n      ", text);
     try std.testing.expect(std.mem.indexOf(u8, out, "48;5;236") != null);
 }
+
+test "a span's own foreground replaces its style's when colour is on, and vanishes when off" {
+    const allocator = std.testing.allocator;
+    const color = @import("../core/theme/color.zig");
+    const was = color.truecolorEnabled();
+    defer color.setTruecolor(was);
+    color.setTruecolor(false);
+    var spans0 = [_]render_model.Span{.{ .text = "─", .style = .code, .fg = .{ .r = 0xff, .g = 0, .b = 0 } }};
+    var spans1 = [_]render_model.Span{};
+    var lines: [2]render_model.Line = undefined;
+    const rendered = sample(&spans0, &spans1, &lines);
+
+    const on = try renderer.serializeWith(allocator, rendered, theme.neutralDark, null, .{ .color = true, .hyperlinks = false });
+    defer allocator.free(on);
+    try std.testing.expect(std.mem.indexOf(u8, on, "38;5;196") != null);
+    const off = try renderer.serializeWith(allocator, rendered, theme.neutralDark, null, .{ .color = false, .hyperlinks = false });
+    defer allocator.free(off);
+    try std.testing.expectEqualStrings("─\n", off);
+}

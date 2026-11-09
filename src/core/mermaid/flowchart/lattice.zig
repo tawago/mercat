@@ -75,12 +75,15 @@ pub const Cell = struct {
     neighbours: Neighbours,
     stroke_kind: EdgeKind = .solid,
     shape: Shape = .rect,
+    /// Index into `Lattice.palette`, plus one; 0 wears no colour.
+    colour: u8 = 0,
 
     pub const empty: Cell = .{
         .occupant = .empty,
         .neighbours = .{},
         .stroke_kind = .solid,
         .shape = .rect,
+        .colour = 0,
     };
 };
 
@@ -112,6 +115,7 @@ pub const Lattice = struct {
     height: u32,
     cells: []Cell,
     glyphs: []const Glyph = &.{},
+    palette: []const prim.Rgb = &.{},
 
     pub fn at(self: Lattice, x: u32, y: u32) *Cell {
         std.debug.assert(x < self.width);
@@ -130,6 +134,11 @@ pub const Lattice = struct {
         const index: usize = cp - GLYPH_REF_BASE;
         if (index >= self.glyphs.len) return null;
         return self.glyphs[index];
+    }
+
+    pub fn colourOf(self: Lattice, colour: u8) ?prim.Rgb {
+        if (colour == 0 or colour > self.palette.len) return null;
+        return self.palette[colour - 1];
     }
 };
 

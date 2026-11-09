@@ -503,3 +503,61 @@ test "back-edge tracks follow span, not the order the edges are written" {
     const two = (try entry.render(a, head ++ "  F --> C\n  F --> D\n  F --> B\n  F --> E\n", .{ .max_width = 120 })).output;
     try std.testing.expectEqualStrings(one, two);
 }
+
+const prim = @import("prim");
+
+fn runText(text: []const u8, run: prim.ColourRun) []const u8 {
+    return text[run.start..][0..run.len];
+}
+
+test "colour directives change no painted byte and colour the marked node and edge in every layout path" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const red: prim.Rgb = .{ .r = 0xff, .g = 0, .b = 0 };
+    const blue: prim.Rgb = .{ .r = 0, .g = 0, .b = 0xff };
+    const Case = struct { plain: []const u8, coloured: []const u8 };
+    const cases = [_]Case{
+        .{ .plain = "flowchart TD\nQz --> B\nB --> C\n", .coloured = "flowchart TD\nQz:::k --> B\nB --> C\n" },
+        .{ .plain = "flowchart TD\nsubgraph S\nQz --> B\nend\nB --> C\n", .coloured = "flowchart TD\nsubgraph S\nQz:::k --> B\nend\nB --> C\n" },
+        .{ .plain = "flowchart LR\nQz --> B --> C\n", .coloured = "flowchart LR\nQz:::k --> B --> C\n" },
+        .{ .plain = "flowchart BT\nQz --> B --> C\n", .coloured = "flowchart BT\nQz:::k --> B --> C\n" },
+        .{ .plain = "flowchart TD\nQz --> B1 --> C1\nQz --> B2 --> C2\n", .coloured = "flowchart TD\nQz:::k --> B1 --> C1\nQz --> B2 --> C2\n" },
+    };
+    for (cases) |case| {
+        const tail = "classDef k stroke:#f00\nlinkStyle 0 stroke:#00f\n";
+        const coloured_src = try std.mem.concat(a, u8, &.{ case.coloured, tail });
+        const plain = try entry.renderFlowchart(a, case.plain, .{ .max_width = 80 });
+        const coloured = try entry.renderFlowchart(a, coloured_src, .{ .max_width = 80 });
+        try std.testing.expect(!coloured.is_fallback);
+        try std.testing.expectEqualStrings(plain.output, coloured.output);
+        try std.testing.expectEqual(@as(usize, 0), plain.runs.len);
+        var label_red = false;
+        var edge_blue = false;
+        for (coloured.runs) |run| {
+            const text = runText(coloured.output, run);
+            if (std.meta.eql(run.rgb, red) and std.mem.indexOf(u8, text, "Qz") != null) label_red = true;
+            if (std.meta.eql(run.rgb, blue)) edge_blue = true;
+        }
+        try std.testing.expect(label_red);
+        try std.testing.expect(edge_blue);
+    }
+}
+
+test "motif-packed candidates keep the outlines and edge colours" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const g = try parse(a, "flowchart TD\nQz:::k --> B1 --> C1\nQz --> B2 --> C2\nclassDef k stroke:#f00\nlinkStyle 3 stroke:#00f\n");
+    const permits = try select.resolvePermits(a, g);
+    const packed_cands = try select.packedCandidates(a, g, &permits.plan, 80);
+    try std.testing.expect(packed_cands.len != 0);
+    for (packed_cands) |cand| {
+        var outlined: usize = 0;
+        for (cand.sketch.nodes) |np| {
+            if (np.outline != null) outlined += 1;
+        }
+        try std.testing.expectEqual(@as(usize, 1), outlined);
+        try std.testing.expectEqual(@as(usize, 4), cand.sketch.edge_colours.len);
+    }
+}

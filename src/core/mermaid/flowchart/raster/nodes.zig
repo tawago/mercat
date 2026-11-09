@@ -3,6 +3,7 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const geo = @import("geometry.zig");
 const node_shapes = @import("node_shapes.zig");
+const colour_mod = @import("colour.zig");
 
 const log = std.log.scoped(.@"mermaid.raster.nodes");
 
@@ -28,6 +29,7 @@ pub fn rasterizeNodes(
 }
 
 fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
+    const colour = colour_mod.ofNode(lat, np);
     const rx: u32 = @intCast(np.rect.x);
     const ry: u32 = @intCast(np.rect.y);
     const rw: u32 = np.rect.w;
@@ -40,28 +42,28 @@ fn rasterizeRect(lat: *lattice.Lattice, np: sketch.NodePlacement) void {
         return;
     }
 
-    writeBorder(lat, rx, ry, np.id, .corner_nw, .{ .e = true, .s = true });
-    writeBorder(lat, x_last, ry, np.id, .corner_ne, .{ .w = true, .s = true });
-    writeBorder(lat, x_last, y_last, np.id, .corner_se, .{ .w = true, .n = true });
-    writeBorder(lat, rx, y_last, np.id, .corner_sw, .{ .e = true, .n = true });
+    writeBorder(lat, rx, ry, np.id, colour, .corner_nw, .{ .e = true, .s = true });
+    writeBorder(lat, x_last, ry, np.id, colour, .corner_ne, .{ .w = true, .s = true });
+    writeBorder(lat, x_last, y_last, np.id, colour, .corner_se, .{ .w = true, .n = true });
+    writeBorder(lat, rx, y_last, np.id, colour, .corner_sw, .{ .e = true, .n = true });
 
     var x: u32 = rx + 1;
     while (x < x_last) : (x += 1) {
-        writeBorder(lat, x, ry, np.id, .edge_n, .{ .e = true, .w = true });
-        writeBorder(lat, x, y_last, np.id, .edge_s, .{ .e = true, .w = true });
+        writeBorder(lat, x, ry, np.id, colour, .edge_n, .{ .e = true, .w = true });
+        writeBorder(lat, x, y_last, np.id, colour, .edge_s, .{ .e = true, .w = true });
     }
 
     var y: u32 = ry + 1;
     while (y < y_last) : (y += 1) {
-        writeBorder(lat, rx, y, np.id, .edge_w, .{ .n = true, .s = true });
-        writeBorder(lat, x_last, y, np.id, .edge_e, .{ .n = true, .s = true });
+        writeBorder(lat, rx, y, np.id, colour, .edge_w, .{ .n = true, .s = true });
+        writeBorder(lat, x_last, y, np.id, colour, .edge_e, .{ .n = true, .s = true });
     }
 
     var iy: u32 = ry + 1;
     while (iy < y_last) : (iy += 1) {
         var ix: u32 = rx + 1;
         while (ix < x_last) : (ix += 1) {
-            writeInterior(lat, ix, iy, np.id);
+            writeInterior(lat, ix, iy, np.id, colour);
         }
     }
 }
@@ -74,25 +76,26 @@ fn writeThinRect(
     x_last: u32,
     y_last: u32,
 ) void {
+    const colour = colour_mod.ofNode(lat, np);
     if (rx == x_last and ry == y_last) {
-        writeBorder(lat, rx, ry, np.id, .corner_nw, .{});
+        writeBorder(lat, rx, ry, np.id, colour, .corner_nw, .{});
         return;
     }
     if (ry == y_last) {
-        writeBorder(lat, rx, ry, np.id, .corner_nw, .{ .e = true });
+        writeBorder(lat, rx, ry, np.id, colour, .corner_nw, .{ .e = true });
         var x: u32 = rx + 1;
         while (x < x_last) : (x += 1) {
-            writeBorder(lat, x, ry, np.id, .edge_n, .{ .e = true, .w = true });
+            writeBorder(lat, x, ry, np.id, colour, .edge_n, .{ .e = true, .w = true });
         }
-        writeBorder(lat, x_last, ry, np.id, .corner_ne, .{ .w = true });
+        writeBorder(lat, x_last, ry, np.id, colour, .corner_ne, .{ .w = true });
         return;
     }
-    writeBorder(lat, rx, ry, np.id, .corner_nw, .{ .s = true });
+    writeBorder(lat, rx, ry, np.id, colour, .corner_nw, .{ .s = true });
     var y: u32 = ry + 1;
     while (y < y_last) : (y += 1) {
-        writeBorder(lat, rx, y, np.id, .edge_w, .{ .n = true, .s = true });
+        writeBorder(lat, rx, y, np.id, colour, .edge_w, .{ .n = true, .s = true });
     }
-    writeBorder(lat, rx, y_last, np.id, .corner_sw, .{ .n = true });
+    writeBorder(lat, rx, y_last, np.id, colour, .corner_sw, .{ .n = true });
 }
 
 fn writeBorder(
@@ -100,6 +103,7 @@ fn writeBorder(
     x: u32,
     y: u32,
     node: lattice.NodeId,
+    colour: u8,
     role: lattice.BorderRole,
     nbrs: lattice.Neighbours,
 ) void {
@@ -114,6 +118,7 @@ fn writeBorder(
     cell.* = .{
         .occupant = .{ .node_border = .{ .node = node, .role = role } },
         .neighbours = nbrs,
+        .colour = colour,
     };
 }
 
@@ -122,6 +127,7 @@ fn writeInterior(
     x: u32,
     y: u32,
     node: lattice.NodeId,
+    colour: u8,
 ) void {
     const cell = lat.at(x, y);
     if (cell.occupant != .empty) {
@@ -134,6 +140,7 @@ fn writeInterior(
     cell.* = .{
         .occupant = .{ .node_interior = node },
         .neighbours = .{},
+        .colour = colour,
     };
 }
 

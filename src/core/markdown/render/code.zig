@@ -100,7 +100,7 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
         .max_width = @intCast(content_width),
         .subgraph_edges = subgraph_edges,
     })) {
-        .drawn => |text| text,
+        .drawn => |drawn| drawn,
         .not_drawn => |failure| {
             if (failure.banner) |reason| {
                 const banner = try std.fmt.allocPrint(allocator, "<PARSE ERROR: {s}>", .{reason});
@@ -112,19 +112,39 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
             return;
         },
     };
-    defer allocator.free(output);
+    defer allocator.free(output.text);
+    defer allocator.free(output.runs);
 
     if (debug_mermaid) try appendMermaidDebug(builder);
     const saved_padding = builder.left_padding;
     builder.left_padding = 0;
     defer builder.left_padding = saved_padding;
-    var diagram_lines = std.mem.splitScalar(u8, output, '\n');
+    var diagram_lines = std.mem.splitScalar(u8, output.text, '\n');
     var first = true;
+    var runs = output.runs;
+    var line_start: usize = 0;
     while (diagram_lines.next()) |line| {
         if (!first) try builder.newline();
         first = false;
-        try builder.appendSpan(.code, line);
+        runs = try appendColouredLine(builder, line, line_start, runs);
+        line_start += line.len + 1;
     }
+}
+
+/// One diagram line as `.code` spans, coloured where a run covers it; returns the runs left.
+fn appendColouredLine(builder: *Builder, line: []const u8, line_start: usize, runs: []const mermaid.ColourRun) ![]const mermaid.ColourRun {
+    var rest = runs;
+    var at: usize = 0;
+    while (rest.len != 0 and rest[0].start < line_start + line.len) : (rest = rest[1..]) {
+        const run = rest[0];
+        const from = run.start - line_start;
+        const to = @min(line.len, from + run.len);
+        try builder.appendSpan(.code, line[at..from]);
+        try builder.appendSpanFg(.code, line[from..to], .{ .r = run.rgb.r, .g = run.rgb.g, .b = run.rgb.b });
+        at = to;
+    }
+    try builder.appendSpan(.code, line[at..]);
+    return rest;
 }
 
 /// The `--debug-mermaid` block. Its layout statistics have read the same values for every

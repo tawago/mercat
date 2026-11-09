@@ -18,6 +18,8 @@ pub const validateSketch = @import("layout/validate.zig").validate;
 
 pub const RenderResult = struct {
     output: []const u8,
+    /// Colour ranges over `output`, allocated with the caller's allocator like it.
+    runs: []const prim.ColourRun = &.{},
     width: u32,
     height: u32,
     is_fallback: bool,
@@ -66,7 +68,7 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
 
     const budget = sketch_val.budget.max_width;
     const true_width = raster_report.lattice.width;
-    const painted = paint.paint(allocator, raster_report.lattice, budget) catch |err| {
+    const painted = paint.paintColoured(allocator, raster_report.lattice, budget) catch |err| {
         std.log.warn("mermaid paint failed: {s}", .{@errorName(err)});
         return fallback(source, "v2 paint error");
     };
@@ -76,7 +78,8 @@ pub fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options
     }
 
     return .{
-        .output = painted,
+        .output = painted.text,
+        .runs = painted.runs,
         .width = @min(true_width, budget),
         .height = raster_report.lattice.height,
         .is_fallback = false,

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Flowcharts
+
+- Flowcharts now show stroke colours. A node takes the `stroke` of its class
+  (`classDef`, `A:::name`, `class A,B name`) or of `style A stroke:#hex`, on its
+  box, label and the points where edges meet it. An edge takes the `stroke` of
+  `linkStyle N` or `linkStyle default`, arrowhead included. A line shared by
+  edges of different colours stays uncoloured. Other style properties are
+  ignored, and so are colours on subgraphs.
+- Colour follows `--color` and `NO_COLOR`. `--format plain` output does not
+  change.
+
 ## [0.3.8]
 
 ### Flowcharts

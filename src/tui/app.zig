@@ -863,7 +863,8 @@ fn toVaxisSegments(allocator: std.mem.Allocator, line: render_model.Line, resolv
     const canvas_bg = resolved.canvasBg();
     const segments = try allocator.alloc(vaxis.Segment, line.spans.len);
     for (line.spans, 0..) |span, index| {
-        const token = theme.token(palette, span.style);
+        var token = theme.token(palette, span.style);
+        if (span.fg) |c| token.fg = .{ .rgb = c };
         var style = theme.vaxisStyle(token);
         if (canvas_bg) |bg| {
             if (token.bg == null) style.bg = theme.toVaxisColor(bg);

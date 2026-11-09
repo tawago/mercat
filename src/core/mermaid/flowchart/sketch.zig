@@ -59,6 +59,7 @@ pub const NodePlacement = struct {
     shape: Shape,
     lines: []const []const u8,
     cluster_id: ?ClusterId,
+    outline: ?prim.Rgb = null,
 };
 
 pub const ClusterFrame = struct {
@@ -146,6 +147,8 @@ pub const Sketch = struct {
     edges: []const EdgePath,
     rails: []const Rail = &.{},
     sharing: sharing_mod.Sharing = .{},
+    /// Indexed by `EdgePath.origin` and `Tap.origin`.
+    edge_colours: []const ?prim.Rgb = &.{},
     diagnostics: []const Diagnostic,
     budget: WidthBudget,
 };

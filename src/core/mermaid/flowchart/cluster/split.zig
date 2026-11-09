@@ -317,6 +317,7 @@ fn buildChild(arena: std.mem.Allocator, graph: sg.SemGraph, c: sg.Cluster) error
         .edges = try edges.toOwnedSlice(arena),
         .clusters = try child_clusters.toOwnedSlice(arena),
         .classes = graph.classes,
+        .edge_colours = graph.edge_colours,
         .arena = null,
     };
     return .{ .graph = child_graph, .cluster_id = c.id, .orig_ids = orig };
@@ -398,6 +399,7 @@ fn buildOuter(arena: std.mem.Allocator, graph: sg.SemGraph, tops: []const usize,
         .edges = try edges.toOwnedSlice(arena),
         .clusters = &.{},
         .classes = graph.classes,
+        .edge_colours = graph.edge_colours,
         .arena = null,
     };
     return .{
@@ -415,7 +417,7 @@ fn withoutRoot(cluster: ?sg.ClusterId, root: sg.ClusterId) ?sg.ClusterId {
 }
 
 fn pieceNode(src: sg.Node, id: sg.NodeId, cluster: ?sg.ClusterId) sg.Node {
-    return .{ .id = id, .raw_id = src.raw_id, .label = src.label, .shape = src.shape, .classes = src.classes, .cluster = cluster };
+    return .{ .id = id, .raw_id = src.raw_id, .label = src.label, .shape = src.shape, .classes = src.classes, .cluster = cluster, .outline = src.outline };
 }
 
 fn pieceEdge(e: sg.Edge, id: sg.EdgeId, from: sg.NodeId, to: sg.NodeId) sg.Edge {

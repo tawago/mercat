@@ -18,7 +18,7 @@ test "writeEdgeCell onto a foreign run keeps the first owner and ORs the arms" {
         .neighbours = .{ .e = true, .w = true },
     };
     var lost: u32 = 0;
-    edges.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost);
+    edges.writeEdgeCell(&cell, 8, .solid, .forward, .{ .n = true, .s = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 3), cell.occupant.edge_segment.edge);
     try testing.expectEqual(
         (lattice.Neighbours{ .n = true, .e = true, .s = true, .w = true }).toMask(),
@@ -33,12 +33,12 @@ test "a head write carries its stroke kind and head style on the plain and the g
         .neighbours = .{ .e = true, .w = true },
         .stroke_kind = .solid,
     };
-    edges.writeArrowCell(&run, 9, .dotted, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost);
+    edges.writeArrowCell(&run, 9, .dotted, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 9), run.occupant.arrowhead.edge);
     try testing.expectEqual(lattice.EdgeKind.dotted, run.stroke_kind);
 
     var empty = lattice.Cell.empty;
-    edges.writeArrowCell(&empty, 4, .thick, .open, .south, .{ .n = true, .s = true }, 0, 0, &lost);
+    edges.writeArrowCell(&empty, 4, .thick, .open, .south, .{ .n = true, .s = true }, 0, 0, &lost, 0);
     try testing.expectEqual(lattice.EdgeKind.thick, empty.stroke_kind);
     try testing.expectEqual(lattice.ArrowKind.open, empty.occupant.arrowhead.arrow);
 
@@ -50,7 +50,7 @@ test "a head write carries its stroke kind and head style on the plain and the g
         .neighbours = .{ .n = true, .s = true },
         .stroke_kind = .thick,
     };
-    edges.writeArrowGuarded(&refused, 5, .solid, .cross, .east, .{ .e = true, .w = true }, 1, 1, &lost, ctx);
+    edges.writeArrowGuarded(&refused, 5, .solid, .cross, .east, .{ .e = true, .w = true }, 1, 1, &lost, ctx, 0);
     try testing.expectEqual(@as(u32, 5), refused.occupant.arrowhead.edge);
     try testing.expectEqual(lattice.ArrowKind.cross, refused.occupant.arrowhead.arrow);
     try testing.expectEqual((lattice.Neighbours{ .e = true, .w = true }).toMask(), refused.neighbours.toMask());
@@ -64,7 +64,7 @@ test "a head refused at a node border counts a lost cell" {
         .neighbours = .{},
     };
     var lost: u32 = 0;
-    edges.writeArrowCell(&border, 7, .solid, .filled, .south, .{ .n = true, .s = true }, 0, 0, &lost);
+    edges.writeArrowCell(&border, 7, .solid, .filled, .south, .{ .n = true, .s = true }, 0, 0, &lost, 0);
     try testing.expectEqual(@as(u32, 1), lost);
     try testing.expect(border.occupant == .node_border);
 }
@@ -72,18 +72,18 @@ test "a head refused at a node border counts a lost cell" {
 test "a foreign lateral arm into a head is refused and counted against the writer" {
     var lost: u32 = 0;
     var cell = southHead(4);
-    edges.writeEdgeCell(&cell, 9, .solid, .forward, .{ .n = true, .e = true }, 1, 1, &lost);
+    edges.writeEdgeCell(&cell, 9, .solid, .forward, .{ .n = true, .e = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 4), cell.occupant.arrowhead.edge);
     try testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), cell.neighbours.toMask());
     try testing.expectEqual(@as(u32, 1), lost);
 
     var through = southHead(4);
-    edges.writeEdgeCell(&through, 9, .solid, .forward, .{ .e = true, .w = true }, 1, 1, &lost);
+    edges.writeEdgeCell(&through, 9, .solid, .forward, .{ .e = true, .w = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 2), lost);
     try testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), through.neighbours.toMask());
 
     var riding = southHead(4);
-    edges.writeEdgeCell(&riding, 9, .solid, .fan_in_dropper, .{ .n = true, .s = true }, 1, 1, &lost);
+    edges.writeEdgeCell(&riding, 9, .solid, .fan_in_dropper, .{ .n = true, .s = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 2), lost);
     try testing.expectEqual(@as(u32, 4), riding.occupant.arrowhead.edge);
 }
@@ -92,24 +92,24 @@ test "a foreign head pointing another way is refused; one pointing the same way 
     var lost: u32 = 0;
 
     var across = southHead(4);
-    edges.writeArrowCell(&across, 9, .solid, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost);
+    edges.writeArrowCell(&across, 9, .solid, .filled, .east, .{ .e = true, .w = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 4), across.occupant.arrowhead.edge);
     try testing.expectEqual(lattice.Dir4.south, across.occupant.arrowhead.dir);
     try testing.expectEqual((lattice.Neighbours{ .n = true, .s = true }).toMask(), across.neighbours.toMask());
     try testing.expectEqual(@as(u32, 1), lost);
 
     var opposed = southHead(4);
-    edges.writeArrowCell(&opposed, 9, .solid, .filled, .north, .{ .n = true, .s = true }, 1, 1, &lost);
+    edges.writeArrowCell(&opposed, 9, .solid, .filled, .north, .{ .n = true, .s = true }, 1, 1, &lost, 0);
     try testing.expectEqual(lattice.Dir4.south, opposed.occupant.arrowhead.dir);
     try testing.expectEqual(@as(u32, 2), lost);
 
     var same = southHead(4);
-    edges.writeArrowCell(&same, 9, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost);
+    edges.writeArrowCell(&same, 9, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 4), same.occupant.arrowhead.edge);
     try testing.expectEqual(@as(u32, 2), lost);
 
     var own = southHead(4);
-    edges.writeArrowCell(&own, 4, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost);
+    edges.writeArrowCell(&own, 4, .solid, .filled, .south, .{ .n = true, .s = true }, 1, 1, &lost, 0);
     try testing.expectEqual(@as(u32, 2), lost);
 }
 
@@ -138,15 +138,15 @@ test "a joined cell stays joined under a later legal crossing; a crossed cell a 
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid, .cohabit = .joined } },
         .neighbours = H,
     };
-    try testing.expect(edges.crossingKeepsFirstWriter(&joined, 9, V, at, ctx));
+    try testing.expect(edges.crossingKeepsFirstWriter(&joined, 9, V, at, ctx, 0));
     try testing.expectEqual(lattice.Cohabit.joined, joined.occupant.edge_segment.cohabit);
 
     var crossed: lattice.Cell = .{
         .occupant = .{ .edge_segment = .{ .edge = 3, .kind = .solid } },
         .neighbours = H,
     };
-    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 9, V, at, ctx));
+    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 9, V, at, ctx, 0));
     try testing.expectEqual(lattice.Cohabit.crossed, crossed.occupant.edge_segment.cohabit);
-    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 7, H, at, ctx));
+    try testing.expect(edges.crossingKeepsFirstWriter(&crossed, 7, H, at, ctx, 0));
     try testing.expectEqual(lattice.Cohabit.joined, crossed.occupant.edge_segment.cohabit);
 }

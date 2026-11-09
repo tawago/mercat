@@ -28,7 +28,7 @@ const Undo = struct { node: NodeId, side: u1, old: u32 };
 pub const Mark = struct { nodes: usize, edges: usize };
 
 pub const Built = struct {
-    nodes: []const sg.Node,
+    nodes: []sg.Node,
     edges: []const sg.Edge,
     clusters: []const sg.Cluster,
 };

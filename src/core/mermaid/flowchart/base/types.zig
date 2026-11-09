@@ -7,6 +7,11 @@ pub const EdgeId = u32;
 
 pub const ClusterId = u32;
 
+pub const Rgb = struct { r: u8, g: u8, b: u8 };
+
+/// A painted byte range `[start, start + len)` and the colour it wears.
+pub const ColourRun = struct { start: u32, len: u32, rgb: Rgb };
+
 pub const Direction = enum {
     TD,
     BT,

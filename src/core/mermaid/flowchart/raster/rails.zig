@@ -2,11 +2,12 @@ const sketch = @import("../sketch.zig");
 const lattice = @import("../lattice.zig");
 const edges = @import("edges.zig");
 const geo = @import("geometry.zig");
+const colour_mod = @import("colour.zig");
 
 /// Cells the rails could not draw.
 pub fn rasterizeRails(lat: *lattice.Lattice, s: sketch.Sketch) u32 {
     var lost: u32 = 0;
-    for (s.rails) |rail| drawRail(lat, rail, &lost);
+    for (s.rails) |rail| drawRail(lat, s, rail, &lost);
     return lost;
 }
 
@@ -14,21 +15,23 @@ const RailDraw = struct {
     lat: *lattice.Lattice,
     rail: sketch.Rail,
     lost: *u32,
+    s: sketch.Sketch,
     fan_in: bool,
     edge: u32,
+    colour: u8,
     crossbar_role: lattice.EdgeRole,
     dropper_role: lattice.EdgeRole,
 
-    fn claim(self: RailDraw, p: sketch.Point, edge_id: u32, role: lattice.EdgeRole, mask: lattice.Neighbours) void {
+    fn claim(self: RailDraw, p: sketch.Point, edge_id: u32, role: lattice.EdgeRole, mask: lattice.Neighbours, colour: u8) void {
         if (!geo.pointInBounds(p, self.lat)) return;
         const c = geo.toCoord(p);
-        edges.writeEdgeCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, role, mask, c.x, c.y, self.lost);
+        edges.writeEdgeCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, role, mask, c.x, c.y, self.lost, colour);
     }
 
-    fn claimHead(self: RailDraw, h: edges.Head, edge_id: u32, arrow: lattice.ArrowKind) void {
+    fn claimHead(self: RailDraw, h: edges.Head, edge_id: u32, arrow: lattice.ArrowKind, colour: u8) void {
         if (!geo.pointInBounds(h.cell, self.lat)) return;
         const c = geo.toCoord(h.cell);
-        edges.writeArrowCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, arrow, h.dir, geo.straightMask(h.dir), c.x, c.y, self.lost);
+        edges.writeArrowCell(self.lat.at(c.x, c.y), edge_id, self.rail.kind, arrow, h.dir, geo.straightMask(h.dir), c.x, c.y, self.lost, colour);
     }
 
     fn crossbar(self: RailDraw) void {
@@ -37,7 +40,7 @@ const RailDraw = struct {
         const y = self.rail.crossbar[0].y;
         var x = x0;
         while (x <= x1) : (x += 1) {
-            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 });
+            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 }, self.colour);
         }
     }
 
@@ -45,7 +48,7 @@ const RailDraw = struct {
         const pts = self.rail.stem;
         const junction = pts[pts.len - 1];
         const head = pivotHead(self.rail);
-        const end: edges.PortEnd = .{ .head = head, .role = self.crossbar_role };
+        const end: edges.PortEnd = .{ .head = head, .role = self.crossbar_role, .colour = self.colour };
         if (!self.fan_in) edges.drawPortStroke(self.lat, pts, self.rail.kind, self.edge, end);
         if (self.fan_in and pts.len >= 2) {
             const stub = [_]sketch.Point{ pts[1], pts[0] };
@@ -55,21 +58,22 @@ const RailDraw = struct {
         for (pts[0 .. pts.len - 1], pts[1..]) |a, b| {
             const dir = geo.segmentDir(a, b) orelse continue;
             if (last_dir) |prev| {
-                self.claim(a, self.edge, self.crossbar_role, geo.orMask(geo.bitMask(geo.reverse(prev)), geo.bitMask(dir)));
+                self.claim(a, self.edge, self.crossbar_role, geo.orMask(geo.bitMask(geo.reverse(prev)), geo.bitMask(dir)), self.colour);
             }
             var cursor = geo.step(a, dir);
             while (!geo.samePoint(cursor, b)) : (cursor = geo.step(cursor, dir)) {
-                self.claim(cursor, self.edge, self.crossbar_role, geo.straightMask(dir));
+                self.claim(cursor, self.edge, self.crossbar_role, geo.straightMask(dir), self.colour);
             }
             last_dir = dir;
         }
-        if (last_dir) |dir| self.claim(junction, self.edge, self.crossbar_role, geo.bitMask(geo.reverse(dir)));
-        if (head) |h| self.claimHead(h, self.edge, self.rail.pivot_arrow);
+        if (last_dir) |dir| self.claim(junction, self.edge, self.crossbar_role, geo.bitMask(geo.reverse(dir)), self.colour);
+        if (head) |h| self.claimHead(h, self.edge, self.rail.pivot_arrow, self.colour);
     }
 
     fn tap(self: RailDraw, t: sketch.Tap) void {
         const head = if (t.continues) null else tapHead(t, self.fan_in);
-        const end: edges.PortEnd = .{ .head = head, .role = self.dropper_role };
+        const colour = colour_mod.ofOrigin(self.lat, self.s, t.origin);
+        const end: edges.PortEnd = .{ .head = head, .role = self.dropper_role, .colour = colour };
         if (!t.continues) {
             if (self.fan_in) {
                 const stub = [_]sketch.Point{ t.landing, t.at };
@@ -80,23 +84,25 @@ const RailDraw = struct {
             }
         }
         const dir = geo.segmentDir(t.at, t.landing) orelse return;
-        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir));
+        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir), self.colour);
         var cursor = geo.step(t.at, dir);
         while (!geo.samePoint(cursor, t.landing)) : (cursor = geo.step(cursor, dir)) {
-            self.claim(cursor, t.edge, self.dropper_role, geo.straightMask(dir));
+            self.claim(cursor, t.edge, self.dropper_role, geo.straightMask(dir), colour);
         }
-        if (head) |h| self.claimHead(h, t.edge, t.arrow);
+        if (head) |h| self.claimHead(h, t.edge, t.arrow, colour);
     }
 };
 
-fn drawRail(lat: *lattice.Lattice, rail: sketch.Rail, lost: *u32) void {
+fn drawRail(lat: *lattice.Lattice, s: sketch.Sketch, rail: sketch.Rail, lost: *u32) void {
     const fan_in = rail.role == .fan_in_dropper or rail.role == .fan_in_rail;
     const draw: RailDraw = .{
         .lat = lat,
         .rail = rail,
         .lost = lost,
+        .s = s,
         .fan_in = fan_in,
         .edge = rail.taps[0].edge,
+        .colour = colour_mod.ofRail(lat, s, rail),
         .crossbar_role = if (fan_in) .fan_in_rail else .fan_out_rail,
         .dropper_role = if (fan_in) .fan_in_dropper else .fan_out_dropper,
     };

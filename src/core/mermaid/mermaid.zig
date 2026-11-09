@@ -9,6 +9,7 @@ const er = @import("er/render.zig");
 const state = @import("state/render.zig");
 
 pub const SubgraphEdges = @import("prim").SubgraphEdges;
+pub const ColourRun = @import("prim").ColourRun;
 
 pub const Options = struct {
     max_width: u32 = 120,
@@ -16,8 +17,8 @@ pub const Options = struct {
 };
 
 pub const Result = union(enum) {
-    /// The drawing, allocated with the caller's allocator.
-    drawn: []const u8,
+    /// The drawing and its colour ranges, both allocated with the caller's allocator.
+    drawn: struct { text: []const u8, runs: []const ColourRun = &.{} },
     /// Nothing drawn: the caller shows the source, under a `<PARSE ERROR: banner>` line when a
     /// banner is set (only flowchart failures carry one).
     not_drawn: struct { banner: ?[]const u8 = null },
@@ -37,7 +38,7 @@ pub fn render(allocator: std.mem.Allocator, source: []const u8, options: Options
         return .{ .not_drawn = .{} };
     };
     return switch (fit) {
-        .drawn => |text| .{ .drawn = text },
+        .drawn => |text| .{ .drawn = .{ .text = text } },
         .too_wide => |width| blk: {
             std.log.warn("mermaid: {s} diagram not drawn: width {d} > budget {d}", .{ kindName(kind), width, options.max_width });
             break :blk .{ .not_drawn = .{} };
@@ -61,7 +62,7 @@ fn renderFlowchart(allocator: std.mem.Allocator, source: []const u8, options: Op
         .subgraph_edges = options.subgraph_edges,
     }) catch return .{ .not_drawn = .{} };
     if (result.is_fallback) return .{ .not_drawn = .{ .banner = result.fallback_reason } };
-    return .{ .drawn = result.output };
+    return .{ .drawn = .{ .text = result.output, .runs = result.runs } };
 }
 
 test "each kind over the budget reports its measured width, draws at that width, and draws nothing when empty" {

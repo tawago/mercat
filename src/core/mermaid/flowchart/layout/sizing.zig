@@ -157,6 +157,7 @@ pub fn buildPlacements(
                     .shape = mapShape(node.shape),
                     .lines = node_lines[i],
                     .cluster_id = null,
+                    .outline = node.outline,
                 });
             },
             .virtual => {},

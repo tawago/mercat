@@ -11,6 +11,15 @@ const NodeId = sg.NodeId;
 const ClusterId = sg.ClusterId;
 
 const t = std.testing;
+const Rgb = @import("prim").Rgb;
+
+fn rgb(r: u8, g: u8, b: u8) ?Rgb {
+    return .{ .r = r, .g = g, .b = b };
+}
+
+fn outline(g: sg.SemGraph, raw_id: []const u8) ?Rgb {
+    return g.nodes[findNode(g, raw_id).?].outline;
+}
 
 fn findNode(g: sg.SemGraph, raw_id: []const u8) ?NodeId {
     for (g.nodes) |n| {
@@ -120,6 +129,9 @@ test "a style definition names no node and a class line declares the nodes it li
     try t.expect(findNode(g, "C") != null);
     try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqual(@as(u32, 0), g.skipped_lines);
+    try t.expectEqual(rgb(0, 0, 0), outline(g, "A"));
+    try t.expectEqual(@as(?Rgb, null), outline(g, "B"));
+    try t.expectEqual(rgb(0, 0, 0), outline(g, "C"));
 }
 
 test "a class line without a class name declares nothing" {
@@ -131,19 +143,22 @@ test "a class line without a class name declares nothing" {
 }
 
 test "a style definition reads to the semicolon and no further" {
-    var g = try parse(t.allocator, "flowchart TD\nclassDef red fill:#f00; A --> B\n");
+    var g = try parse(t.allocator, "flowchart TD\nclassDef red stroke:#f00; A:::red --> B\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqual(@as(usize, 1), g.edges.len);
+    try t.expectEqual(rgb(0xff, 0, 0), outline(g, "A"));
 }
 
-test "a class suffix after a node is read past" {
-    var g = try parse(t.allocator, "flowchart TD\nA:::warn --> B[Bee]:::ok\n");
+test "a class suffix attaches the class and leaves the node's shape and label" {
+    var g = try parse(t.allocator, "flowchart TD\nA:::warn --> B[Bee]:::ok\nclassDef ok stroke:#0f0\n");
     defer g.deinit(t.allocator);
     try t.expectEqual(@as(usize, 2), g.nodes.len);
     try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqualStrings("Bee", g.nodes[1].label);
     try t.expectEqual(@as(u32, 0), g.skipped_lines);
+    try t.expectEqual(@as(?Rgb, null), outline(g, "A"));
+    try t.expectEqual(rgb(0, 0xff, 0), outline(g, "B"));
 }
 
 test "multi-word and quoted label" {
@@ -221,6 +236,83 @@ test "skippable directives are consumed without effect" {
     try t.expectEqual(@as(usize, 3), g.nodes.len);
     try t.expectEqual(@as(usize, 2), g.edges.len);
     try t.expectEqual(@as(u32, 0), g.skipped_lines);
+    try t.expectEqual(@as(?Rgb, null), outline(g, "A"));
+    try t.expectEqual(@as(usize, 2), g.edge_colours.len);
+    try t.expectEqual(rgb(0x88, 0x88, 0x88), g.edge_colours[0]);
+    try t.expectEqual(@as(?Rgb, null), g.edge_colours[1]);
+}
+
+test "style beats a class, and the last attached class with a stroke wins" {
+    var g = try parse(t.allocator,
+        \\flowchart TD
+        \\A --> B --> C
+        \\class A,B one
+        \\class B,C two
+        \\class C plain
+        \\style A stroke:#00f
+        \\classDef one stroke:#100
+        \\classDef two stroke:#200
+        \\classDef plain fill:#fff
+        \\
+    );
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0, 0, 0xff), outline(g, "A"));
+    try t.expectEqual(rgb(0x22, 0, 0), outline(g, "B"));
+    try t.expectEqual(rgb(0x22, 0, 0), outline(g, "C"));
+}
+
+test "classDef default colours only the nodes with no class" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B:::x --> C\nclassDef default stroke:#111\nclassDef x fill:#fff\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0x11, 0x11, 0x11), outline(g, "A"));
+    try t.expectEqual(@as(?Rgb, null), outline(g, "B"));
+    try t.expectEqual(rgb(0x11, 0x11, 0x11), outline(g, "C"));
+}
+
+test "one classDef line defines every class it lists" {
+    var g = try parse(t.allocator, "flowchart TD\nA:::a --> B:::b\nclassDef a,b stroke:#123\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0x11, 0x22, 0x33), outline(g, "A"));
+    try t.expectEqual(rgb(0x11, 0x22, 0x33), outline(g, "B"));
+}
+
+test "style names no node of its own" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B\nstyle Z stroke:#123\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 2), g.nodes.len);
+}
+
+test "linkStyle colours edges by declaration order, over the default" {
+    var g = try parse(t.allocator,
+        \\flowchart TD
+        \\linkStyle 0,2 stroke:#f00
+        \\A --> B --> C
+        \\C --> D
+        \\linkStyle default stroke:#0f0
+        \\linkStyle 9 stroke:#00f
+        \\linkStyle 1 stroke-width:4px
+        \\
+    );
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 3), g.edge_colours.len);
+    try t.expectEqual(rgb(0xff, 0, 0), g.edge_colours[0]);
+    try t.expectEqual(rgb(0, 0xff, 0), g.edge_colours[1]);
+    try t.expectEqual(rgb(0xff, 0, 0), g.edge_colours[2]);
+}
+
+test "an ampersand group numbers its edges source-major" {
+    var g = try parse(t.allocator, "flowchart TD\nA & B --> C & D\nlinkStyle 1 stroke:#abc\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(findNode(g, "A").?, g.edges[1].from);
+    try t.expectEqual(findNode(g, "D").?, g.edges[1].to);
+    try t.expectEqual(rgb(0xaa, 0xbb, 0xcc), g.edge_colours[1]);
+    try t.expectEqual(@as(?Rgb, null), g.edge_colours[0]);
+}
+
+test "a graph with no linkStyle carries no edge colours" {
+    var g = try parse(t.allocator, "flowchart TD\nA --> B\nclassDef x stroke:#fff\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 0), g.edge_colours.len);
 }
 
 test "line recovery: bad non-edge line is dropped, rest renders" {

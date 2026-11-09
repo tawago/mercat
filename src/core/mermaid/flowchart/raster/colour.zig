@@ -1,0 +1,58 @@
+//! The grid's colours: a node wears its outline, an edge its stroke, read off the sketch where
+//! the raster writes each cell. Ink several edges share keeps a colour only when all agree.
+
+const std = @import("std");
+const prim = @import("prim");
+const sketch = @import("../sketch.zig");
+const lattice = @import("../lattice.zig");
+
+const Rgb = prim.Rgb;
+
+const MAX_COLOURS = std.math.maxInt(u8);
+
+/// Every distinct outline and edge colour of the sketch, first seen first; past 255 the rest
+/// wear none.
+pub fn palette(a: std.mem.Allocator, s: sketch.Sketch) error{OutOfMemory}![]const Rgb {
+    var out: std.ArrayList(Rgb) = .empty;
+    for (s.nodes) |np| if (np.outline) |c| try add(a, &out, c);
+    for (s.edge_colours) |maybe| if (maybe) |c| try add(a, &out, c);
+    return out.toOwnedSlice(a);
+}
+
+fn add(a: std.mem.Allocator, out: *std.ArrayList(Rgb), c: Rgb) error{OutOfMemory}!void {
+    if (out.items.len == MAX_COLOURS) return;
+    for (out.items) |have| if (std.meta.eql(have, c)) return;
+    try out.append(a, c);
+}
+
+pub fn index(lat: *const lattice.Lattice, c: ?Rgb) u8 {
+    const want = c orelse return 0;
+    for (lat.palette, 1..) |have, i| if (std.meta.eql(have, want)) return @intCast(i);
+    return 0;
+}
+
+pub fn ofNode(lat: *const lattice.Lattice, np: sketch.NodePlacement) u8 {
+    return index(lat, np.outline);
+}
+
+pub fn ofOrigin(lat: *const lattice.Lattice, s: sketch.Sketch, origin: prim.EdgeId) u8 {
+    if (origin >= s.edge_colours.len) return 0;
+    return index(lat, s.edge_colours[origin]);
+}
+
+/// The colour of a rail's shared cells: its taps' colour when every tap agrees.
+pub fn ofRail(lat: *const lattice.Lattice, s: sketch.Sketch, rail: sketch.Rail) u8 {
+    if (rail.taps.len == 0) return 0;
+    var c = ofOrigin(lat, s, rail.taps[0].origin);
+    for (rail.taps[1..]) |t| c = merge(c, ofOrigin(lat, s, t.origin));
+    return c;
+}
+
+/// Two owners of one cell: an uncoloured owner is a colour of its own.
+pub fn merge(a: u8, b: u8) u8 {
+    return if (a == b) a else 0;
+}
+
+test {
+    _ = @import("colour_test.zig");
+}

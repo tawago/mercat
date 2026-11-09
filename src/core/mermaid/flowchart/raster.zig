@@ -10,6 +10,7 @@ const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
+const colour_r = @import("raster/colour.zig");
 
 pub const RasterizeError = error{
     OutOfMemory,
@@ -50,6 +51,7 @@ pub fn rasterize(
         .width = w,
         .height = h,
         .cells = cells,
+        .palette = try colour_r.palette(allocator, s),
     };
 
     _ = try clusters_r.rasterizeClusters(allocator, &lat, s);
