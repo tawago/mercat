@@ -104,6 +104,8 @@ pub const Block = union(enum) {
     pub const CodeBlock = struct {
         language: []const u8,
         code: []const u8,
+        /// The whole input was this diagram (a .mmd file or piped source), not a fence in a document.
+        standalone: bool = false,
     };
 
     pub const Table = struct {

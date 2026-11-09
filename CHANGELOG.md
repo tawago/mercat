@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
   ignored, and so are colours on subgraphs.
 - Colour follows `--color` and `NO_COLOR`. `--format plain` output does not
   change.
+- A diagram given on its own (a `.mmd` file or piped mermaid) now draws in the
+  body text colour, so set colours stand out. Diagrams inside markdown keep
+  the code colour.
 
 ## [0.3.8]
 

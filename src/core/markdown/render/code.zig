@@ -14,7 +14,7 @@ const SubgraphEdges = mermaid.SubgraphEdges;
 
 pub fn render(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges, decor: *const decor_mod.Decor) !void {
     if (std.mem.eql(u8, code.language, "mermaid")) {
-        try renderMermaid(allocator, builder, code.code, content_width, debug_mermaid, subgraph_edges);
+        try renderMermaid(allocator, builder, code.code, if (code.standalone) .body else .code, content_width, debug_mermaid, subgraph_edges);
         return;
     }
     const frame = decor.glyphs.code_frame;
@@ -95,7 +95,7 @@ fn renderFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bloc
     }
 }
 
-fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
+fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, ink: SpanStyle, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
     const output = switch (mermaid.render(allocator, source, .{
         .max_width = @intCast(content_width),
         .subgraph_edges = subgraph_edges,
@@ -126,24 +126,24 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
     while (diagram_lines.next()) |line| {
         if (!first) try builder.newline();
         first = false;
-        runs = try appendColouredLine(builder, line, line_start, runs);
+        runs = try appendColouredLine(builder, line, line_start, runs, ink);
         line_start += line.len + 1;
     }
 }
 
-/// One diagram line as `.code` spans, coloured where a run covers it; returns the runs left.
-fn appendColouredLine(builder: *Builder, line: []const u8, line_start: usize, runs: []const mermaid.ColourRun) ![]const mermaid.ColourRun {
+/// One diagram line as `ink` spans, coloured where a run covers it; returns the runs left.
+fn appendColouredLine(builder: *Builder, line: []const u8, line_start: usize, runs: []const mermaid.ColourRun, ink: SpanStyle) ![]const mermaid.ColourRun {
     var rest = runs;
     var at: usize = 0;
     while (rest.len != 0 and rest[0].start < line_start + line.len) : (rest = rest[1..]) {
         const run = rest[0];
         const from = run.start - line_start;
         const to = @min(line.len, from + run.len);
-        try builder.appendSpan(.code, line[at..from]);
-        try builder.appendSpanFg(.code, line[from..to], .{ .r = run.rgb.r, .g = run.rgb.g, .b = run.rgb.b });
+        try builder.appendSpan(ink, line[at..from]);
+        try builder.appendSpanFg(ink, line[from..to], .{ .r = run.rgb.r, .g = run.rgb.g, .b = run.rgb.b });
         at = to;
     }
-    try builder.appendSpan(.code, line[at..]);
+    try builder.appendSpan(ink, line[at..]);
     return rest;
 }
 

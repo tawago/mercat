@@ -133,3 +133,20 @@ test "adjacent spans of one style but different foregrounds stay apart" {
     try testing.expectEqualStrings("ab", lines[0].spans[0].text);
     try testing.expectEqual(@as(?u8, null), if (lines[0].spans[2].fg) |c| c.r else null);
 }
+
+test "a standalone diagram draws in body ink, a fence in code ink" {
+    const allocator = testing.allocator;
+    for ([_]bool{ false, true }) |standalone| {
+        const block = Block.CodeBlock{ .language = "mermaid", .code = "flowchart TD\nA --> B\n", .standalone = standalone };
+        var builder = Builder.init(allocator);
+        defer builder.deinit();
+        try code.render(allocator, &builder, block, 80, false, .bridge, &decor_mod.Decor{});
+        const lines = try builder.finish();
+        defer {
+            for (lines) |line| line.deinit(allocator);
+            allocator.free(lines);
+        }
+        const want: @TypeOf(lines[0].spans[0].style) = if (standalone) .body else .code;
+        for (lines) |line| for (line.spans) |span| try testing.expectEqual(want, span.style);
+    }
+}
