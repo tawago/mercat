@@ -20,44 +20,12 @@ const Group = struct {
     hi: i32,
     labeled: bool = false,
     decorated_source: bool = false,
+    two_headed: bool = false,
     edges: std.ArrayListUnmanaged(sg.EdgeId) = .empty,
     stems: std.ArrayListUnmanaged(i32) = .empty,
     taps: std.ArrayListUnmanaged(i32) = .empty,
     label_widths: std.ArrayListUnmanaged(u32) = .empty,
 };
-
-pub const Detour = struct {
-    gap: u32,
-    hi: i32,
-    depth: u32,
-    edges: std.ArrayListUnmanaged(sg.EdgeId) = .empty,
-};
-
-fn noteDetour(a: std.mem.Allocator, detours: *std.ArrayListUnmanaged(Detour), gap: u32, hi: i32, depth: u32, edge: sg.EdgeId) error{OutOfMemory}!void {
-    const d: *Detour = for (detours.items) |*existing| {
-        if (existing.gap == gap) break existing;
-    } else blk: {
-        try detours.append(a, .{ .gap = gap, .hi = hi, .depth = depth });
-        break :blk &detours.items[detours.items.len - 1];
-    };
-    d.hi = @max(d.hi, hi);
-    d.depth = @max(d.depth, depth);
-    try d.edges.append(a, edge);
-}
-
-pub fn detourClaims(a: std.mem.Allocator, c: Census, detours: []Detour, claims: *std.ArrayListUnmanaged(Claim)) error{OutOfMemory}!void {
-    var min_x: i32 = std.math.maxInt(i32);
-    for (c.lg.nodes, 0..) |ln, i| if (ln == .real) {
-        min_x = @min(min_x, c.geom[i].x);
-    };
-    for (detours) |*d| {
-        const edges = try d.edges.toOwnedSlice(a);
-        const depth: i32 = @intCast(d.depth);
-        const lo = min_x - depth;
-        try claims.append(a, .{ .gap = d.gap, .lo = lo, .hi = d.hi, .height = d.depth - 1, .kind = .detour_target, .end = .exit, .edges = edges, .pin = -1 });
-        try claims.append(a, .{ .gap = d.gap, .lo = lo, .hi = d.hi, .height = d.depth, .kind = .detour_source, .end = .entry, .edges = edges });
-    }
-}
 
 pub fn drawnByEligible(fans: []const fan_mod.Fan, eligible: []const bool, edge: sg.EdgeId, direction: fan_mod.Direction, discharged: []const pb.EdgeId) bool {
     for (fans, eligible) |f, ok| {
@@ -75,7 +43,6 @@ pub fn fanClaims(
     bundles: pb.RealizedBundles,
     claims: *std.ArrayListUnmanaged(Claim),
     per_peer: *std.AutoHashMapUnmanaged(sg.EdgeId, void),
-    detours: *std.ArrayListUnmanaged(Detour),
 ) error{OutOfMemory}!void {
     for (fans, eligible, 0..) |f, ok, fi| {
         if (f.source_layer >= c.ngaps) continue;
@@ -100,10 +67,6 @@ pub fn fanClaims(
             const pivot_end: pb.EndpointSide = if (f.direction == .out) .source_exit else .target_entry;
             const stem = c.portCol(e, pivot_end);
             const tap = tap_col;
-            if (!by_rail and e.label == null) if (c.plan.forEdge(e.id)) |ep| if (ep.source_duplicate or ep.target_duplicate) {
-                try noteDetour(a, detours, f.source_layer, @max(stem, tap), @max(ep.source_ordinal, ep.target_ordinal) + 2, e.id);
-                continue;
-            };
             const far_end = if (f.direction == .out) p.peer_idx else f.pivot_idx;
             const gap = if (by_rail) f.source_layer else c.gapAbove(far_end) orelse continue;
             var run_lo = stem;
@@ -134,6 +97,7 @@ pub fn fanClaims(
             g.hi = @max(g.hi, @max(run_lo, tap));
             if (p.label_width != 0) g.labeled = true;
             if (e.arrow_from != .none) g.decorated_source = true;
+            if (e.arrow_from != .none and e.arrow_to != .none) g.two_headed = true;
             if (!p.long) try g.edges.append(a, e.id);
             try g.stems.append(a, run_lo);
             try g.taps.append(a, tap);
@@ -151,7 +115,14 @@ pub fn fanClaims(
             .taps = try d.taps.toOwnedSlice(a),
         });
         for (groups.items) |*g| {
-            if (g.lo == g.hi and !g.labeled) continue;
+            if (g.lo == g.hi and !g.labeled) {
+                if (g.two_headed) {
+                    var shaft = try edgeClaim(a, g.gap, g.lo, g.hi, .run, .exit, false, false, g.edges.items[0]);
+                    shaft.height = 1;
+                    try claims.append(a, shaft);
+                }
+                continue;
+            }
             const keys = try a.alloc(FanKey, 1);
             keys[0] = .{ .pivot_idx = f.pivot_idx, .direction = f.direction };
             const base: u32 = if (!g.labeled or g.comb) 1 else if (f.direction == .in) 1 + fan_mod.LABEL_RUN_EXTRA_ROWS else fan_mod.LABEL_RUN_EXTRA_ROWS + @intFromBool(labelsCollide(g.taps.items, g.label_widths.items));

@@ -330,6 +330,35 @@ test "a labelled edge claims the rows its label needs on its own run: run, label
     }
 }
 
+test "a straight unlabelled edge with a head at each end claims one shaft row between its heads" {
+    const a = testing.allocator;
+    var nodes = [_]sugiyama.LayerNode{ .{ .real = 0 }, .{ .real = 1 } };
+    var row0 = [_]u32{0};
+    var row1 = [_]u32{1};
+    var layers = [_][]u32{ &row0, &row1 };
+    var edges = [_]sugiyama.LayerEdge{.{ .from = 0, .to = 1, .reversed = false, .edge = 0 }};
+    var reversed = [_]sg.EdgeId{};
+    const lg = flt.mkLg(&nodes, &layers, &edges, &reversed);
+    var arena = std.heap.ArenaAllocator.init(a);
+    defer arena.deinit();
+    const aa = arena.allocator();
+    const aligned = [_]Geom{ .{ .x = 0, .w = 10 }, .{ .x = 0, .w = 10 } };
+    const cases = [_]struct { from: sg.ArrowEnd, to: sg.ArrowEnd, gap: u32 }{
+        .{ .from = .none, .to = .filled, .gap = 2 },
+        .{ .from = .filled, .to = .filled, .gap = 3 },
+        .{ .from = .circle, .to = .circle, .gap = 3 },
+    };
+    for (cases) |c| {
+        const graph = try flt.mkGraph(aa, &edges);
+        const e = &@constCast(graph.edges)[0];
+        e.arrow_from = c.from;
+        e.arrow_to = c.to;
+        const bases = [_]u32{2};
+        const ledger = try flt.buildPiece(aa, graph, lg, &aligned, &.{}, .{}, .{}, &bases, &.{}, &.{});
+        try testing.expectEqual(c.gap, 2 + ledger.extraRows(0));
+    }
+}
+
 test "a labeled fan claims its rail row and one label band however many members carry labels; an unlabeled fan claims one row" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
@@ -363,7 +392,7 @@ test "a labeled fan claims its rail row and one label band however many members 
     }
 }
 
-test "two unlabeled duplicate arrows claim the detour bands and the gap reaches twice the deeper detour's depth" {
+test "two unlabeled duplicate arrows claim one fan row and no detour band" {
     const a = testing.allocator;
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
@@ -386,32 +415,15 @@ test "two unlabeled duplicate arrows claim the detour bands and the gap reaches 
     };
     const fans = [_]fan.Fan{.{ .direction = .out, .pivot_idx = 0, .source_layer = 0, .peers = &peers }};
     const plan_edges = [_]port_plan.EdgePorts{
-        .{ .edge = 0, .source = port(0, .south, 1), .target = port(1, .north, 1), .source_ordinal = 0, .target_ordinal = 0, .source_duplicate = true, .target_duplicate = true },
-        .{ .edge = 1, .source = port(0, .south, 3), .target = port(1, .north, 3), .source_ordinal = 1, .target_ordinal = 1, .source_duplicate = true, .target_duplicate = true },
+        .{ .edge = 0, .source = port(0, .south, 1), .target = port(1, .north, 1), .source_ordinal = 0, .target_ordinal = 0 },
+        .{ .edge = 1, .source = port(0, .south, 3), .target = port(1, .north, 3), .source_ordinal = 1, .target_ordinal = 1 },
     };
     const plan: port_plan.Plan = .{ .edges = &plan_edges };
     const bases = [_]u32{2};
     const ledger = try flt.buildPiece(aa, graph, lg, &geom, &fans, .{}, plan, &bases, &.{}, &.{});
 
-    try testing.expectEqual(@as(usize, 2), ledger.claims.len);
-    try testing.expectEqual(@as(u32, 4), ledger.gaps[0].rows_used);
-    try testing.expectEqual(@as(u32, 4), ledger.extraRows(0));
-    for (ledger.claims) |c| {
-        try testing.expectEqual(@as(i32, 0), c.lo);
-        try testing.expectEqual(@as(i32, 6), c.hi);
-        switch (c.kind) {
-            .detour_target => {
-                try testing.expectEqual(@as(i32, -1), c.row);
-                try testing.expectEqual(@as(u32, 2), c.height);
-            },
-            .detour_source => {
-                try testing.expectEqual(@as(i32, 1), c.row);
-                try testing.expectEqual(@as(u32, 3), c.height);
-            },
-            else => return error.TestUnexpectedResult,
-        }
-    }
-    try testing.expectEqual(@as(?i32, null), ledger.rowOfFan(0, .out));
+    try testing.expectEqual(@as(usize, 1), ledger.claims.len);
+    try testing.expectEqual(@as(u32, 1), ledger.gaps[0].rows_used);
 }
 
 test "a discharged edge claims no gap row" {

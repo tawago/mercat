@@ -1,6 +1,5 @@
 const std = @import("std");
 const pb = @import("../base/ledger.zig");
-const tie_break = @import("../base/tie_break.zig");
 const sg = @import("../sem_graph.zig");
 const sk = @import("../sketch.zig");
 const sugiyama = @import("sugiyama.zig");
@@ -13,9 +12,7 @@ pub const EdgePorts = struct {
     target: sk.Port,
     source_ordinal: u32,
     target_ordinal: u32,
-    source_duplicate: bool = false,
     source_decorated: bool = false,
-    target_duplicate: bool = false,
     target_decorated: bool = false,
 };
 
@@ -125,9 +122,7 @@ pub fn allocate(
             .target = target.port,
             .source_ordinal = source.ordinal,
             .target_ordinal = target.ordinal,
-            .source_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.from, edge, .source_exit),
             .source_decorated = edge.arrow_from != .none,
-            .target_duplicate = hasDuplicatePrivateClaim(resolved, bundles, edge.to, edge, .target_entry),
             .target_decorated = edge.arrow_to != .none,
         };
     }
@@ -158,48 +153,6 @@ fn allocateCollidingClaims(a: std.mem.Allocator, node: pb.NodeId, side: sk.Dir4,
 
 fn portCapacityInvariant(node: pb.NodeId, side: sk.Dir4, side_len: u32, demand: usize) noreturn {
     std.debug.panic("port demand was not applied before allocation: node={d} side={s} len={d} demand={d}", .{ node, @tagName(side), side_len, demand });
-}
-
-pub fn duplicateDetour(a: std.mem.Allocator, direction: sg.Direction, from: sk.NodePlacement, to: sk.NodePlacement, owner: EdgePorts, placements: []const sk.NodePlacement) error{OutOfMemory}![]sk.Point {
-    const start = portPoint(from, owner.source);
-    const end = portPoint(to, owner.target);
-    const depth: i32 = @intCast(@max(owner.source_ordinal, owner.target_ordinal) + 2);
-    var min_x = @min(start.x, end.x);
-    var min_y = @min(start.y, end.y);
-    for (placements) |placement| {
-        min_x = @min(min_x, placement.rect.x);
-        min_y = @min(min_y, placement.rect.y);
-    }
-    const source_base = outward(start, owner.source.side, depth);
-    const target_base = outward(end, owner.target.side, depth);
-    const out = try a.alloc(sk.Point, 6);
-    if (direction == .TD or direction == .BT) {
-        const outside_x = min_x - depth;
-        @memcpy(out, &[_]sk.Point{ start, source_base, .{ .x = outside_x, .y = source_base.y }, .{ .x = outside_x, .y = target_base.y }, target_base, end });
-    } else {
-        const outside_y = min_y - depth;
-        @memcpy(out, &[_]sk.Point{ start, source_base, .{ .x = source_base.x, .y = outside_y }, .{ .x = target_base.x, .y = outside_y }, target_base, end });
-    }
-    return out;
-}
-
-fn outward(point: sk.Point, side: sk.Dir4, distance: i32) sk.Point {
-    return switch (side) {
-        .north => .{ .x = point.x, .y = point.y - distance },
-        .south => .{ .x = point.x, .y = point.y + distance },
-        .west => .{ .x = point.x - distance, .y = point.y },
-        .east => .{ .x = point.x + distance, .y = point.y },
-    };
-}
-
-fn portPoint(placement: sk.NodePlacement, port: sk.Port) sk.Point {
-    const offset: i32 = @intCast(port.offset);
-    return switch (port.side) {
-        .north => .{ .x = placement.rect.x + offset, .y = placement.rect.y },
-        .south => .{ .x = placement.rect.x + offset, .y = placement.rect.bottom() - 1 },
-        .west => .{ .x = placement.rect.x, .y = placement.rect.y + offset },
-        .east => .{ .x = placement.rect.right() - 1, .y = placement.rect.y + offset },
-    };
 }
 
 const ResolvedPort = struct { port: sk.Port, ordinal: u32 };
@@ -244,20 +197,6 @@ fn hasDemandedClaim(derived: []const ports.DerivedAttachment, bundles: pb.Realiz
             if (item.attachment.class == .rail_pivot and item.attachment.group == group) return true;
         } else if ((item.attachment.class == .independent and item.attachment.edge == edge.id) or
             (item.attachment.class == .rail_pivot and pb.containsEdge(item.attachment.members, edge.id))) return true;
-    }
-    return false;
-}
-
-fn hasDuplicatePrivateClaim(derived: []const ports.DerivedAttachment, bundles: pb.RealizedBundles, node: pb.NodeId, edge: sg.Edge, endpoint: pb.EndpointSide) bool {
-    if (selectedGroup(bundles, edge.id, endpoint) != null) return false;
-    for (derived) |owner| {
-        if (owner.node != node or owner.attachment.key.endpoint_side != endpoint or
-            owner.attachment.class != .independent or owner.attachment.edge != edge.id) continue;
-        for (derived) |other| {
-            if (other.node == node and other.side == owner.side and other.attachment.class == .independent and
-                other.attachment.edge != edge.id and tie_break.attachmentKeyOrder(other.attachment.key, owner.attachment.key) == .eq) return true;
-        }
-        return false;
     }
     return false;
 }

@@ -200,10 +200,7 @@ pub fn buildEdgesWithPlan(
                 const straight = rp.Straight.forEdge(orig);
                 while (true) {
                     const lane = ladder.lane;
-                    poly = if (lane == planned and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
-                        try port_plan.duplicateDetour(a, graph.direction, src_p, dst_p, ep, placements)
-                    else
-                        try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, dodge_y, placements, straight);
+                    poly = try fan_polyline.buildPolylineAt(a, graph.direction, routed_fan, pivot_p, peer_p, ep.source, ep.target, routed_role, lane, dodge_y, placements, straight);
                     if (proxy or try accepts(a, orig, poly, straight, out.items, bar_views, placements, allocated_ports.edges, bundles)) break;
                     if (ladder.next()) continue;
                     poly = if (orig.kind == .invisible)
@@ -312,10 +309,7 @@ pub fn buildEdgesWithPlan(
         var poly: []sketch.Point = undefined;
         while (true) {
             const lane = ladder.lane;
-            poly = if (lane == lanes.exit and orig.label == null and (ep.source_duplicate or ep.target_duplicate))
-                try port_plan.duplicateDetour(a, eff_dir, eff_from_p, eff_to_p, ep, placements)
-            else
-                try rp.routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, .{ .entry = lanes.entry, .exit = lane }, straight);
+            poly = try rp.routePolyline(a, eff_dir, eff_from_p, eff_to_p, eff_port_from, eff_port_to, virtuals, geom, placements, 0, 0, .{ .entry = lanes.entry, .exit = lane }, straight);
             if (proxy) break;
             if (try route_clearance.conflictsRailArrows(a, poly, bar_views, orig.from, orig.to))
                 poly = try route_detour.shiftInteriorRun(a, poly, eff_dir, 2 * ((lane -| lanes.exit) + 1));
