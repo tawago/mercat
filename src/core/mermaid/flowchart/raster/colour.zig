@@ -48,6 +48,19 @@ pub fn ofRail(lat: *const lattice.Lattice, s: sketch.Sketch, rail: sketch.Rail) 
     return c;
 }
 
+/// The colour of one crossbar cell: the merge of the taps whose arm runs through it, the
+/// junction and any cell no arm reaches taking the whole rail's.
+pub fn ofCrossbarCell(lat: *const lattice.Lattice, s: sketch.Sketch, rail: sketch.Rail, x: i32) u8 {
+    const jx = rail.stem[rail.stem.len - 1].x;
+    var c: ?u8 = null;
+    for (rail.taps) |t| {
+        if (x < @min(jx, t.at.x) or x > @max(jx, t.at.x)) continue;
+        const own = ofOrigin(lat, s, t.origin);
+        c = if (c) |have| merge(have, own) else own;
+    }
+    return c orelse ofRail(lat, s, rail);
+}
+
 /// Two owners of one cell: an uncoloured owner is a colour of its own.
 pub fn merge(a: u8, b: u8) u8 {
     return if (a == b) a else 0;

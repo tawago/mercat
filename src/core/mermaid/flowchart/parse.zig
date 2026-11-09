@@ -181,10 +181,10 @@ const Parser = struct {
         for (p.names.items) |name| try p.styles.styleNode(p.b.a, name, stroke);
     }
 
-    /// `linkStyle 0,2 props` or `linkStyle default props`.
+    /// `linkStyle 0,2 [interpolate curve] props` or `linkStyle default props`.
     fn linkStyle(p: *Parser) ParseError!void {
         try p.takeNames();
-        const stroke = style.strokeOf(p.restOfLine());
+        const stroke = style.strokeOf(style.linkProps(p.restOfLine()));
         for (p.names.items) |name| {
             const target: style.LinkTarget = if (std.mem.eql(u8, name, "default"))
                 .default

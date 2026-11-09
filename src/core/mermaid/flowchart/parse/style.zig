@@ -38,6 +38,18 @@ fn hex(value: []const u8) ?Rgb {
     return .{ .r = r, .g = g, .b = b };
 }
 
+/// A `linkStyle` text without its leading `interpolate <curve>`.
+pub fn linkProps(text: []const u8) []const u8 {
+    const rest = std.mem.trimStart(u8, text, " \t");
+    const word = "interpolate";
+    if (!std.mem.startsWith(u8, rest, word)) return text;
+    const after = rest[word.len..];
+    if (after.len == 0 or (after[0] != ' ' and after[0] != '\t')) return text;
+    const curve = std.mem.trimStart(u8, after, " \t");
+    const end = std.mem.indexOfAny(u8, curve, " \t") orelse curve.len;
+    return curve[end..];
+}
+
 pub const LinkTarget = union(enum) { default, index: u32 };
 
 const Attach = struct { node: []const u8, class: []const u8 };
@@ -51,7 +63,8 @@ pub const Styles = struct {
     links: std.ArrayList(LinkStroke) = .empty,
 
     pub fn defineClass(s: *Styles, a: std.mem.Allocator, name: []const u8, stroke: ?Rgb) error{OutOfMemory}!void {
-        try s.classes.put(a, name, stroke);
+        const kept = if (s.classes.get(name)) |old| old else null;
+        try s.classes.put(a, name, stroke orelse kept);
     }
 
     pub fn attach(s: *Styles, a: std.mem.Allocator, node: []const u8, class: []const u8) error{OutOfMemory}!void {

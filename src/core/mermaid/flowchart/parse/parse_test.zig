@@ -500,3 +500,17 @@ test "a repeated subgraph id is the endpoint of the latest subgraph" {
     try t.expectEqual(@as(usize, 1), g.edges.len);
     try t.expectEqual(findNode(g, "b").?, g.edges[0].from);
 }
+
+test "a classDef redefinition adds to the class: a later line with no stroke keeps the earlier one" {
+    var g = try parse(t.allocator, "flowchart LR\nclassDef red stroke:#f00\nclassDef red fill:#0f0\nclassDef blue stroke:#00f\nclassDef blue stroke:#0f0\nA:::red --> B:::blue\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0xff, 0, 0), outline(g, "A"));
+    try t.expectEqual(rgb(0, 0xff, 0), outline(g, "B"));
+}
+
+test "linkStyle reads the stroke past an interpolate curve" {
+    var g = try parse(t.allocator, "flowchart LR\nA --> B --> C\nlinkStyle 0 interpolate basis stroke:#f00\nlinkStyle default interpolate linear\n");
+    defer g.deinit(t.allocator);
+    try t.expectEqual(rgb(0xff, 0, 0), g.edge_colours[0]);
+    try t.expectEqual(@as(?Rgb, null), g.edge_colours[1]);
+}

@@ -127,7 +127,7 @@ test "colour changes no occupant, neighbour, stroke or shape" {
     }
 }
 
-test "a rail wears its taps' colour only when they agree; droppers keep their own" {
+test "a rail's shared cells wear its taps' colour only when they agree; arms and droppers keep their own" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -149,12 +149,22 @@ test "a rail wears its taps' colour only when they agree; droppers keep their ow
 
     s.edge_colours = &.{ red, blue, red };
     const mixed = (try raster.rasterize(a, s, .bridge)).lattice;
-    try testing.expectEqual(@as(?Rgb, null), wears(mixed, 5, 5));
+    try testing.expectEqual(@as(?Rgb, null), wears(mixed, 12, 5));
     try testing.expectEqual(@as(?Rgb, null), wears(mixed, 12, 4));
     try testing.expectEqual(@as(?Rgb, null), wears(mixed, 12, 3));
-    try testing.expectEqual(@as(?Rgb, null), wears(mixed, 2, 5));
+    try testing.expectEqual(@as(?Rgb, red), wears(mixed, 5, 5));
+    try testing.expectEqual(@as(?Rgb, red), wears(mixed, 2, 5));
+    try testing.expectEqual(@as(?Rgb, red), wears(mixed, 17, 5));
+    try testing.expectEqual(@as(?Rgb, red), wears(mixed, 22, 5));
     try testing.expectEqual(@as(?Rgb, red), wears(mixed, 2, 6));
     try testing.expectEqual(@as(?Rgb, blue), wears(mixed, 12, 6));
+
+    s.edge_colours = &.{ red, null, null };
+    const lone = (try raster.rasterize(a, s, .bridge)).lattice;
+    try testing.expectEqual(@as(?Rgb, red), wears(lone, 2, 5));
+    try testing.expectEqual(@as(?Rgb, red), wears(lone, 7, 5));
+    try testing.expectEqual(@as(?Rgb, null), wears(lone, 12, 5));
+    try testing.expectEqual(@as(?Rgb, null), wears(lone, 17, 5));
 }
 
 test "a label keeps a node interior's colour and clears any other" {

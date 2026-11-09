@@ -40,7 +40,7 @@ const RailDraw = struct {
         const y = self.rail.crossbar[0].y;
         var x = x0;
         while (x <= x1) : (x += 1) {
-            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 }, self.colour);
+            self.claim(.{ .x = x, .y = y }, self.edge, self.crossbar_role, .{ .e = x < x1, .w = x > x0 }, colour_mod.ofCrossbarCell(self.lat, self.s, self.rail, x));
         }
     }
 
@@ -84,7 +84,7 @@ const RailDraw = struct {
             }
         }
         const dir = geo.segmentDir(t.at, t.landing) orelse return;
-        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir), self.colour);
+        self.claim(t.at, t.edge, self.crossbar_role, geo.bitMask(dir), colour_mod.ofCrossbarCell(self.lat, self.s, self.rail, t.at.x));
         var cursor = geo.step(t.at, dir);
         while (!geo.samePoint(cursor, t.landing)) : (cursor = geo.step(cursor, dir)) {
             self.claim(cursor, t.edge, self.dropper_role, geo.straightMask(dir), colour);

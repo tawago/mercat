@@ -25,3 +25,10 @@ test "a malformed or named colour gives none" {
         try t.expectEqual(@as(?Rgb, null), style.strokeOf(text));
     }
 }
+
+test "linkProps drops a leading interpolate curve and nothing else" {
+    try t.expectEqualStrings(" stroke:#f00", style.linkProps(" interpolate basis stroke:#f00"));
+    try t.expectEqualStrings("", style.linkProps(" interpolate linear"));
+    try t.expectEqualStrings(" interpolated:#f00", style.linkProps(" interpolated:#f00"));
+    try t.expectEqualStrings(" stroke:#f00", style.linkProps(" stroke:#f00"));
+}
