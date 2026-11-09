@@ -159,3 +159,41 @@ test "a self-loop takes the side its node's back edges leave free" {
     const top = rows.next().?;
     try std.testing.expect(std.mem.indexOf(u8, top, "┌") != null);
 }
+
+fn colourLines(arena: std.mem.Allocator, seed: u64) ![]const u8 {
+    var prng = std.Random.DefaultPrng.init(seed ^ 0xc0105);
+    const rng = prng.random();
+    var out: std.ArrayList(u8) = .empty;
+    const ids = gen.default_ids;
+    for (0..rng.intRangeAtMost(usize, 1, 6)) |_| {
+        const hex = rng.int(u24);
+        switch (rng.uintLessThan(u8, 4)) {
+            0 => try out.print(arena, "classDef default stroke:#{x:0>6},stroke-width:2px\n", .{hex}),
+            1 => try out.print(arena, "style {s} stroke:#{x:0>6}\n", .{ ids[rng.uintLessThan(usize, ids.len)], hex }),
+            2 => try out.print(arena, "linkStyle {d} stroke:#{x:0>6}\n", .{ rng.uintLessThan(u8, 12), hex }),
+            else => try out.print(arena, "linkStyle default stroke:#{x:0>6};\n", .{hex}),
+        }
+    }
+    return out.items;
+}
+
+test "colour directives never change the drawing, and colour renders deterministically" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    std.testing.log_level = .err;
+    for (0..seeds / 2) |s| {
+        _ = arena_state.reset(.retain_capacity);
+        const arena = arena_state.allocator();
+        const source = try gen.flowchart(arena, s, .{ .labelled = s % 2 == 0 });
+        const coloured = try std.mem.concat(arena, u8, &.{ source, try colourLines(arena, s) });
+        for ([_]u32{ 100, 48 }) |w| {
+            const first = try flowchart.render(arena, coloured, .{ .max_width = w });
+            const plain = try flowchart.render(arena, source, .{ .max_width = w });
+            try std.testing.expectEqual(plain.is_fallback, first.is_fallback);
+            if (first.is_fallback) continue;
+            const again = try flowchart.render(arena, coloured, .{ .max_width = w });
+            try std.testing.expectEqualStrings(plain.output, first.output);
+            try std.testing.expectEqualDeep(first.runs, again.runs);
+        }
+    }
+}

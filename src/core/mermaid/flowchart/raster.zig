@@ -10,6 +10,7 @@ const labels_r = @import("raster/labels.zig");
 const reconcile = @import("raster/reconcile.zig");
 const crossings_r = @import("raster/crossings.zig");
 const arrow_base_r = @import("raster/arrow_base.zig");
+const colour_r = @import("raster/colour.zig");
 
 pub const RasterizeError = error{
     OutOfMemory,
@@ -46,10 +47,13 @@ pub fn rasterize(
     };
     for (cells) |*c| c.* = lattice.Cell.empty;
 
+    const pal = try colour_r.palette(allocator, s);
     var lat: lattice.Lattice = .{
         .width = w,
         .height = h,
         .cells = cells,
+        .palette = pal,
+        .edge_colours = try colour_r.edgeColours(allocator, pal, s),
     };
 
     _ = try clusters_r.rasterizeClusters(allocator, &lat, s);

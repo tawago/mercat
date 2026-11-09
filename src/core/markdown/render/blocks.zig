@@ -310,7 +310,7 @@ pub fn renderBlockQuote(allocator: std.mem.Allocator, builder: *Builder, bq: Blo
                     text = text[strip..];
                     if (text.len == 0) continue;
                 }
-                try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null });
+                try new_spans.append(allocator, .{ .style = span.style, .text = try allocator.dupe(u8, text), .url = if (span.url) |url| try allocator.dupe(u8, url) else null, .fg = span.fg });
             }
 
             for (line.spans) |span| {

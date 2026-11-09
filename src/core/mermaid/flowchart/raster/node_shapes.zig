@@ -80,10 +80,12 @@ fn writeInnerWall(
     const cell = lat.at(x, y);
     switch (cell.occupant) {
         .node_interior => |id| if (id == node) {
+            const colour = cell.colour;
             cell.* = .{
                 .occupant = .{ .node_border = .{ .node = node, .role = role } },
                 .neighbours = .{ .n = true, .s = true },
                 .shape = .subroutine,
+                .colour = colour,
             };
         },
         else => {},

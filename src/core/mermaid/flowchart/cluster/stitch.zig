@@ -288,6 +288,7 @@ const Stitcher = struct {
             .edges = edge_slice,
             .rails = bar_slice,
             .sharing = sharing,
+            .edge_colours = self.outer.edge_colours,
             .diagnostics = self.outer.diagnostics,
             .budget = self.outer.budget,
         };

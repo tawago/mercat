@@ -72,6 +72,7 @@ pub fn vertical(a: std.mem.Allocator, s: sketch.Sketch, direction: sketch.Direct
         .edges = edges,
         .rails = rails,
         .sharing = .{ .realized = s.sharing.realized, .bundles = bundles, .claims = claims },
+        .edge_colours = s.edge_colours,
         .diagnostics = s.diagnostics,
         .budget = s.budget,
     };

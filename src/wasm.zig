@@ -33,8 +33,8 @@ export fn render(ptr: [*]const u8, len: usize, width: u32) u32 {
     log_len = 0;
     out = "";
     switch (mermaid.render(arena.allocator(), ptr[0..len], .{ .max_width = width })) {
-        .drawn => |text| {
-            out = text;
+        .drawn => |drawn| {
+            out = drawn.text;
             return 1;
         },
         .not_drawn => |failure| {

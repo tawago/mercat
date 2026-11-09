@@ -87,7 +87,7 @@ pub fn parseMermaid(allocator: std.mem.Allocator, source: []const u8) !Document 
     errdefer allocator.free(code);
 
     const blocks = try allocator.alloc(Block, 1);
-    blocks[0] = .{ .fenced_code = .{ .language = language, .code = code } };
+    blocks[0] = .{ .fenced_code = .{ .language = language, .code = code, .standalone = true } };
     return .{ .blocks = blocks };
 }
 

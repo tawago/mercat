@@ -38,6 +38,7 @@ pub const Node = struct {
     shape: NodeShape,
     classes: []const ClassId,
     cluster: ?ClusterId,
+    outline: ?prim.Rgb = null,
 };
 
 pub const Edge = struct {
@@ -111,6 +112,8 @@ pub const SemGraph = struct {
     edges: []const Edge,
     clusters: []const Cluster,
     classes: []const ClassDef,
+    /// Indexed by declared edge id; empty when no edge is coloured.
+    edge_colours: []const ?prim.Rgb = &.{},
     skipped_lines: u32 = 0,
     arena: ?*std.heap.ArenaAllocator,
 

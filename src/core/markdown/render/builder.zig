@@ -4,6 +4,7 @@ const line_mod = @import("line.zig");
 const Line = line_mod.Line;
 const Span = line_mod.Span;
 const SpanStyle = line_mod.SpanStyle;
+const Rgb = @import("../../theme/color.zig").Rgb;
 
 pub const Builder = struct {
     allocator: std.mem.Allocator,
@@ -12,6 +13,7 @@ pub const Builder = struct {
     tail: std.ArrayList(u8),
     tail_style: SpanStyle = .body,
     tail_url: ?[]const u8 = null,
+    tail_fg: ?Rgb = null,
     tail_open: bool = false,
     left_padding: usize = 0,
 
@@ -44,7 +46,7 @@ pub const Builder = struct {
         if (!self.tail_open) return;
         const text = try self.allocator.dupe(u8, self.tail.items);
         errdefer self.allocator.free(text);
-        try self.current.append(self.allocator, .{ .text = text, .style = self.tail_style, .url = self.tail_url });
+        try self.current.append(self.allocator, .{ .text = text, .style = self.tail_style, .url = self.tail_url, .fg = self.tail_fg });
         self.tail_url = null;
         self.tail_open = false;
         self.tail.clearRetainingCapacity();
@@ -70,17 +72,26 @@ pub const Builder = struct {
     }
 
     pub fn appendSpanWithUrl(self: *Builder, style: SpanStyle, text: []const u8, url: ?[]const u8) !void {
+        try self.appendStyled(style, text, url, null);
+    }
+
+    pub fn appendSpanFg(self: *Builder, style: SpanStyle, text: []const u8, fg: ?Rgb) !void {
+        try self.appendStyled(style, text, null, fg);
+    }
+
+    fn appendStyled(self: *Builder, style: SpanStyle, text: []const u8, url: ?[]const u8, fg: ?Rgb) !void {
         if (text.len == 0) return;
         if (!self.hasPending() and self.left_padding != 0) {
             try self.tail.appendNTimes(self.allocator, ' ', self.left_padding);
             self.tail_style = .body;
             self.tail_url = null;
+            self.tail_fg = null;
             self.tail_open = true;
         }
         if (self.tail_open) {
             const urls_match = (self.tail_url == null and url == null) or
                 (self.tail_url != null and url != null and std.mem.eql(u8, self.tail_url.?, url.?));
-            if (self.tail_style == style and urls_match) {
+            if (self.tail_style == style and urls_match and std.meta.eql(self.tail_fg, fg)) {
                 try self.tail.appendSlice(self.allocator, text);
                 return;
             }
@@ -91,6 +102,7 @@ pub const Builder = struct {
         try self.tail.appendSlice(self.allocator, text);
         self.tail_style = style;
         self.tail_url = duped_url;
+        self.tail_fg = fg;
         self.tail_open = true;
     }
 

@@ -86,3 +86,67 @@ test "a diagram too wide for the width shows its source with no banner" {
     defer allocator.free(out);
     try testing.expect(std.mem.startsWith(u8, out, "```mermaid\n sequenceDiagram "));
 }
+
+test "a coloured flowchart fence gives spans with a foreground, and the text stays the diagram's" {
+    const allocator = testing.allocator;
+    const plain_src = "flowchart TD\nA --> B\n";
+    const coloured_src = "flowchart TD\nA:::k --> B\nclassDef k stroke:#f00\nlinkStyle 0 stroke:#00f\n";
+    const plain = try renderBlockText(allocator, "mermaid", plain_src, 80, false);
+    defer allocator.free(plain);
+    const coloured = try renderBlockText(allocator, "mermaid", coloured_src, 80, false);
+    defer allocator.free(coloured);
+    try testing.expectEqualStrings(plain, coloured);
+
+    const block = Block.CodeBlock{ .language = "mermaid", .code = coloured_src };
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try code.render(allocator, &builder, block, 80, false, .bridge, &decor_mod.Decor{});
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+    var red = false;
+    var blue = false;
+    for (lines) |line| for (line.spans) |span| {
+        const fg = span.fg orelse continue;
+        if (fg.r == 0xff and fg.g == 0 and fg.b == 0) red = true;
+        if (fg.r == 0 and fg.g == 0 and fg.b == 0xff) blue = true;
+    };
+    try testing.expect(red and blue);
+}
+
+test "adjacent spans of one style but different foregrounds stay apart" {
+    const allocator = testing.allocator;
+    var builder = Builder.init(allocator);
+    defer builder.deinit();
+    try builder.appendSpanFg(.code, "a", .{ .r = 1, .g = 2, .b = 3 });
+    try builder.appendSpanFg(.code, "b", .{ .r = 1, .g = 2, .b = 3 });
+    try builder.appendSpanFg(.code, "c", .{ .r = 9, .g = 9, .b = 9 });
+    try builder.appendSpan(.code, "d");
+    const lines = try builder.finish();
+    defer {
+        for (lines) |line| line.deinit(allocator);
+        allocator.free(lines);
+    }
+    try testing.expectEqual(@as(usize, 3), lines[0].spans.len);
+    try testing.expectEqualStrings("ab", lines[0].spans[0].text);
+    try testing.expectEqual(@as(?u8, null), if (lines[0].spans[2].fg) |c| c.r else null);
+}
+
+test "a standalone diagram draws in body ink, a fence in code ink" {
+    const allocator = testing.allocator;
+    for ([_]bool{ false, true }) |standalone| {
+        const block = Block.CodeBlock{ .language = "mermaid", .code = "flowchart TD\nA --> B\n", .standalone = standalone };
+        var builder = Builder.init(allocator);
+        defer builder.deinit();
+        try code.render(allocator, &builder, block, 80, false, .bridge, &decor_mod.Decor{});
+        const lines = try builder.finish();
+        defer {
+            for (lines) |line| line.deinit(allocator);
+            allocator.free(lines);
+        }
+        const want: @TypeOf(lines[0].spans[0].style) = if (standalone) .body else .code;
+        for (lines) |line| for (line.spans) |span| try testing.expectEqual(want, span.style);
+    }
+}

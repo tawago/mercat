@@ -10,17 +10,36 @@ comptime {
 }
 
 pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32) ![]u8 {
+    const painted = try paintColoured(allocator, lat, max_width);
+    allocator.free(painted.runs);
+    return painted.text;
+}
+
+pub const Painted = struct {
+    text: []u8,
+    /// Maximal same-colour byte ranges of `text`; empty when the lattice has no palette.
+    runs: []prim.ColourRun,
+};
+
+const CellBytes = struct { start: usize, end: usize, colour: u8 };
+
+pub fn paintColoured(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32) !Painted {
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(allocator);
+    var runs: std.ArrayList(prim.ColourRun) = .empty;
+    defer runs.deinit(allocator);
 
-    if (lat.width == 0 or lat.height == 0) return out.toOwnedSlice(allocator);
+    if (lat.width == 0 or lat.height == 0) return .{ .text = try out.toOwnedSlice(allocator), .runs = try runs.toOwnedSlice(allocator) };
 
     var row: std.ArrayList(u8) = .empty;
     defer row.deinit(allocator);
+    var starts: std.ArrayList(CellBytes) = .empty;
+    defer starts.deinit(allocator);
 
     var y: u32 = 0;
     while (y < lat.height) : (y += 1) {
         row.clearRetainingCapacity();
+        starts.clearRetainingCapacity();
 
         var col: u32 = 0;
         var cut_real_content = false;
@@ -37,19 +56,55 @@ pub fn paint(allocator: std.mem.Allocator, lat: lattice.Lattice, max_width: u32)
             }
             if (row.items.len != before) last_glyph_start = before;
             col += w;
+            if (cell.colour != 0 and paintsInk(cell)) try starts.append(allocator, .{ .start = before, .end = row.items.len, .colour = cell.colour });
         }
 
+        var glyph_end = row.items.len;
         if (cut_real_content) {
             if (col >= max_width) row.items.len = last_glyph_start;
+            glyph_end = row.items.len;
             try appendCp(allocator, &row, OVERFLOW_MARKER);
         }
 
         const trimmed = trimTrailingSpaces(row.items);
+        const base = out.items.len;
         try out.appendSlice(allocator, trimmed);
         try out.append(allocator, '\n');
+        try appendRuns(allocator, &runs, lat, starts.items, @min(glyph_end, trimmed.len), base);
     }
 
-    return out.toOwnedSlice(allocator);
+    return .{ .text = try out.toOwnedSlice(allocator), .runs = try runs.toOwnedSlice(allocator) };
+}
+
+fn paintsInk(cell: lattice.Cell) bool {
+    return switch (cell.occupant) {
+        .empty, .node_interior, .label_cont => false,
+        else => true,
+    };
+}
+
+fn appendRuns(
+    allocator: std.mem.Allocator,
+    runs: *std.ArrayList(prim.ColourRun),
+    lat: lattice.Lattice,
+    cells: []const CellBytes,
+    end: usize,
+    base: usize,
+) !void {
+    for (cells) |c| {
+        if (c.start >= end) break;
+        const rgb = lat.colourOf(c.colour) orelse continue;
+        const at: u32 = @intCast(base + c.start);
+        const len: u32 = @intCast(@min(end, c.end) - c.start);
+        if (runs.items.len != 0) {
+            const last = &runs.items[runs.items.len - 1];
+            if (last.start + last.len == at and std.meta.eql(last.rgb, rgb)) {
+                last.len += len;
+                continue;
+            }
+        }
+        try runs.append(allocator, .{ .start = at, .len = len, .rgb = rgb });
+    }
 }
 
 const dangling_glyph: lattice.Glyph = .{ .bytes = "\u{FFFD}", .width = 1 };
@@ -111,6 +166,10 @@ fn trimTrailingSpaces(s: []const u8) []const u8 {
 }
 
 const testing = std.testing;
+
+test {
+    _ = @import("paint_colour_test.zig");
+}
 
 test "paint: single 3x3 rect node renders box-drawing border" {
     const a = testing.allocator;

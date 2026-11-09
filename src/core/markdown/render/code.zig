@@ -14,7 +14,7 @@ const SubgraphEdges = mermaid.SubgraphEdges;
 
 pub fn render(allocator: std.mem.Allocator, builder: *Builder, code: Block.CodeBlock, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges, decor: *const decor_mod.Decor) !void {
     if (std.mem.eql(u8, code.language, "mermaid")) {
-        try renderMermaid(allocator, builder, code.code, content_width, debug_mermaid, subgraph_edges);
+        try renderMermaid(allocator, builder, code.code, if (code.standalone) .body else .code, content_width, debug_mermaid, subgraph_edges);
         return;
     }
     const frame = decor.glyphs.code_frame;
@@ -95,12 +95,12 @@ fn renderFramedBlock(allocator: std.mem.Allocator, builder: *Builder, code: Bloc
     }
 }
 
-fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
+fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []const u8, ink: SpanStyle, content_width: usize, debug_mermaid: bool, subgraph_edges: SubgraphEdges) !void {
     const output = switch (mermaid.render(allocator, source, .{
         .max_width = @intCast(content_width),
         .subgraph_edges = subgraph_edges,
     })) {
-        .drawn => |text| text,
+        .drawn => |drawn| drawn,
         .not_drawn => |failure| {
             if (failure.banner) |reason| {
                 const banner = try std.fmt.allocPrint(allocator, "<PARSE ERROR: {s}>", .{reason});
@@ -112,19 +112,39 @@ fn renderMermaid(allocator: std.mem.Allocator, builder: *Builder, source: []cons
             return;
         },
     };
-    defer allocator.free(output);
+    defer allocator.free(output.text);
+    defer allocator.free(output.runs);
 
     if (debug_mermaid) try appendMermaidDebug(builder);
     const saved_padding = builder.left_padding;
     builder.left_padding = 0;
     defer builder.left_padding = saved_padding;
-    var diagram_lines = std.mem.splitScalar(u8, output, '\n');
+    var diagram_lines = std.mem.splitScalar(u8, output.text, '\n');
     var first = true;
+    var runs = output.runs;
+    var line_start: usize = 0;
     while (diagram_lines.next()) |line| {
         if (!first) try builder.newline();
         first = false;
-        try builder.appendSpan(.code, line);
+        runs = try appendColouredLine(builder, line, line_start, runs, ink);
+        line_start += line.len + 1;
     }
+}
+
+/// One diagram line as `ink` spans, coloured where a run covers it; returns the runs left.
+fn appendColouredLine(builder: *Builder, line: []const u8, line_start: usize, runs: []const mermaid.ColourRun, ink: SpanStyle) ![]const mermaid.ColourRun {
+    var rest = runs;
+    var at: usize = 0;
+    while (rest.len != 0 and rest[0].start < line_start + line.len) : (rest = rest[1..]) {
+        const run = rest[0];
+        const from = run.start - line_start;
+        const to = @min(line.len, from + run.len);
+        try builder.appendSpan(ink, line[at..from]);
+        try builder.appendSpanFg(ink, line[from..to], run.rgb);
+        at = to;
+    }
+    try builder.appendSpan(ink, line[at..]);
+    return rest;
 }
 
 /// The `--debug-mermaid` block. Its layout statistics have read the same values for every

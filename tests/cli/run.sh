@@ -138,6 +138,16 @@ out=$(EXTRA_ENV="NO_COLOR=1 FORCE_COLOR=1" m link.md)
 check no-color-wins-over-force [ "${out#*"$esc"}" = "$out" ]
 out=$(EXTRA_ENV="FORCE_COLOR=1" m link.md)
 check force-color has "${esc}\[" <<<"$out"
+# A flowchart's stroke colours ride on the terminal output only.
+printf '```mermaid\nflowchart TD\nA:::k --> B\nclassDef k stroke:#ff0000\nlinkStyle 0 stroke:#0000ff\n```\n' > colour.md
+printf '```mermaid\nflowchart TD\nA --> B\n```\n' > nocolour.md
+out=$(m --color=always colour.md)
+check flowchart-colour-256 has "${esc}\[38;5;196m" <<<"$out"
+out=$(EXTRA_ENV="COLORTERM=truecolor" m --color=always colour.md)
+check flowchart-colour-truecolor has "${esc}\[38;2;255;0;0m" <<<"$out"
+out=$(EXTRA_ENV="NO_COLOR=1" m colour.md)
+check flowchart-colour-no-color [ "${out#*"$esc"}" = "$out" ]
+check flowchart-colour-plain-unchanged [ "$(m --format plain colour.md)" = "$(m --format plain nocolour.md)" ]
 # Diagnostics follow stderr's own state: forcing stdout color never puts
 # escapes into a redirected stderr.
 err=$(m --color=always --bogus 2>&1 >/dev/null)

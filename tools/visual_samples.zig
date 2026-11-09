@@ -186,7 +186,10 @@ pub fn main(init: std.process.Init) !void {
             fallback_count += 1;
             continue;
         };
-        defer if (!result.is_fallback) allocator.free(result.output);
+        defer if (!result.is_fallback) {
+            allocator.free(result.output);
+            allocator.free(result.runs);
+        };
 
         try writeSample(allocator, &out, sample, result);
         if (result.is_fallback) fallback_count += 1;
