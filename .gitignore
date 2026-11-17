@@ -14,7 +14,6 @@ AGENTS.md
 
 # Local maintainer working state (private evaluation suite)
 .internal-tests/
-eval/
 harness/
 design/
 decoder-runs/

@@ -262,95 +262,14 @@ pub fn build(b: *std.Build) void {
     const visual_samples_step = b.step("visual-samples", "Render curated mermaid samples to docs/visual-samples.html");
     visual_samples_step.dependOn(&visual_samples_cmd.step);
 
-    b.dependOnDirectoryMetadata(b.path("."));
-    const has_eval = blk: {
-        std.Io.Dir.cwd().access(b.graph.io, "eval/regress.zig", .{}) catch break :blk false;
-        break :blk true;
-    };
-
-    if (has_eval) {
-        const internals_mod = b.createModule(.{
-            .root_source_file = b.path("src/core/internals_api.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        internals_mod.addImport("prim", prim_mod);
-        internals_mod.addImport("text", text_mod);
-        internals_mod.addImport("unicode", unicode_mod);
-
-        const reconstruction_mod = b.createModule(.{
-            .root_source_file = b.path("eval/reconstruction_api.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        reconstruction_mod.addImport("internals", internals_mod);
-
-        const decoder_score_module = b.createModule(.{
-            .root_source_file = b.path("eval/decoder_score.zig"),
-            .target = target,
-            .optimize = optimize,
-        });
-        decoder_score_module.addImport("reconstruction", reconstruction_mod);
-
-        const decoder_score_exe = b.addExecutable(.{
-            .name = "decoder-score",
-            .root_module = decoder_score_module,
-        });
-
-        const decoder_score_install = b.addInstallArtifact(decoder_score_exe, .{});
-
-        const decoder_score_cmd = b.addRunArtifact(decoder_score_exe);
-        decoder_score_cmd.step.dependOn(&decoder_score_install.step);
-        decoder_score_cmd.setCwd(b.path("."));
-        decoder_score_cmd.addPassthruArgs();
-
-        const decoder_score_step = b.step("decoder-score", "Score one decoded/source mermaid pair");
-        decoder_score_step.dependOn(&decoder_score_install.step);
-        decoder_score_step.dependOn(&decoder_score_cmd.step);
-
-        const reconstruction_tests = b.addTest(.{ .root_module = reconstruction_mod });
-        const reconstruction_test_run = b.addRunArtifact(reconstruction_tests);
-
-        const decoder_score_tests = b.addTest(.{ .root_module = decoder_score_module });
-        const decoder_score_test_run = b.addRunArtifact(decoder_score_tests);
-
-        const test_eval_step = b.step("test-eval", "Run private eval scorer tests (reconstruction + decoder-score)");
-        test_eval_step.dependOn(&reconstruction_test_run.step);
-        test_eval_step.dependOn(&decoder_score_test_run.step);
-
-        const update_regressions = b.option(
-            bool,
-            "update-regressions",
-            "Rewrite regression goldens (owner-approved changes only)",
-        ) orelse false;
-        const regression_dir = b.option(
-            []const u8,
-            "regression-dir",
-            "Directory containing private byte-exact regression pins",
-        );
-
-        const regress_exe = b.addExecutable(.{
-            .name = "regress",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("eval/regress.zig"),
-                .target = target,
-                .optimize = optimize,
-            }),
-        });
-
-        const regress_cmd = b.addRunArtifact(regress_exe);
-        regress_cmd.step.dependOn(b.getInstallStep());
-        regress_cmd.setCwd(b.path("."));
-        regress_cmd.addArtifactArg(exe);
-        if (regression_dir) |path| regress_cmd.addArg(path);
-        if (update_regressions) regress_cmd.addArg("--update");
-
-        const regress_step = b.step("regress", "Run byte-exact rendering regression pins");
-        if (regression_dir != null) {
-            regress_step.dependOn(&regress_cmd.step);
-            test_step.dependOn(&regress_cmd.step);
-        }
-    }
+    const internals_mod = b.addModule("internals", .{
+        .root_source_file = b.path("src/core/internals_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    internals_mod.addImport("prim", prim_mod);
+    internals_mod.addImport("text", text_mod);
+    internals_mod.addImport("unicode", unicode_mod);
 }
 
 fn findLibrary(module: *std.Build.Module, name: []const u8) ?*std.Build.Step.Compile {
