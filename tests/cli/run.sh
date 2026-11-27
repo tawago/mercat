@@ -81,6 +81,10 @@ mercat: note: to open a file whose name starts with '-', use: mercat -- -weird.m
 $hint" -- -weird.md
 expect tui-needs-tty 2 "mercat: error: --tui needs an interactive terminal; drop -t to render to stdout
 $hint" -- -t h.md
+expect output-needs-format-long 2 "mercat: error: --output needs --format plain or --format png (terminal output goes to stdout)
+$hint" -- --output out.txt h.md
+expect output-needs-format-short 2 "mercat: error: -o needs --format plain or --format png (terminal output goes to stdout)
+$hint" -- -o out.txt h.md
 
 # --- runtime failures: exit 1 ---
 expect missing-file 1 "mercat: error: nonexist.md: no such file or directory" -- nonexist.md

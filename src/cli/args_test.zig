@@ -226,6 +226,7 @@ test "message: multiple inputs" {
 test "message: png without -o and -o without an export format" {
     try expectMessage(&.{ "mercat", "--format", "png", "x.md" }, error.PngRequiresOutput, "--format png needs an output file; add -o <file>.png");
     try expectMessage(&.{ "mercat", "-o", "out.txt", "x.md" }, error.TerminalWithOutput, "-o needs --format plain or --format png (terminal output goes to stdout)");
+    try expectMessage(&.{ "mercat", "--output", "out.txt", "x.md" }, error.TerminalWithOutput, "--output needs --format plain or --format png (terminal output goes to stdout)");
 }
 
 // ---- Argument syntax ----
